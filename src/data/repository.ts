@@ -49,15 +49,22 @@ export interface DataRepository {
 
 export class DemoRepository implements DataRepository {
   private snap: DataSnapshot;
-  private seq = 1000;
 
   constructor(initial: DataSnapshot, private readonly clock: () => Date = () => new Date()) {
     this.snap = initial;
   }
 
+  /** Egyedi azonosító; a sessionStorage-ból visszatöltött adatnál sem ütközhet meglévővel. */
   private nextId(prefix: string) {
-    this.seq += 1;
-    return `${prefix}-${this.seq}`;
+    const s = this.snap;
+    const taken = new Set<string>([
+      ...s.customers.map((x) => x.id), ...s.contacts.map((x) => x.id), ...s.cases.map((x) => x.id),
+      ...s.activities.map((x) => x.id), ...s.tasks.map((x) => x.id), ...s.contactability.map((x) => x.id),
+    ]);
+    let id: string;
+    do id = `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+    while (taken.has(id));
+    return id;
   }
   private now() {
     return this.clock().toISOString();

@@ -124,3 +124,14 @@ describe("tevékenység és megkereshetőség", () => {
     expect(getContactability(snap, { customerId: "cust-p1" }, "marketing", "email").status).toBe("unknown");
   });
 });
+
+describe("azonosítók", () => {
+  it("újratöltött (sessionStorage) adatnál sem ütköznek az új azonosítók", () => {
+    const first = new DemoRepository(createSeedData(NOW), () => NOW);
+    first.createCustomer({ ...base, type: "person", firstName: "A", lastName: "B" });
+    const restored = new DemoRepository(JSON.parse(JSON.stringify(first.getSnapshot())), () => NOW);
+    restored.createCustomer({ ...base, type: "person", firstName: "C", lastName: "D" });
+    const ids = restored.getSnapshot().customers.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
