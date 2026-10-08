@@ -1,7 +1,7 @@
 import type { ZodError } from "zod";
 import {
   activityInput, caseInput, companyContactInput, customerInput, taskInput,
-  type ActivityInput, type CaseInput, type CompanyContactInput, type CustomerInput, type TaskInput,
+  type ActivityInput, type CaseInput, type CompanyContactInput, type TaskInput,
 } from "@/domain/schemas";
 import { applyTaskStatus, buildDisplayName, validateRelations } from "@/domain/logic";
 import type {
