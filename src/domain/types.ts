@@ -1,49 +1,65 @@
 import type {
-  ACTIVITY_TYPES, CASE_STAGES, CLOSURE_STATUSES, CONTACT_CHANNELS, CONTACT_PURPOSES,
-  CONTACTABILITY_STATUSES, EVIDENCE_STATUSES, LIFECYCLE_STATUSES, TASK_STATUSES, VERIFICATION_STATUSES,
+  ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
+  EVIDENCE_STATUSES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_TYPES, PROCESS_STATUS_DEFS, RESTRICTION_KINDS,
+  TASK_STATUSES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
 } from "./constants";
 
-export type LifecycleStatus = (typeof LIFECYCLE_STATUSES)[number];
-export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
-export type CaseStage = (typeof CASE_STAGES)[number];
-export type ClosureStatus = (typeof CLOSURE_STATUSES)[number];
+export type ContactStatus = (typeof CONTACT_STATUSES)[number];
+export type ProcessType = (typeof PROCESS_TYPES)[number];
+export type ProcessStatus = (typeof PROCESS_STATUS_DEFS)[number]["key"];
+export type ClosureState = (typeof CLOSURE_STATES)[number];
+export type NoResultReason = (typeof NO_RESULT_REASONS)[number];
+export type OutreachChannel = (typeof OUTREACH_CHANNELS)[number];
+export type ProcessSource = (typeof PROCESS_SOURCES)[number];
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
+export type RestrictionKind = (typeof RESTRICTION_KINDS)[number];
 export type ContactPurpose = (typeof CONTACT_PURPOSES)[number];
 export type ContactChannel = (typeof CONTACT_CHANNELS)[number];
 export type ContactabilityStatus = (typeof CONTACTABILITY_STATUSES)[number];
 export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
+export type DataVerificationStatus = (typeof VERIFICATION_STATUSES)[number];
+
+/** Megkeresési korlátozás / tiltakozás - jól látható, külön kezelt állapot. */
+export interface ContactRestriction {
+  kind: RestrictionKind;
+  note: string;
+  recordedAt: string;
+  recordedBy: string;
+}
 
 interface CustomerBase {
   id: string;
-  lifecycleStatus: LifecycleStatus;
+  contactStatus: ContactStatus;
   ownerId: string;
   source: string;
-  verificationStatus: VerificationStatus;
+  verificationStatus: DataVerificationStatus;
   email?: string;
   phone?: string;
+  restriction?: ContactRestriction;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Magánszemély ügyfél - NINCS cégnévmező. */
-export interface PersonCustomer extends CustomerBase {
-  type: "person";
+/** Magánszemély - nincs cégnévmező. */
+export interface IndividualCustomer extends CustomerBase {
+  type: "individual";
   firstName: string;
   lastName: string;
   displayName: string;
   notes?: string;
 }
 
-/** Céges ügyfél - a kapcsolattartók külön entitások (CompanyContact). */
 export interface CompanyCustomer extends CustomerBase {
   type: "company";
   companyName: string;
 }
 
-export type Customer = PersonCustomer | CompanyCustomer;
+export type Customer = IndividualCustomer | CompanyCustomer;
 
-/** Céges kapcsolattartó - NEM ügyféltípus, egy céghez tartozik. */
+/** Céges kapcsolattartó - nem ügyféltípus. */
 export interface CompanyContact {
   id: string;
   companyId: string;
@@ -57,35 +73,68 @@ export interface CompanyContact {
   updatedAt: string;
 }
 
-export interface Case {
+/** Szimulált szolgáltatói igazolás. Nem tartalmazhat számlaszámot, egyenleget vagy bizonylatot. */
+export interface Verification {
+  sourceCategory: VerificationSource;
+  recordedAt: string;
+  recordedBy: string;
+  complianceAcknowledged: true;
+  simulated: true;
+}
+
+export interface ProcessClosure {
+  state: ClosureState;
+  reason?: NoResultReason;
+  reasonNote?: string;
+  closedAt?: string;
+  closedBy?: string;
+}
+
+export interface CustomerProcess {
   id: string;
   customerId: string;
   companyContactId?: string;
+  type: ProcessType;
   title: string;
-  stage: CaseStage;
-  closureStatus: ClosureStatus;
+  status: ProcessStatus;
+  closure: ProcessClosure;
+  channel: OutreachChannel;
+  source: ProcessSource;
   ownerId: string;
-  nextAction?: string;
-  nextActionDueAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ActivityMeta {
+  fromStatus?: ProcessStatus;
+  toStatus?: ProcessStatus;
+  reason?: string;
+  verification?: Verification;
+  closureState?: ClosureState;
+  closureReason?: NoResultReason;
+  fromContactStatus?: ContactStatus;
+  toContactStatus?: ContactStatus;
+  taskId?: string;
+  restrictionKind?: RestrictionKind | null;
 }
 
 export interface Activity {
   id: string;
   customerId: string;
-  caseId?: string;
+  processId?: string;
   companyContactId?: string;
   type: ActivityType;
-  summary: string;
   occurredAt: string;
-  ownerId: string;
+  summary: string;
+  recordedBy: string;
+  callOutcome?: CallOutcome;
+  meta?: ActivityMeta;
 }
 
 export interface Task {
   id: string;
   customerId: string;
-  caseId?: string;
+  processId?: string;
   companyContactId?: string;
   title: string;
   description?: string;
@@ -96,7 +145,7 @@ export interface Task {
   completedAt?: string;
 }
 
-/** Megkereshetőség - az ügyfélstátusztól függetlenül; alapértelmezett: unknown. */
+/** Megkereshetőség - az ügyfélstátusztól független; alapértelmezett: unknown. */
 export interface Contactability {
   id: string;
   customerId?: string;
@@ -108,11 +157,18 @@ export interface Contactability {
   verifiedAt?: string;
 }
 
+export const SNAPSHOT_VERSION = 2 as const;
+
 export interface DataSnapshot {
+  version: typeof SNAPSHOT_VERSION;
   customers: Customer[];
   contacts: CompanyContact[];
-  cases: Case[];
+  processes: CustomerProcess[];
   activities: Activity[];
   tasks: Task[];
   contactability: Contactability[];
 }
+
+export const emptySnapshot = (): DataSnapshot => ({
+  version: SNAPSHOT_VERSION, customers: [], contacts: [], processes: [], activities: [], tasks: [], contactability: [],
+});
