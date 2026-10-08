@@ -1,6 +1,6 @@
-# JG Investment OS — Foundation v0.1 (DEMÓ)
+# JG Investment OS — v0.2 (DEMÓ)
 
-Belső, kontakt- és ügyfélközpontú CRM első működő váza a JG Investment Plus Kft. számára.
+Belső, ügyfélközpontú CRM-demó a JG Investment Plus Kft. számára: ügyféladatlap, kapcsolatépítési és értékesítési folyamatok, naplózott aktivitás.
 **Csak demó: kizárólag fiktív adatok, nincs éles adatbázis, hitelesítés, integráció vagy deployment.**
 
 ## Indítás
@@ -17,7 +17,8 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 ## Struktúra
 | Réteg | Hely |
 |---|---|
-| Domain típusok, konstansok (konfigurálható szakasz-/státuszcímkék) | `src/domain/types.ts`, `constants.ts` |
+| Domain típusok, konstansok (konfigurálható státuszcímkék) | `src/domain/types.ts`, `constants.ts` |
+| Folyamat-állapotátmenetek, igazolási és lezárási szabályok | `src/domain/workflow.ts` |
 | Validációs sémák (Zod) | `src/domain/schemas.ts` |
 | Üzleti logika (keresés, kapcsolati validáció, dashboard-szelektorok) | `src/domain/logic.ts` |
 | Adat-hozzáférési absztrakció + demó implementáció | `src/data/repository.ts` |
@@ -27,6 +28,7 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V0.2-WORKFLOW.md` — v0.2 modell, státuszok és üzleti szabályok
 - `docs/DEMO-LIMITATIONS.md` — demókorlátok (olvasd el!)
 - `docs/INTEGRATION-BOUNDARIES.md` — JG Email System és Trello-import későbbi határfelületei (nem implementált)
 - `docs/PRODUCTION-PLAN.md` — a későbbi éles rendszerhez tervezett, most NEM implementált elemek
