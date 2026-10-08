@@ -7,17 +7,18 @@ import { SelectInput, TextArea, TextInput } from "@/components/ui/form";
 import { Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { companyContactInput } from "@/domain/schemas";
 import { useDemoData } from "@/data/store";
-import { CUSTOMER_TYPE_LABELS, DEMO_USERS, LIFECYCLE_LABELS, LIFECYCLE_STATUSES } from "@/domain/constants";
+import { CUSTOMER_TYPE_LABELS, DEMO_USERS, OUTREACH_CHANNELS, OUTREACH_CHANNEL_LABELS, OUTREACH_COMPLIANCE_NOTICE, PROCESS_SOURCES, PROCESS_SOURCE_LABELS } from "@/domain/constants";
 import { cn } from "@/lib/cn";
 
 type Errors = Record<string, string>;
 
 export default function NewCustomerPage() {
   const router = useRouter();
-  const { repo, data } = useDemoData();
-  const [type, setType] = useState<"person" | "company">("person");
-  const [common, setCommon] = useState({ lifecycleStatus: "prospect", ownerId: DEMO_USERS[0].id, email: "", phone: "" });
-  const [person, setPerson] = useState({ firstName: "", lastName: "", notes: "" });
+  const { repo, data, currentUserId } = useDemoData();
+  const [type, setType] = useState<"individual" | "company">("individual");
+  const [common, setCommon] = useState({ ownerId: DEMO_USERS[0].id, email: "", phone: "" });
+  const [initial, setInitial] = useState({ start: "", title: "", channel: "phone", source: "contact_database" });
+  const [individual, setIndividual] = useState({ firstName: "", lastName: "", notes: "" });
   const [companyName, setCompanyName] = useState("");
   const [contacts, setContacts] = useState<ContactValues[]>([]);
   const [errors, setErrors] = useState<Errors>({});
@@ -43,13 +44,24 @@ export default function NewCustomerPage() {
         return;
       }
     }
-    const payload = type === "person" ? { type, ...person, ...common } : { type, companyName, ...common };
+    const payload = type === "individual" ? { type, ...individual, ...common } : { type, companyName, ...common };
     const created = repo.createCustomer(payload);
     if (!created.ok) {
       setErrors(created.errors);
       return;
     }
     if (type === "company") contacts.forEach((k) => repo.addContact(created.value.id, k));
+    if (initial.start) {
+      const r = repo.createProcess({
+        customerId: created.value.id, type: initial.start, title: initial.title || (initial.start === "inbound_inquiry" ? "Bejövő érdeklődés" : "Kimenő kapcsolatépítés"),
+        channel: initial.channel, source: initial.source, ownerId: common.ownerId, recordedBy: currentUserId,
+      });
+      if (!r.ok) {
+        setErrors({ _form: `Az ügyfél létrejött, de a folyamat nem indult el: ${Object.values(r.errors)[0]}` });
+        router.push(`/customers/${created.value.id}`);
+        return;
+      }
+    }
     router.push(`/customers/${created.value.id}`);
   };
 
@@ -62,7 +74,7 @@ export default function NewCustomerPage() {
         <fieldset>
           <legend className="mb-2 text-sm font-medium">Ügyféltípus</legend>
           <div className="grid max-w-md grid-cols-2 gap-3">
-            {(["person", "company"] as const).map((t) => (
+            {(["individual", "company"] as const).map((t) => (
               <label key={t} className={cn("flex min-h-12 cursor-pointer items-center justify-center rounded-lg px-4 text-sm font-medium ring-1 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent", type === t ? "bg-accent text-on-accent ring-accent" : "bg-surface ring-line-strong hover:bg-surface-muted")}>
                 <input type="radio" name="type" value={t} checked={type === t} onChange={() => { setType(t); setErrors({}); }} className="sr-only" />
                 {CUSTOMER_TYPE_LABELS[t]}
@@ -74,25 +86,23 @@ export default function NewCustomerPage() {
         {errors._form ? <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{errors._form}</p> : null}
 
         <Card>
-          <CardHeader title={type === "person" ? "Személyes adatlap" : "Vállalati adatlap"} />
+          <CardHeader title={type === "individual" ? "Személyes adatlap" : "Vállalati adatlap"} />
           <div className="grid gap-4 p-4 sm:grid-cols-2">
-            {type === "person" ? (
+            {type === "individual" ? (
               <>
-                <TextInput label="Vezetéknév" required value={person.lastName} error={errors.lastName} onChange={(e) => setPerson((s) => ({ ...s, lastName: e.target.value }))} />
-                <TextInput label="Keresztnév" required value={person.firstName} error={errors.firstName} onChange={(e) => setPerson((s) => ({ ...s, firstName: e.target.value }))} />
+                <TextInput label="Vezetéknév" required value={individual.lastName} error={errors.lastName} onChange={(e) => setIndividual((s) => ({ ...s, lastName: e.target.value }))} />
+                <TextInput label="Keresztnév" required value={individual.firstName} error={errors.firstName} onChange={(e) => setIndividual((s) => ({ ...s, firstName: e.target.value }))} />
               </>
             ) : (
               <TextInput className="sm:col-span-2" label="Cégnév" required value={companyName} error={errors.companyName} onChange={(e) => setCompanyName(e.target.value)} />
             )}
             <TextInput label={type === "company" ? "E-mail (opcionális)" : "E-mail"} type="email" value={common.email} error={errors.email} onChange={c("email")} />
             <TextInput label={type === "company" ? "Telefon (opcionális)" : "Telefon"} type="tel" value={common.phone} error={errors.phone} onChange={c("phone")} />
-            <SelectInput label="Ügyfélstátusz" value={common.lifecycleStatus} onChange={c("lifecycleStatus")}>
-              {LIFECYCLE_STATUSES.map((s) => <option key={s} value={s}>{LIFECYCLE_LABELS[s]}</option>)}
-            </SelectInput>
+            <p className="self-end rounded-md bg-surface-muted p-3 text-[13px] text-ink-muted">Az új ügyfél kapcsolati státusza: <strong>Potenciális ügyfél</strong>. A besorolás később külön, naplózott műveletben módosítható.</p>
             <SelectInput label="Felelős" required value={common.ownerId} error={errors.ownerId} onChange={c("ownerId")}>
               {DEMO_USERS.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </SelectInput>
-            {type === "person" ? <TextArea className="sm:col-span-2" label="Jegyzet (demó)" value={person.notes} onChange={(e) => setPerson((s) => ({ ...s, notes: e.target.value }))} hint="Ne írj be valós személyes adatot – ez csak demó." /> : null}
+            {type === "individual" ? <TextArea className="sm:col-span-2" label="Jegyzet (demó)" value={individual.notes} onChange={(e) => setIndividual((s) => ({ ...s, notes: e.target.value }))} hint="Ne írj be valós személyes adatot – ez csak demó." /> : null}
           </div>
         </Card>
 
@@ -114,6 +124,29 @@ export default function NewCustomerPage() {
             </ul>
           </Card>
         ) : null}
+
+        <Card>
+          <CardHeader title="Kezdő folyamat (opcionális)" />
+          <div className="grid gap-4 p-4 sm:grid-cols-2">
+            <SelectInput label="Folyamat indítása" value={initial.start} onChange={(e) => setInitial((s) => ({ ...s, start: e.target.value, source: e.target.value === "inbound_inquiry" ? "web_inquiry" : "contact_database", channel: e.target.value === "inbound_inquiry" ? "web_form" : "phone" }))}>
+              <option value="">Nem indítok folyamatot</option>
+              <option value="outbound_outreach">Kimenő kapcsolatépítés</option>
+              <option value="inbound_inquiry">Bejövő érdeklődés</option>
+            </SelectInput>
+            {initial.start ? (
+              <>
+                <TextInput label="Rövid megnevezés (opcionális)" value={initial.title} onChange={(e) => setInitial((s) => ({ ...s, title: e.target.value }))} />
+                <SelectInput label="Megkeresési csatorna" value={initial.channel} onChange={(e) => setInitial((s) => ({ ...s, channel: e.target.value }))}>
+                  {OUTREACH_CHANNELS.map((c) => <option key={c} value={c}>{OUTREACH_CHANNEL_LABELS[c]}</option>)}
+                </SelectInput>
+                <SelectInput label="Forrás" value={initial.source} onChange={(e) => setInitial((s) => ({ ...s, source: e.target.value }))}>
+                  {PROCESS_SOURCES.map((c) => <option key={c} value={c}>{PROCESS_SOURCE_LABELS[c]}</option>)}
+                </SelectInput>
+              </>
+            ) : null}
+            {initial.start === "outbound_outreach" ? <p className="rounded-md bg-warn-soft p-3 text-[13px] text-ink sm:col-span-2">{OUTREACH_COMPLIANCE_NOTICE}</p> : null}
+          </div>
+        </Card>
 
         <div className="flex flex-wrap gap-2">
           <Button type="submit">Ügyfél létrehozása</Button>
