@@ -4,7 +4,7 @@ import {
   PROCESS_TYPES, RESTRICTION_KINDS, TASK_STATUSES, VERIFICATION_SOURCES,
 } from "./constants";
 
-const req = (label: string) => z.string().trim().min(1, `${label} megadása kötelező`);
+const req = (label: string) => z.string({ message: `${label} megadása kötelező` }).trim().min(1, `${label} megadása kötelező`);
 const optText = z.string().trim().optional().transform((v) => (v ? v : undefined));
 const optEmail = z
   .string().trim().optional().transform((v) => (v ? v : undefined))
@@ -41,6 +41,44 @@ export const companyContactInput = z
     isPrimaryContact: z.boolean().default(false),
   })
   .strict();
+
+export const verificationInput = z
+  .object({
+    sourceCategory: z.enum(VERIFICATION_SOURCES, { message: "Az igazolás forrásának kategóriája kötelező" }),
+    complianceAcknowledged: z.literal(true, { message: "A compliance figyelmeztetés tudomásulvétele kötelező" }),
+  })
+  .strict();
+
+const reqPhone = z
+  .string({ message: "Telefonszám megadása kötelező" }).trim().min(1, "Telefonszám megadása kötelező")
+  .refine((v) => /^\+?[0-9 ()/-]{6,20}$/.test(v), "Érvénytelen telefonszám");
+
+/** Kapcsolati személy (cégnél): név és telefonszám kötelező; e-mail és beosztás/szerep opcionális. */
+export const contactPersonInput = z
+  .object({ firstName: req("Keresztnév"), lastName: req("Vezetéknév"), phone: reqPhone, email: optEmail, position: optText })
+  .strict();
+
+/**
+ * Új ügyfél űrlap (v0.3): üzleti minimum - magánszemélynél név + telefon, cégnél cégnév + kapcsolati személy neve + telefon.
+ * Az e-mail és a beosztás/szerep sosem kötelező. Az igazolt kapcsolati státuszhoz igazolási forrás kell.
+ */
+const formCommon = {
+  ownerId: req("Felelős"),
+  source: z.string().trim().optional().transform((v) => (v ? v : "manuális (demó)")),
+  contactStatus: z.enum(CONTACT_STATUSES).default("prospect"),
+  verification: verificationInput.optional(),
+  recordedBy: req("Rögzítő"),
+};
+export const newCustomerForm = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("individual"), firstName: req("Keresztnév"), lastName: req("Vezetéknév"), phone: reqPhone, email: optEmail, notes: optText, ...formCommon }).strict(),
+  z.object({ type: z.literal("company"), companyName: req("Cégnév"), contact: contactPersonInput, ...formCommon }).strict(),
+]);
+
+/** Ügyfél szerkesztése: a kapcsolati státusz és a korlátozás NEM itt módosul (külön, naplózott műveletek). */
+export const customerUpdateInput = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("individual"), firstName: req("Keresztnév"), lastName: req("Vezetéknév"), phone: reqPhone, email: optEmail, notes: optText, ownerId: req("Felelős"), source: req("Adatforrás") }).strict(),
+  z.object({ type: z.literal("company"), companyName: req("Cégnév"), ownerId: req("Felelős"), source: req("Adatforrás") }).strict(),
+]);
 
 export const processInput = z
   .object({
@@ -80,13 +118,6 @@ export const taskInput = z
     dueAt: isoDate,
     status: z.enum(TASK_STATUSES).default("open"),
     recordedBy: z.string().trim().optional(),
-  })
-  .strict();
-
-export const verificationInput = z
-  .object({
-    sourceCategory: z.enum(VERIFICATION_SOURCES, { message: "Az igazolás forrásának kategóriája kötelező" }),
-    complianceAcknowledged: z.literal(true, { message: "A compliance figyelmeztetés tudomásulvétele kötelező" }),
   })
   .strict();
 
@@ -132,6 +163,9 @@ export const restrictionInput = z
   .strict();
 
 export type CustomerInput = z.infer<typeof customerInput>;
+export type NewCustomerForm = z.infer<typeof newCustomerForm>;
+export type CustomerUpdateInput = z.infer<typeof customerUpdateInput>;
+export type ContactPersonInput = z.infer<typeof contactPersonInput>;
 export type CompanyContactInput = z.infer<typeof companyContactInput>;
 export type ProcessInput = z.infer<typeof processInput>;
 export type ManualActivityInput = z.infer<typeof manualActivityInput>;

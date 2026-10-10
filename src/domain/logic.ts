@@ -7,6 +7,22 @@ import { isActive } from "./workflow";
 export function customerName(c: Customer): string {
   return c.type === "individual" ? c.displayName : c.companyName;
 }
+/**
+ * Az elsődleges kapcsolati személy - DETERMINISZTIKUSAN: az `isPrimaryContact` jelölésű (több jelölt esetén a legkorábban
+ * felvett, azonos időnél az azonosító szerinti első); ha nincs jelölt, a legkorábban felvett kapcsolattartó; ha nincs, undefined.
+ */
+export function primaryContactOf(snap: DataSnapshot, companyId: string): CompanyContact | undefined {
+  const list = snap.contacts.filter((k) => k.companyId === companyId);
+  const order = (a: CompanyContact, b: CompanyContact) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id);
+  const flagged = list.filter((k) => k.isPrimaryContact).sort(order);
+  return flagged[0] ?? [...list].sort(order)[0];
+}
+/** A cég további (nem elsődleges) kapcsolattartói - az adatok megőrzéséhez és megtekintéséhez. */
+export function otherContactsOf(snap: DataSnapshot, companyId: string): CompanyContact[] {
+  const primary = primaryContactOf(snap, companyId);
+  return snap.contacts.filter((k) => k.companyId === companyId && k.id !== primary?.id).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id));
+}
+
 export const contactName = (c: CompanyContact) => `${c.lastName} ${c.firstName}`;
 export const buildDisplayName = (firstName: string, lastName: string) => `${lastName} ${firstName}`.trim();
 

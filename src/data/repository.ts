@@ -1,12 +1,12 @@
 import type { ZodError } from "zod";
 import {
-  closeInput, companyContactInput, contactStatusInput, customerInput, manualActivityInput, processInput, reopenInput, restrictionInput,
-  statusChangeInput, taskInput,
+  closeInput, companyContactInput, contactPersonInput, contactStatusInput, customerInput, customerUpdateInput, manualActivityInput,
+  newCustomerForm, processInput, reopenInput, restrictionInput, statusChangeInput, taskInput,
 } from "@/domain/schemas";
 import {
   CONTACT_STATUS_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import { buildDisplayName, validateRelations } from "@/domain/logic";
+import { buildDisplayName, primaryContactOf, validateRelations } from "@/domain/logic";
 import type {
   Activity, CompanyContact, Contactability, ContactabilityStatus, ContactChannel, ContactPurpose, Customer, CustomerProcess,
   DataSnapshot, EvidenceStatus, Task, TaskStatus, Verification,
@@ -20,7 +20,8 @@ const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 function zodErrors(e: ZodError): Record<string, string> {
   const out: Record<string, string> = {};
   for (const issue of e.issues) {
-    const field = String(issue.path[0] ?? "_form");
+    // A beágyazott kapcsolati személy mezői laposan jelennek meg (lastName, phone, ...), a verification egy hibakulcs alatt.
+    const field = String(issue.path[0] === "contact" ? (issue.path[1] ?? "contact") : (issue.path[0] ?? "_form"));
     if (!(field in out)) out[field] = issue.code === "unrecognized_keys" ? `Nem engedélyezett mező: ${issue.keys.join(", ")}` : issue.message;
   }
   return out;
@@ -34,6 +35,14 @@ function zodErrors(e: ZodError): Record<string, string> {
 export interface DataRepository {
   getSnapshot(): DataSnapshot;
   createCustomer(input: unknown): Result<Customer>;
+  /** Új ügyfél űrlapból (üzleti minimum): cégnél a kapcsolati személlyel együtt, mindent vagy semmit alapon. */
+  createCustomerFromForm(input: unknown): Result<{ customer: Customer; contact?: CompanyContact }>;
+  /** Ügyféladatok szerkesztése (a kapcsolati státusz és a korlátozás külön, naplózott művelet). */
+  updateCustomer(id: string, input: unknown): Result<Customer>;
+  /** A cég elsődleges kapcsolati személyének mentése: a meglévő elsődlegest frissíti, ha nincs, létrehozza. A többi kapcsolattartó érintetlen. */
+  savePrimaryContact(companyId: string, input: unknown): Result<CompanyContact>;
+  /** Meglévő kapcsolattartó kijelölése elsődlegesnek (a cégen belül pontosan egy elsődleges marad). */
+  makePrimaryContact(contactId: string): Result<CompanyContact>;
   updateCustomerOwner(id: string, ownerId: string): Result<Customer>;
   changeContactStatus(id: string, input: unknown): Result<Customer>;
   setRestriction(id: string, input: unknown): Result<Customer>;
@@ -118,6 +127,64 @@ export class DemoRepository implements DataRepository {
         : { ...base, type: "company", companyName: d.companyName };
     this.commit({ customers: [customer, ...this.snap.customers] });
     return ok(customer);
+  }
+
+  createCustomerFromForm(input: unknown): Result<{ customer: Customer; contact?: CompanyContact }> {
+    const parsed = newCustomerForm.safeParse(input);
+    if (!parsed.success) return fail(zodErrors(parsed.error));
+    const d = parsed.data;
+    // Előzetes ellenőrzés: a kapcsolati státusz igazolási szabálya, hogy ne jöhessen létre részleges ügyfél.
+    const statusErrors = d.contactStatus === "prospect" ? {} : validateContactStatusChange("prospect", { to: d.contactStatus, verification: d.verification });
+    if (Object.keys(statusErrors).length) return fail(statusErrors);
+    const created =
+      d.type === "individual"
+        ? this.createCustomer({ type: "individual", firstName: d.firstName, lastName: d.lastName, phone: d.phone, email: d.email, notes: d.notes, ownerId: d.ownerId, source: d.source })
+        : this.createCustomer({ type: "company", companyName: d.companyName, ownerId: d.ownerId, source: d.source });
+    if (!created.ok) return created;
+    let contact: CompanyContact | undefined;
+    if (d.type === "company") {
+      const c = this.addContact(created.value.id, { ...d.contact, isPrimaryContact: true });
+      if (!c.ok) return c;
+      contact = c.value;
+    }
+    if (d.contactStatus !== "prospect") {
+      const r = this.changeContactStatus(created.value.id, { to: d.contactStatus, recordedBy: d.recordedBy, verification: d.verification, reason: "Rögzítve az ügyfél létrehozásakor." });
+      if (!r.ok) return r;
+      return ok({ customer: r.value, contact });
+    }
+    return ok({ customer: created.value, contact });
+  }
+
+  updateCustomer(id: string, input: unknown): Result<Customer> {
+    const cur = this.snap.customers.find((c) => c.id === id);
+    if (!cur) return fail({ _form: "Az ügyfél nem található." });
+    const parsed = customerUpdateInput.safeParse(input);
+    if (!parsed.success) return fail(zodErrors(parsed.error));
+    const d = parsed.data;
+    if (d.type !== cur.type) return fail({ _form: "Az ügyfél típusa nem módosítható." });
+    if (d.type === "individual") {
+      return this.patchCustomer(id, { firstName: d.firstName, lastName: d.lastName, displayName: buildDisplayName(d.firstName, d.lastName), phone: d.phone, email: d.email, notes: d.notes, ownerId: d.ownerId, source: d.source });
+    }
+    return this.patchCustomer(id, { companyName: d.companyName, ownerId: d.ownerId, source: d.source });
+  }
+
+  savePrimaryContact(companyId: string, input: unknown): Result<CompanyContact> {
+    const company = this.snap.customers.find((c) => c.id === companyId);
+    if (!company || company.type !== "company") return fail({ _form: "Kapcsolati személy csak céghez adható meg." });
+    const parsed = contactPersonInput.safeParse(input);
+    if (!parsed.success) return fail(zodErrors(parsed.error));
+    const existing = primaryContactOf(this.snap, companyId);
+    if (!existing) return this.addContact(companyId, { ...parsed.data, isPrimaryContact: true });
+    // A meglévő elsődleges rekord azonosítója megmarad: a hivatkozó folyamatok és aktivitások érvényesek maradnak.
+    return this.updateContact(existing.id, { ...parsed.data, isPrimaryContact: true });
+  }
+
+  makePrimaryContact(contactId: string): Result<CompanyContact> {
+    const cur = this.snap.contacts.find((k) => k.id === contactId);
+    if (!cur) return fail({ _form: "A kapcsolattartó nem található." });
+    const next: CompanyContact = { ...cur, isPrimaryContact: true, updatedAt: this.now() };
+    this.commit({ contacts: this.snap.contacts.map((k) => (k.id === contactId ? next : k.companyId === cur.companyId && k.isPrimaryContact ? { ...k, isPrimaryContact: false } : k)) });
+    return ok(next);
   }
 
   private patchCustomer(id: string, patch: Partial<Customer>): Result<Customer> {
