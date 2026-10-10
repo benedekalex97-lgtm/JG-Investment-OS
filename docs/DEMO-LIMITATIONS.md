@@ -1,4 +1,4 @@
-# Demókorlátok — v0.2
+# Demókorlátok — v0.3
 
 - **Adatmegőrzés:** a módosítások a böngészőfül `sessionStorage`-ában élnek; frissítést túlélnek, a fül bezárásakor elvesznek. Nincs szerveroldali mentés, backup. A felület is jelzi ("DEMÓ" sáv, visszaállítás gomb).
 - **Nincs hitelesítés és jogosultság:** a két "Admin" fiktív felhasználó (`DEMO_USERS`), a közös csapatnézet nem jogosultság-érvényesítés, és nem írhatja felül a később meghatározandó adatkezelési/hozzáférési szabályokat. Alkalmazásszintű Admin ≠ infrastruktúra-/adatbázis-/Gmail-admin.
@@ -6,6 +6,8 @@
 - **Szolgáltatói mérföldkövek (számlanyitás folyamatban, számla megnyitva, első pénzelhelyezés igazolt):** a demóban kézzel rögzített, SZIMULÁLT állapotok. Nincs K&H/Patria szinkron vagy API, nem ellenőrizhető a valóságban; a CRM nem helyettesíti a szolgáltató nyilvántartását, nem tárol számlaszámot, egyenleget vagy tranzakciós bizonylatot. A manuális igazolás (forráskategória + compliance tudomásulvétel) csak a demó folyamatát mutatja, jogosultságot nem igazol.
 - **Kapcsolati státusz (igazolt meglévő/korábbi ügyfél):** a besorolás kézi, naplózott demóművelet; nem igazolt szolgáltatói ügyfélstátusz.
 - **Megkeresési jogalap, adatforrás, tiltakozás:** a felület csak jelzi az ellenőrzés szükségességét és rögzíti a tiltakozást/korlátozást; a jogszerűséget nem vizsgálja, a kontaktadatbázisban szereplés nem igazol jogalapot. Nincs automatikus megkeresés, hideghívás vagy e-mail-küldés.
+- **Üres kezdőállapot (v0.3):** új munkamenetben nincs fiktív adat; a rögzített adat csak a böngészőfül `sessionStorage`-ában él, a fül bezárásakor elvész. A rendszer nem alkalmas valós ügyféladatok tárolására. A korábbi munkamenetekből maradt demóadat csak explicit, megerősítést kérő művelettel távolítható el.
+- **Pipeline (v0.3):** nincs drag-and-drop; a státuszváltás gombbal történik, hogy a kötelező indoklás és a szolgáltatói igazolási kontroll ne legyen megkerülhető.
 - **v0.1 adat:** nincs automatikus migráció (lásd `docs/V0.2-WORKFLOW.md`); a régi adat érintetlen marad, exportálható vagy törölhető.
 - **Státuszok és pipeline-szakaszok:** előzetes, üzletileg még nem jóváhagyott megnevezések (`src/domain/constants.ts`), nem jogi vagy szolgáltatói ügyfélstátusz-igazolások; nem sugallnak JG-hatáskört.
 - **Tevékenységek:** belső demórekordok; nincs telefon-, Google Calendar- vagy Gmail-kapcsolat.

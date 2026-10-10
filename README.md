@@ -1,4 +1,4 @@
-# JG Investment OS — v0.2 (DEMÓ)
+# JG Investment OS — v0.3 (DEMÓ)
 
 Belső, ügyfélközpontú CRM-demó a JG Investment Plus Kft. számára: ügyféladatlap, kapcsolatépítési és értékesítési folyamatok, naplózott aktivitás.
 **Csak demó: kizárólag fiktív adatok, nincs éles adatbázis, hitelesítés, integráció vagy deployment.**
@@ -8,6 +8,7 @@ Belső, ügyfélközpontú CRM-demó a JG Investment Plus Kft. számára: ügyf�
 npm install
 npm run dev          # http://localhost:3000
 npm run typecheck && npm run lint && npm test -- --run && npm run build
+npm run e2e          # Playwright E2E (lásd e2e/README.md)
 ```
 
 ## Stack és indoklás
@@ -28,6 +29,7 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V0.3-UX.md` — v0.3: Pipeline, üres CRM, egyszerűsített ügyfél- és cégadatlap
 - `docs/V0.2-WORKFLOW.md` — v0.2 modell, státuszok és üzleti szabályok
 - `docs/DEMO-LIMITATIONS.md` — demókorlátok (olvasd el!)
 - `docs/INTEGRATION-BOUNDARIES.md` — JG Email System és Trello-import későbbi határfelületei (nem implementált)

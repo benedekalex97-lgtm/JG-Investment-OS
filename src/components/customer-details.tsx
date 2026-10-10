@@ -72,7 +72,7 @@ export function CustomerDetails({ data, customer, actions }: { data: DataSnapsho
   return (
     <Card id="ugyfel">
       <CardHeader
-        title={customer.type === "company" ? "Cégadatok" : "Személyes adatok"}
+        title="Ügyféladatok"
         action={
           <span className="flex flex-wrap items-center gap-2">
             <TypeBadge type={customer.type} />
