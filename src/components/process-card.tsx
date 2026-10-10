@@ -22,16 +22,15 @@ export function ProcessCard({ process, data }: { process: CustomerProcess; data:
   const close = () => setModal(null);
   // A pipeline-kártyáról érkezve (#folyamat-<id>) a folyamat automatikusan látható és fókuszált.
   const ref = useRef<HTMLLIElement>(null);
-  const [focused, setFocused] = useState(false);
   useEffect(() => {
     if (window.location.hash === `#folyamat-${process.id}`) {
       ref.current?.scrollIntoView({ block: "center" });
       ref.current?.focus({ preventScroll: true });
-      setFocused(true);
+      if (ref.current) ref.current.dataset.focused = "true";
     }
   }, [process.id]);
   return (
-    <li ref={ref} id={`folyamat-${process.id}`} tabIndex={-1} aria-label={`Folyamat: ${process.title}`} className={`scroll-mt-4 space-y-2 px-4 py-4 outline-none ${focused ? "bg-accent-soft ring-2 ring-inset ring-accent" : ""}`}>
+    <li ref={ref} id={`folyamat-${process.id}`} tabIndex={-1} aria-label={`Folyamat: ${process.title}`} className="scroll-mt-4 space-y-2 px-4 py-4 outline-none data-[focused=true]:bg-accent-soft data-[focused=true]:ring-2 data-[focused=true]:ring-inset data-[focused=true]:ring-accent">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="break-words text-sm font-semibold">{process.title}</h3>
         <ProcessTypeBadge type={process.type} />

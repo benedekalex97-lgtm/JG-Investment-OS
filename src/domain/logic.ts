@@ -2,6 +2,7 @@ import type {
   Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, ContactStatus, Customer, CustomerProcess, DataSnapshot,
   ProcessStatus, ProcessType, Task,
 } from "./types";
+import { PROCESS_STATUS_DEFS } from "./constants";
 import { isActive } from "./workflow";
 
 export function customerName(c: Customer): string {
@@ -147,3 +148,55 @@ export const activeProcessList = (snap: DataSnapshot) => activeWith(snap, () => 
 export const accountOpeningQueue = (snap: DataSnapshot) => activeWith(snap, (p) => p.status === "account_prep" || p.status === "account_opening");
 /** Megnyitott, de még nem finanszírozott számlák (szimulált számláló). */
 export const unfundedAccounts = (snap: DataSnapshot) => activeWith(snap, (p) => p.status === "account_opened" || p.status === "awaiting_first_deposit");
+
+// ------------------------------------------------------------------ Pipeline
+export interface PipelineFilter { query?: string; ownerId?: string }
+
+export interface PipelineColumn {
+  status: ProcessStatus;
+  label: string;
+  phase: "outreach" | "sales";
+  /** Csak az adott folyamattípusnál élő kiinduló státusz esetén kitöltött. */
+  onlyFor?: ProcessType;
+  milestone: boolean;
+  processes: CustomerProcess[];
+}
+
+/** Egy folyamat megfelel-e a pipeline keresésnek (ügyfélnév, folyamat megnevezése, a cég kapcsolattartóinak neve) és a felelős szűrőnek. */
+export function matchesPipelineFilter(snap: DataSnapshot, p: CustomerProcess, f: PipelineFilter): boolean {
+  if (f.ownerId && p.ownerId !== f.ownerId) return false;
+  const q = fold((f.query ?? "").trim());
+  if (!q) return true;
+  const customer = snap.customers.find((c) => c.id === p.customerId);
+  if (customer && fold(customerName(customer)).includes(q)) return true;
+  if (fold(p.title).includes(q)) return true;
+  return snap.contacts.some((k) => k.companyId === p.customerId && contactMatches(k, q));
+}
+
+/**
+ * Az aktív folyamatok oszloponként (a v0.2 tényleges státuszai, sorrendben). Egy ügyfél több kártyával is megjelenhet.
+ * Oszlopon belül: a legkorábbi következő teendő határideje szerint, majd a legutóbb módosított elöl.
+ */
+export function pipelineColumns(snap: DataSnapshot, f: PipelineFilter = {}): PipelineColumn[] {
+  const due = (p: CustomerProcess) => {
+    const t = nextTask(snap, { processId: p.id });
+    return t ? Date.parse(t.dueAt) : Number.POSITIVE_INFINITY;
+  };
+  return PROCESS_STATUS_DEFS.map((d) => ({
+    status: d.key as ProcessStatus,
+    label: d.label,
+    phase: d.phase,
+    onlyFor: "types" in d ? (d.types as readonly ProcessType[])[0] : undefined,
+    milestone: "milestone" in d,
+    processes: snap.processes
+      .filter((p) => isActive(p) && p.status === d.key && matchesPipelineFilter(snap, p, f))
+      .sort((a, b) => due(a) - due(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id)),
+  }));
+}
+
+/** A lezárt folyamatok a pipeline-tól külön kezelve, legutóbb lezárt elöl. */
+export function closedProcesses(snap: DataSnapshot, f: PipelineFilter = {}): CustomerProcess[] {
+  return snap.processes
+    .filter((p) => !isActive(p) && matchesPipelineFilter(snap, p, f))
+    .sort((a, b) => Date.parse(b.closure.closedAt ?? b.updatedAt) - Date.parse(a.closure.closedAt ?? a.updatedAt));
+}

@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 
 export const NAV = [
   { href: "/", label: "Áttekintés" },
+  { href: "/pipeline", label: "Pipeline" },
   { href: "/customers", label: "Ügyfelek" },
 ] as const;
 
