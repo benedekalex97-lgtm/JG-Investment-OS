@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ClosureBadge, ProcessTypeBadge, StatusBadge, userName } from "@/components/common";
 import { ActivityFormModal, CloseProcessModal, ReopenModal, StatusChangeModal, TaskFormModal } from "@/components/forms";
 import { Button } from "@/components/ui/primitives";
@@ -20,8 +20,18 @@ export function ProcessCard({ process, data }: { process: CustomerProcess; data:
   const steps = nextSteps(process);
   const defaults = { customerId: process.customerId, processId: process.id, companyContactId: process.companyContactId };
   const close = () => setModal(null);
+  // A pipeline-kártyáról érkezve (#folyamat-<id>) a folyamat automatikusan látható és fókuszált.
+  const ref = useRef<HTMLLIElement>(null);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (window.location.hash === `#folyamat-${process.id}`) {
+      ref.current?.scrollIntoView({ block: "center" });
+      ref.current?.focus({ preventScroll: true });
+      setFocused(true);
+    }
+  }, [process.id]);
   return (
-    <li id={`folyamat-${process.id}`} className="scroll-mt-4 space-y-2 px-4 py-4">
+    <li ref={ref} id={`folyamat-${process.id}`} tabIndex={-1} aria-label={`Folyamat: ${process.title}`} className={`scroll-mt-4 space-y-2 px-4 py-4 outline-none ${focused ? "bg-accent-soft ring-2 ring-inset ring-accent" : ""}`}>
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="break-words text-sm font-semibold">{process.title}</h3>
         <ProcessTypeBadge type={process.type} />

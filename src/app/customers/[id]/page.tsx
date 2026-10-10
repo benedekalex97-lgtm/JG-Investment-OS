@@ -2,20 +2,21 @@
 
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ActivityItem, ContactStatusBadge, DataGate, TaskRow, TypeBadge, userName } from "@/components/common";
-import { ActivityFormModal, ContactFormModal, ContactStatusModal, ProcessFormModal, RestrictionModal, TaskFormModal } from "@/components/forms";
+import { ActivityItem, DataGate, TaskRow, userName } from "@/components/common";
+import { CustomerDetails } from "@/components/customer-details";
+import { ActivityFormModal, ContactStatusModal, ProcessFormModal, RestrictionModal, TaskFormModal } from "@/components/forms";
 import { ProcessCard } from "@/components/process-card";
 import { FilterSelect } from "@/components/ui/form";
-import { Badge, Button, Card, CardHeader, DescriptionList, EmptyState, ErrorState, PageHeader } from "@/components/ui/primitives";
+import { Button, Card, CardHeader, EmptyState, ErrorState, PageHeader } from "@/components/ui/primitives";
 import { useDemoData } from "@/data/store";
 import {
-  ACTIVITY_LABELS, ACTIVITY_TYPES, CHANNEL_LABELS, CONTACT_PURPOSES, CONTACT_CHANNELS, CONTACTABILITY_LABELS, CONTACTABILITY_STATUSES, DEMO_USERS,
-  EVIDENCE_LABELS, EVIDENCE_STATUSES, OUTREACH_COMPLIANCE_NOTICE, PURPOSE_LABELS, RESTRICTION_LABELS, VERIFICATION_LABELS,
+  ACTIVITY_LABELS, ACTIVITY_TYPES, CHANNEL_LABELS, CONTACT_PURPOSES, CONTACT_CHANNELS, CONTACTABILITY_LABELS, CONTACTABILITY_STATUSES,
+  EVIDENCE_LABELS, EVIDENCE_STATUSES, OUTREACH_COMPLIANCE_NOTICE, PURPOSE_LABELS, RESTRICTION_LABELS,
 } from "@/domain/constants";
-import { contactName, customerName, getContactability } from "@/domain/logic";
-import type { CompanyContact, Customer, DataSnapshot } from "@/domain/types";
+import { customerName, getContactability } from "@/domain/logic";
+import type { Customer, DataSnapshot } from "@/domain/types";
 import { isActive } from "@/domain/workflow";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 
 function ContactabilityCard({ data, target, title }: { data: DataSnapshot; target: { customerId?: string; companyContactId?: string }; title: string }) {
   const { repo } = useDemoData();
@@ -62,46 +63,6 @@ function ContactabilityCard({ data, target, title }: { data: DataSnapshot; targe
   );
 }
 
-function ContactsCard({ company, contacts, data }: { company: Customer; contacts: CompanyContact[]; data: DataSnapshot }) {
-  const [editing, setEditing] = useState<CompanyContact | "new" | null>(null);
-  const [viewing, setViewing] = useState<string | null>(null);
-  return (
-    <Card>
-      <CardHeader title="Kapcsolattartók" count={contacts.length} action={<Button size="sm" onClick={() => setEditing("new")}>Kapcsolattartó hozzáadása</Button>} />
-      {contacts.length === 0 ? (
-        <EmptyState title="Ennek a cégnek még nincs kapcsolattartója" hint="Egy céghez 0..N kapcsolattartó tartozhat." />
-      ) : (
-        <ul className="divide-y divide-line">
-          {contacts.map((k) => {
-            const acts = data.activities.filter((a) => a.companyContactId === k.id);
-            return (
-              <li key={k.id} className="px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="break-words text-sm font-medium">{contactName(k)} {k.isPrimaryContact ? <Badge tone="accent" className="ml-1">Elsődleges</Badge> : null}</p>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="ghost" aria-expanded={viewing === k.id} onClick={() => setViewing(viewing === k.id ? null : k.id)}>{viewing === k.id ? "Elrejt" : "Megtekintés"}</Button>
-                    <Button size="sm" variant="secondary" onClick={() => setEditing(k)}>Szerkesztés</Button>
-                  </div>
-                </div>
-                <p className="break-all text-[13px] text-ink-muted">{[k.position, k.email, k.phone].filter(Boolean).join(" · ") || "Nincs megadott elérhetőség"}</p>
-                {viewing === k.id ? (
-                  <div className="mt-3 space-y-3 rounded-md bg-canvas p-3">
-                    <DescriptionList items={[{ label: "Beosztás", value: k.position }, { label: "E-mail", value: k.email }, { label: "Telefon", value: k.phone }, { label: "Felvéve", value: formatDate(k.createdAt) }]} />
-                    <p className="text-[13px] text-ink-muted">Kapcsolódó folyamatok: {data.processes.filter((p) => p.companyContactId === k.id).map((p) => p.title).join(", ") || "nincs"}</p>
-                    <p className="text-[13px] text-ink-muted">Kapcsolódó aktivitások: {acts.length}{acts[0] ? ` (legutóbbi: ${formatDateTime(acts[0].occurredAt)})` : ""}</p>
-                    <ContactabilityCard data={data} target={{ companyContactId: k.id }} title={`Megkereshetőség – ${contactName(k)}`} />
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <ContactFormModal open={editing !== null} onClose={() => setEditing(null)} companyId={company.id} contact={editing && editing !== "new" ? editing : undefined} key={editing === null ? "closed" : editing === "new" ? "new" : editing.id} />
-    </Card>
-  );
-}
-
 function ActivityTimeline({ data, customer }: { data: DataSnapshot; customer: Customer }) {
   const [processFilter, setProcessFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -136,16 +97,13 @@ function ActivityTimeline({ data, customer }: { data: DataSnapshot; customer: Cu
 }
 
 function Profile({ data, customer }: { data: DataSnapshot; customer: Customer }) {
-  const { repo } = useDemoData();
   const [modal, setModal] = useState<"process" | "task" | "activity" | "status" | "restriction" | null>(null);
-  const contacts = data.contacts.filter((k) => k.companyId === customer.id);
   const processes = data.processes.filter((p) => p.customerId === customer.id).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   const active = processes.filter(isActive);
   const closed = processes.filter((p) => !isActive(p));
   const tasks = data.tasks.filter((t) => t.customerId === customer.id);
   const openTasks = tasks.filter((t) => t.status !== "done").sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt));
   const doneTasks = tasks.filter((t) => t.status === "done").sort((a, b) => Date.parse(b.completedAt ?? b.dueAt) - Date.parse(a.completedAt ?? a.dueAt));
-  const primary = contacts.find((k) => k.isPrimaryContact);
   const close = () => setModal(null);
 
   return (
@@ -163,30 +121,20 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
           </div>
         ) : null}
 
-        <Card>
-          <CardHeader title="Ügyfél" action={<span className="flex flex-wrap gap-2"><TypeBadge type={customer.type} /><ContactStatusBadge status={customer.contactStatus} /></span>} />
-          <DescriptionList items={[
-            ...(customer.type === "individual" ? [{ label: "Vezetéknév", value: customer.lastName }, { label: "Keresztnév", value: customer.firstName }] : [{ label: "Cégnév", value: customer.companyName }]),
-            { label: "E-mail", value: customer.email }, { label: "Telefon", value: customer.phone },
-            ...(primary ? [{ label: "Elsődleges kapcsolattartó", value: contactName(primary) }] : []),
-            { label: "Forrás", value: customer.source }, { label: "Ellenőrzöttség", value: VERIFICATION_LABELS[customer.verificationStatus] },
-            { label: "Létrehozva", value: formatDate(customer.createdAt) }, { label: "Módosítva", value: formatDate(customer.updatedAt) },
-            ...(customer.type === "individual" && customer.notes ? [{ label: "Jegyzet (demó)", value: customer.notes }] : []),
-          ]} />
-          <div className="grid gap-3 border-t border-line p-4 sm:grid-cols-2">
-            <FilterSelect label="Felelős" value={customer.ownerId} onChange={(e) => repo.updateCustomerOwner(customer.id, e.target.value)}>
-              {DEMO_USERS.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </FilterSelect>
-            <div className="flex flex-wrap items-end gap-2">
+        <CustomerDetails
+          data={data}
+          customer={customer}
+          actions={
+            <>
               <Button variant="secondary" onClick={() => setModal("status")}>Kapcsolati státusz módosítása</Button>
               <Button variant="secondary" onClick={() => setModal("restriction")}>{customer.restriction ? "Korlátozás kezelése" : "Tiltakozás / korlátozás rögzítése"}</Button>
-            </div>
-          </div>
-          <p className="border-t border-line bg-warn-soft px-4 py-3 text-[13px] text-ink">{OUTREACH_COMPLIANCE_NOTICE}</p>
-          <div className="border-t border-line"><ContactabilityCard data={data} target={{ customerId: customer.id }} title="Megkereshetőség (demó)" /></div>
+            </>
+          }
+        />
+        <Card>
+          <p className="bg-warn-soft px-4 py-3 text-[13px] text-ink">{OUTREACH_COMPLIANCE_NOTICE}</p>
+          <ContactabilityCard data={data} target={{ customerId: customer.id }} title="Megkereshetőség (demó)" />
         </Card>
-
-        {customer.type === "company" ? <ContactsCard company={customer} contacts={contacts} data={data} /> : null}
 
         <Card id="folyamatok">
           <CardHeader title="Folyamatok" count={processes.length} action={<Button size="sm" onClick={() => setModal("process")}>Új folyamat</Button>} />

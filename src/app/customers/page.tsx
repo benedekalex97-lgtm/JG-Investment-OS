@@ -94,8 +94,22 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
 export default function CustomersPage() {
   return (
     <>
-      <PageHeader title="Ügyfelek" description="Magánszemélyek és cégek. A folyamatok, feladatok és aktivitások az ügyféladatlapon élnek; a céges kapcsolattartók nem külön ügyfelek." actions={<LinkButton href="/customers/new">Új ügyfél</LinkButton>} />
-      <DataGate>{(data) => <CustomerTable data={data} />}</DataGate>
+      <PageHeader title="Ügyfelek" description="Magánszemélyek és cégek. A folyamatok, feladatok és aktivitások az ügyféladatlapon élnek." actions={<LinkButton href="/customers/new">+ Új ügyfél</LinkButton>} />
+      <DataGate>
+        {(data) =>
+          data.customers.length === 0 ? (
+            <Card>
+              <EmptyState
+                title="Még nincs rögzített ügyfél."
+                hint="Ez egy üres demó-CRM. Az adatok csak ebben a böngészőfülben élnek, ne rögzíts valós ügyféladatot."
+                action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>}
+              />
+            </Card>
+          ) : (
+            <CustomerTable data={data} />
+          )
+        }
+      </DataGate>
     </>
   );
 }

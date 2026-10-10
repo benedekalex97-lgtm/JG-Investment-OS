@@ -3,22 +3,37 @@
 import Link from "next/link";
 import { useState } from "react";
 import { DataGate, TaskRow } from "@/components/common";
+import { useDemoData } from "@/data/store";
 import { TaskFormModal } from "@/components/forms";
 import { ProcessLine } from "@/components/process-line";
-import { Button, Card, CardHeader, EmptyState, PageHeader } from "@/components/ui/primitives";
+import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
 import { accountOpeningQueue, activeProcessList, newInquiries, nextOutreach, overdueTasks, tasksDueToday, unfundedAccounts } from "@/domain/logic";
 
 export default function OverviewPage() {
   const [taskOpen, setTaskOpen] = useState(false);
+  const { data: current } = useDemoData();
+  const hasCustomers = (current?.customers.length ?? 0) > 0;
   return (
     <>
       <PageHeader
         title="Áttekintés"
         description="Munkapult a közös csapatnézetben, fiktív demóadatokból. A folyamatok és feladatok részletei az ügyféladatlapokon érhetők el."
-        actions={<Button onClick={() => setTaskOpen(true)}>Új feladat</Button>}
+        actions={hasCustomers ? <><LinkButton href="/customers/new" variant="secondary">+ Új ügyfél</LinkButton><Button onClick={() => setTaskOpen(true)}>Új feladat</Button></> : undefined}
       />
       <DataGate>
         {(data) => {
+          // Üres CRM: nincs statisztika, nincs félrevezető nulla-számláló.
+          if (data.customers.length === 0) {
+            return (
+              <Card>
+                <EmptyState
+                  title="Még nincs rögzített ügyfél."
+                  hint="Az áttekintés az első ügyfél és folyamat rögzítése után jelenik meg. Ez egy üres demó-CRM: ne rögzíts valós ügyféladatot."
+                  action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>}
+                />
+              </Card>
+            );
+          }
           const now = new Date();
           const today = tasksDueToday(data, now);
           const overdue = overdueTasks(data, now);

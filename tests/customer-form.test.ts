@@ -15,7 +15,7 @@ describe("új ügyfél űrlap — üzleti minimum", () => {
     expect(customer.email).toBeUndefined();
   });
   it("magánszemély: telefonszám nélkül elutasítva", () => {
-    const { phone: _p, ...noPhone } = person;
+    const noPhone = { ...person, phone: undefined };
     expect(errs(newRepo(emptySnapshot()).createCustomerFromForm(noPhone)).phone).toMatch(/kötelező/);
   });
   it("cég: cégnév + kapcsolati személy neve + telefon elég; e-mail és beosztás nem kötelező", () => {

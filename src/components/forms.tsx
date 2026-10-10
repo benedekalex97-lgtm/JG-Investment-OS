@@ -68,7 +68,7 @@ function ProcessSelect({ data, customerId, value, onChange }: { data: DataSnapsh
 }
 
 /** Szimulált szolgáltatói / kapcsolati igazolás mezői: forrás-kategória + compliance tudomásulvétel. */
-function VerificationFields({ source, ack, onSource, onAck, error }: { source: string; ack: boolean; onSource: (v: string) => void; onAck: (v: boolean) => void; error?: string }) {
+export function VerificationFields({ source, ack, onSource, onAck, error }: { source: string; ack: boolean; onSource: (v: string) => void; onAck: (v: boolean) => void; error?: string }) {
   return (
     <fieldset className="space-y-3 rounded-md bg-warn-soft p-3">
       <legend className="px-1 text-sm font-semibold text-warn">Igazolás (szimulált)</legend>
