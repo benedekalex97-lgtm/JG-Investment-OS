@@ -1,15 +1,16 @@
 "use client";
 
 import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
-import { SNAPSHOT_VERSION, type DataSnapshot } from "@/domain/types";
+import type { DataSnapshot } from "@/domain/types";
 import { DEMO_USERS } from "@/domain/constants";
 import { DemoRepository, type DataRepository } from "./repository";
-import { createSeedData } from "./seed";
+import { loadSnapshot, planDemoRemoval, removeDemoRecords, type DemoRemovalPlan, type DemoRemovalResult } from "./persistence";
 
 /**
  * DEMÓ adat-store. A módosítások a böngészőfül sessionStorage-ában élnek:
  * oldalfrissítést túlélnek, de a fül bezárásakor elvesznek. Ez NEM éles
  * adatmegőrzés, nincs szerveroldali mentés vagy jogosultság-érvényesítés.
+ * Üres kezdőállapot: a fiktív seed csak a fejlesztői tesztekben létezik.
  */
 const STORAGE_KEY = "jg-os-demo-v0.2";
 /** A v0.1 adatmodell tárolókulcsa: a v0.2 NEM írja felül és NEM törli automatikusan (nincs csendes adatvesztés). */
@@ -24,17 +25,14 @@ class DemoStore {
 
   private ensure(): DataRepository {
     if (!this.repo) {
-      let initial: DataSnapshot | null = null;
+      let raw: string | null = null;
       try {
-        const raw = window.sessionStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as DataSnapshot;
-          if (parsed.version === SNAPSHOT_VERSION) initial = parsed;
-        }
+        raw = window.sessionStorage.getItem(STORAGE_KEY);
       } catch {
-        initial = null;
+        raw = null;
       }
-      this.repo = new DemoRepository(initial ?? createSeedData());
+      // Új munkamenet = ÜRES CRM. Fiktív seed nem töltődik be automatikusan.
+      this.repo = new DemoRepository(loadSnapshot(raw));
     }
     return this.repo;
   }
@@ -98,6 +96,20 @@ class DemoStore {
     }
     this.listeners.forEach((l) => l());
   }
+  /** Explicit, megerősítés után hívandó: csak a felismert demó rekordokat törli (lásd persistence.ts). */
+  removeDemo(): DemoRemovalResult {
+    const result = removeDemoRecords(this.ensure().getSnapshot());
+    this.repo = new DemoRepository(result.snapshot);
+    this.notify();
+    return result;
+  }
+  demoPlan(): DemoRemovalPlan {
+    return planDemoRemoval(this.ensure().getSnapshot());
+  }
+  exportData(): string {
+    return JSON.stringify(this.ensure().getSnapshot(), null, 2);
+  }
+  /** Explicit, megerősítés után hívandó: az ÖSSZES rekordot törli (üres CRM). */
   reset() {
     try {
       window.sessionStorage.removeItem(STORAGE_KEY);
@@ -117,6 +129,7 @@ interface Ctx {
   /** Írási műveletek után a store automatikusan értesít és perzisztál (munkamenet). */
   repo: DataRepository;
   reset: () => void;
+  demo: { plan: DemoRemovalPlan; remove: () => DemoRemovalResult; exportJson: () => string };
   /** Az aktuális (fiktív) felhasználó: a naplózott műveletek rögzítője. */
   currentUserId: string;
   setCurrentUserId: (id: string) => void;
@@ -149,6 +162,7 @@ export function DemoDataProvider({ children }: { children: ReactNode }) {
       data,
       repo: notifying(data ? store.repository() : ({} as DataRepository)),
       reset: () => store.reset(),
+      demo: { plan: data ? store.demoPlan() : { removable: [], kept: [] }, remove: () => store.removeDemo(), exportJson: () => store.exportData() },
       currentUserId,
       setCurrentUserId: (id) => store.setCurrentUser(id),
       legacy: { present: legacyPresent, exportJson: () => store.exportLegacy(), discard: () => store.discardLegacy() },
