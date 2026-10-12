@@ -1,4 +1,4 @@
-# JG Investment OS — v0.5 (DEMÓ)
+# JG Investment OS — v0.5.1 (DEMÓ)
 
 Egyszerű, ügyfélközpontú CRM-demó a JG Investment Plus Kft. számára: **ügyfél → kapcsolati státusz (hét érték) → a státuszokhoz kapcsolt feladatok**, egyszerű Pipeline-nézettel.
 **Csak demó: kizárólag fiktív adatok, nincs éles adatbázis, hitelesítés, integráció vagy deployment.**
@@ -29,7 +29,7 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
-- `docs/V0.5-SIMPLE-CRM.md` — v0.5: egyszerű modell, hét státusz, státuszhoz kötött feladatok, régi adatok kompatibilitása
+- `docs/V0.5-SIMPLE-CRM.md` — v0.5 és v0.5.1: egyszerű modell, hét státusz, státuszhoz kötött feladatok (Input/Output), régi adatok kompatibilitása
 - `docs/V0.3-UX.md` — v0.3 (részben felülírva): üres CRM, demóadat-eltávolítás, Pipeline (folyamat-alapú, v0.5-ben ügyfélstátusz-alapúra egyszerűsítve)
 - `docs/V0.2-WORKFLOW.md` — v0.2 modell, státuszok és üzleti szabályok
 - `docs/DEMO-LIMITATIONS.md` — demókorlátok (olvasd el!)

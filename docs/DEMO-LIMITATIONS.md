@@ -1,4 +1,4 @@
-# Demókorlátok — v0.5
+# Demókorlátok — v0.5.1
 
 - **Adatmegőrzés:** a módosítások a böngészőfül `sessionStorage`-ában élnek; frissítést túlélnek, a fül bezárásakor elvesznek. Nincs szerveroldali mentés, backup. A felület is jelzi ("DEMÓ" sáv, visszaállítás gomb).
 - **Nincs hitelesítés és jogosultság:** a két "Admin" fiktív felhasználó (`DEMO_USERS`), a közös csapatnézet nem jogosultság-érvényesítés, és nem írhatja felül a később meghatározandó adatkezelési/hozzáférési szabályokat. Alkalmazásszintű Admin ≠ infrastruktúra-/adatbázis-/Gmail-admin.
@@ -18,3 +18,5 @@
 - **Nem épült:** befektetési ajánlás, portfóliókezelés, hozamszámítás, ügyfélpénz-kezelés, értékpapír-nyilvántartás, MiFID/KYC, marketingautomatizáció.
 - **Keresés/lista:** kliensoldali, kis adatmennyiségre; nincs lapozás. Az ügyfél-törlés nincs (csak archivált státusz).
 - A JG és a Patria Finance Magyarországi Fióktelepe (K&H Értékpapír) viszonyára vonatkozó tartalom nem szerepel a felületen; a függő ügynöki szerep pontos megfogalmazása jogi/compliance review tárgya.
+- **Megkereshetőség és tiltakozás (v0.5.1):** a felületről nem szerkeszthető (nincs panel). A háttéradat és a státuszblokkoló kontroll megmaradt; új tiltakozás/korlátozás rögzítése és feloldása a felületről nem lehetséges. Éles működéshez külön adatvédelmi és compliance review szükséges.
+- **Feladat Input/Output (v0.5.1):** a feladattípus-lista ideiglenes, jóváhagyásra vár (`TASK_TYPES`); az Output kötelező a lezáráshoz (implementációs javaslat, manuális review-ban ellenőrizendő). Az adatok csak a böngészőfül `sessionStorage`-ában élnek.
