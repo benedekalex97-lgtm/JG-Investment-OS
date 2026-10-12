@@ -1,0 +1,143 @@
+name: JG OS - Neon preview database migration
+run-name: "JG preview database / ${{ inputs.operation }}"
+
+# This workflow intentionally never runs on push, pull_request or schedule.
+# workflow_dispatch becomes available only after the workflow exists on the default branch.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Read-only schema status, or apply approved additive migrations"
+        required: true
+        type: choice
+        default: status
+        options:
+          - status
+          - migrate
+      confirmation:
+        description: 'For migrate only, enter exactly: MIGRATE JG PREVIEW'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jg-os-neon-preview-migration
+  cancel-in-progress: false
+
+jobs:
+  preview-migration:
+    name: JG Neon preview - ${{ inputs.operation }}
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      JG_ENV: preview
+      DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+      OPERATION: ${{ inputs.operation }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      EXPECTED_HOST: ep-proud-silence-bate28uz.c-8.eu-central-1.aws.neon.tech
+      EXPECTED_DB: jg_os_preview
+      EXPECTED_USER: jg_os_preview_owner
+    steps:
+      - name: Validate request and database target without displaying secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$OPERATION" != "status" && "$OPERATION" != "migrate" ]]; then
+            echo "::error::Unsupported operation."
+            exit 1
+          fi
+          if [[ "$OPERATION" == "migrate" && "$CONFIRMATION" != "MIGRATE JG PREVIEW" ]]; then
+            echo "::error::Migration confirmation does not match."
+            exit 1
+          fi
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "::error::Missing repository secret JG_NEON_PREVIEW_DATABASE_URL."
+            exit 1
+          fi
+          node <<'NODE'
+          try {
+            const url = new URL(process.env.DATABASE_URL);
+            const ok = (
+              ["postgres:", "postgresql:"].includes(url.protocol) &&
+              url.hostname === process.env.EXPECTED_HOST &&
+              decodeURIComponent(url.pathname) === "/" + process.env.EXPECTED_DB &&
+              decodeURIComponent(url.username) === process.env.EXPECTED_USER &&
+              (url.port === "" || url.port === "5432") &&
+              url.searchParams.get("sslmode") === "require"
+            );
+            if (!ok) throw Error("not-approved-preview-target");
+            console.log("Verified JG Neon preview host, database, role and TLS requirement.");
+          } catch {
+            console.error("::error::Database connection does not match the approved Neon preview target.");
+            process.exit(1);
+          }
+          NODE
+
+      # Pinned, already-reviewed v0.6 migration code; changing this SHA requires a reviewed workflow change.
+      # Do not checkout an arbitrary ref supplied by a workflow input: this job has a DB secret.
+      - name: Checkout reviewed JG OS v0.6 source
+        uses: actions/checkout@v4
+        with:
+          ref: 37bd84cb17e5bd0457619b99573e8893900662b6
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install pinned dependencies once
+        run: npm ci --no-audit --no-fund
+
+      - name: Check current schema status
+        run: npm run db -- status
+
+      - name: Apply versioned migration - manual confirmation required
+        if: ${{ inputs.operation == 'migrate' }}
+        run: npm run db -- migrate
+
+      - name: Verify migrated schema, role, RLS and environment
+        if: ${{ inputs.operation == 'migrate' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run db -- status
+          node --input-type=module <<'NODE'
+          import pg from "pg";
+          const pool = new pg.Pool({
+            connectionString: process.env.DATABASE_URL,
+            max: 1,
+            connectionTimeoutMillis: 10000,
+          });
+          try {
+            const env = await pool.query("SELECT value FROM meta WHERE key = 'environment'");
+            const mig = await pool.query("SELECT id FROM schema_migrations WHERE id = '0001_init'");
+            const role = await pool.query(
+              "SELECT rolcanlogin, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'jg_app'"
+            );
+            const policies = await pool.query(
+              "SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = ANY($1) AND relkind = 'r'",
+              [["customers", "tasks", "task_results", "customer_restrictions"]]
+            );
+            if (env.rows[0]?.value !== "preview") throw Error("environment is not preview");
+            if (mig.rowCount !== 1) throw Error("migration 0001_init is missing");
+            const r = role.rows[0];
+            if (!r || r.rolcanlogin || r.rolsuper || r.rolbypassrls) {
+              throw Error("jg_app role privileges are not acceptable");
+            }
+            if (policies.rowCount !== 4 || policies.rows.some(p => !p.relrowsecurity || !p.relforcerowsecurity)) {
+              throw Error("required CRM tables are missing enforced RLS");
+            }
+            const counts = await pool.query(
+              "SELECT (SELECT count(*)::int FROM customers) AS customers, (SELECT count(*)::int FROM tasks) AS tasks, (SELECT count(*)::int FROM users) AS users"
+            );
+            console.log("Schema 0001_init, preview environment, jg_app restrictions and forced RLS: verified.");
+            console.log("Record counts only (no customer data):", JSON.stringify(counts.rows[0]));
+          } finally {
+            await pool.end();
+          }
+          NODE
