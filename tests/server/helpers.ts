@@ -15,7 +15,7 @@ import type { Runtime } from "@/server/db";
  */
 export const DRIVERS: ("pglite" | "pg")[] = process.env.JG_TEST_DATABASE_URL ? ["pglite", "pg"] : ["pglite"];
 
-export interface TestDb { db: Db; kind: "pglite" | "pg"; cleanup(): Promise<void> }
+export interface TestDb { db: Db; kind: "pglite" | "pg"; url?: string; cleanup(): Promise<void> }
 
 export async function makeTestDb(kind: "pglite" | "pg", opts: { dir?: string; migrate?: boolean } = {}): Promise<TestDb> {
   if (kind === "pglite") {
@@ -31,7 +31,7 @@ export async function makeTestDb(kind: "pglite" | "pg", opts: { dir?: string; mi
   const db = createPgDb(url.toString());
   if (opts.migrate !== false) await migrate(db, { env: "local" });
   return {
-    db, kind,
+    db, kind, url: url.toString(),
     cleanup: async () => {
       await db.close();
       await admin.query(`drop database if exists ${name} with (force)`);

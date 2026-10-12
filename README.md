@@ -33,6 +33,8 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V0.6.2-NEON-VERCEL.md` — **v0.6.2: Neon preview + Vercel előkészítés, környezeti változók, első admin, futási szerepkör, Vercel hozzáférés állapota**
+- `docs/V0.6.1-NEON-ACTIONS.md` — a Neon preview migráció GitHub Actionsből
 - `docs/V0.6-PERSISTENCE.md` — **v0.6: architektúra-döntés, adatmodell, hitelesítés/jogosultság, migrációk, mentés/helyreállítás, környezetek, beállítási útmutató, blokkolók**
 - `docs/V0.6-CONTACTABILITY-AUDIT.md` — a régi megkereshetőségi rendszer auditja és a szükséges minimális folyamat
 - `docs/V0.5-SIMPLE-CRM.md` — v0.5 és v0.5.1: egyszerű modell, hét státusz, státuszhoz kötött feladatok (Input/Output), régi adatok kompatibilitása
