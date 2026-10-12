@@ -5,6 +5,7 @@
  * Használat: npm run db -- <parancs>
  *   status | migrate | user:create <email> <név> | user:set-password <email> | user:deactivate <email> | user:activate <email>
  *   backup <fájl> | restore <fájl>
+ *   runtime-role:provision <szerepkör-név>   (legkisebb jogosultságú futási szerepkör; jelszó: JG_RUNTIME_PASSWORD)
  * A jelszót a JG_USER_PASSWORD környezeti változó vagy interaktív (rejtett) bekérés adja - parancssori argumentum nem.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -15,6 +16,7 @@ import { checkSchema, LATEST_MIGRATION, migrate } from "../src/server/db/migrate
 import { createPgDb } from "../src/server/db/pg-driver";
 import { createPgliteDb } from "../src/server/db/pglite-driver";
 import { createUser, setActive, setPassword } from "../src/server/auth/service";
+import { provisionRuntimeRole } from "../src/server/db/runtime-role";
 
 async function promptHidden(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
@@ -68,6 +70,15 @@ async function main() {
         await setActive(db, args[0], cmd === "user:activate");
         console.log(cmd === "user:activate" ? "Felhasználó aktiválva." : "Felhasználó letiltva, munkamenetei törölve (a rekordjai megmaradnak).");
         break;
+      case "runtime-role:provision": {
+        const name = args[0];
+        const pw = process.env.JG_RUNTIME_PASSWORD;
+        if (!name || !pw) throw new Error("Használat: JG_RUNTIME_PASSWORD=<generált, min. 24 karakter> runtime-role:provision <szerepkör-név>");
+        if (env === "production" && process.env.JG_CONFIRM_PRODUCTION !== "yes") throw new Error("Éles szerepkör-módosításhoz JG_CONFIRM_PRODUCTION=yes szükséges.");
+        await provisionRuntimeRole(db, { name, password: pw });
+        console.log(`Futási szerepkör kész: ${name}. A DATABASE_URL felhasználóját/jelszavát a futtatási környezetben erre kell cserélni; a migrációs URL külön marad.`);
+        break;
+      }
       case "backup": {
         const file = args[0];
         if (!file) throw new Error("Használat: backup <fájl>");
@@ -86,7 +97,7 @@ async function main() {
         break;
       }
       default:
-        throw new Error("Ismeretlen parancs. Elérhető: status, migrate, user:create, user:set-password, user:deactivate, user:activate, backup, restore");
+        throw new Error("Ismeretlen parancs. Elérhető: status, migrate, runtime-role:provision, user:create, user:set-password, user:deactivate, user:activate, backup, restore");
     }
   } finally {
     await db.close();

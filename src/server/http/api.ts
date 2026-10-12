@@ -58,7 +58,11 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
     const path = new URL(req.url).pathname.replace(/^\/api\//, "").replace(/\/$/, "");
     try {
       const rt = await getRuntime();
-      if (path === "status") return req.method === "GET" ? json({ state: rt.state, ...(rt.state === "ok" ? { environment: rt.env, environmentLabel: ENV_LABELS[rt.env] } : {}) }) : json({ error: "method_not_allowed" }, 405);
+      // Állapot-végpont (személyes adat nélkül): csak működő adatbázisnál 200, különben 503 - hibás DB esetén a rendszer nem jelentkezik késznek.
+      if (path === "status") {
+        if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+        return rt.state === "ok" ? json({ state: "ok", environment: rt.env, environmentLabel: ENV_LABELS[rt.env] }) : json({ state: rt.state }, 503);
+      }
       if (rt.state !== "ok") return json({ state: rt.state }, 503);
       const { db } = rt;
 
