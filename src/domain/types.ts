@@ -1,10 +1,12 @@
 import type {
-  ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
+  ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CRM_STATUSES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
   EVIDENCE_STATUSES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_TYPES, PROCESS_STATUS_DEFS, RESTRICTION_KINDS,
   TASK_STATUSES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
 } from "./constants";
 
 export type ContactStatus = (typeof CONTACT_STATUSES)[number];
+/** v0.5: az ügyfél egyetlen aktuális kapcsolati státusza (hét érték). */
+export type CrmStatus = (typeof CRM_STATUSES)[number];
 export type ProcessType = (typeof PROCESS_TYPES)[number];
 export type ProcessStatus = (typeof PROCESS_STATUS_DEFS)[number]["key"];
 export type ClosureState = (typeof CLOSURE_STATES)[number];
@@ -32,7 +34,13 @@ export interface ContactRestriction {
 
 interface CustomerBase {
   id: string;
+  /** Régi (v0.2/v0.3) négyértékű besorolás: megőrzött adat, a v0.5 felület nem használja. */
   contactStatus: ContactStatus;
+  /**
+   * v0.5 kapcsolati státusz. Hiányzik a régebbi rekordokon: olvasáskor az alapértelmezett érvényes
+   * (`statusOf`), az adat csak a felhasználó által kezdeményezett módosításkor íródik át.
+   */
+  crmStatus?: CrmStatus;
   ownerId: string;
   source: string;
   verificationStatus: DataVerificationStatus;
@@ -114,6 +122,8 @@ export interface ActivityMeta {
   closureReason?: NoResultReason;
   fromContactStatus?: ContactStatus;
   toContactStatus?: ContactStatus;
+  fromCrmStatus?: CrmStatus;
+  toCrmStatus?: CrmStatus;
   taskId?: string;
   restrictionKind?: RestrictionKind | null;
 }
@@ -139,8 +149,12 @@ export interface Task {
   title: string;
   description?: string;
   assigneeId: string;
-  dueAt: string;
+  /** Opcionális határidő (v0.5). */
+  dueAt?: string;
+  /** Elvégzett = `done`; a v0.5 felület csak pipával kezeli (a régi `in_progress` nyitottnak számít). */
   status: TaskStatus;
+  /** A feladat létrehozásakor az ügyfél aktuális státusza (hiányzik a régi feladatokon: ők nem kapnak kitalált státuszt). */
+  crmStatus?: CrmStatus;
   createdAt: string;
   completedAt?: string;
 }

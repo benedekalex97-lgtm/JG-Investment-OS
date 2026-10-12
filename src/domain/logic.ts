@@ -1,13 +1,85 @@
+import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS } from "./constants";
 import type {
-  Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, ContactStatus, Customer, CustomerProcess, DataSnapshot,
-  ProcessStatus, ProcessType, Task,
+  Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task,
 } from "./types";
-import { PROCESS_STATUS_DEFS } from "./constants";
 import { isActive } from "./workflow";
 
 export function customerName(c: Customer): string {
   return c.type === "individual" ? c.displayName : c.companyName;
 }
+export const contactName = (c: CompanyContact) => `${c.lastName} ${c.firstName}`.trim();
+export const buildDisplayName = (firstName: string, lastName: string) => `${lastName} ${firstName}`.trim();
+
+/**
+ * Egyetlen szabadszöveges névből vezeték- és keresztnév (a rekordmodell szétválasztott mezőit tölti):
+ * az első szó a vezetéknév, a többi a keresztnév (magyar névsorrend). Egy szavas névnél a keresztnév üres.
+ * Az összefűzés (`buildDisplayName`) visszaadja az eredeti, tisztított nevet.
+ */
+export function splitName(name: string): { lastName: string; firstName: string } {
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  return { lastName: tokens[0] ?? "", firstName: tokens.slice(1).join(" ") };
+}
+
+/** Normalizálás kereséshez: kisbetű + ékezetek eltávolítása. */
+export function fold(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+/**
+ * Az ügyfél aktuális kapcsolati státusza. A régebbi rekordokról hiányzó érték alapértelmezettnek számít (olvasáskor),
+ * a tárolt adat ettől nem módosul, és a régi folyamatstátuszokra nincs kitalált megfeleltetés.
+ */
+export const statusOf = (c: Customer): CrmStatus => c.crmStatus ?? DEFAULT_CRM_STATUS;
+
+// --------------------------------------------------------------- Lekérdezések
+export const processesOf = (snap: DataSnapshot, customerId: string) => snap.processes.filter((p) => p.customerId === customerId);
+export const activeProcessesOf = (snap: DataSnapshot, customerId: string): CustomerProcess[] => processesOf(snap, customerId).filter(isActive);
+
+export interface Scope { customerId?: string; processId?: string }
+
+export function lastActivity(snap: DataSnapshot, scope: Scope): Activity | undefined {
+  return snap.activities
+    .filter((a) => (scope.processId ? a.processId === scope.processId : a.customerId === scope.customerId))
+    .reduce<Activity | undefined>((best, a) => (!best || Date.parse(a.occurredAt) > Date.parse(best.occurredAt) ? a : best), undefined);
+}
+
+export const isDone = (t: Task) => t.status === "done";
+export const isOpenTask = (t: Task) => !isDone(t);
+const dueTime = (t: Task) => (t.dueAt ? Date.parse(t.dueAt) : Number.POSITIVE_INFINITY);
+
+/** Következő nyitott feladat: a legkorábbi határidejű; a határidő nélküliek a határidősök után, felvételi sorrendben. */
+export function nextTask(snap: DataSnapshot, scope: Scope): Task | undefined {
+  return snap.tasks
+    .filter((t) => isOpenTask(t) && (scope.processId ? t.processId === scope.processId : t.customerId === scope.customerId))
+    .sort((a, b) => dueTime(a) - dueTime(b) || Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id))[0];
+}
+
+export interface CustomerFilter {
+  query?: string;
+  type?: "individual" | "company" | "";
+  crmStatus?: CrmStatus | "";
+}
+
+const contactMatches = (k: CompanyContact, q: string) => fold(`${k.firstName} ${k.lastName}`).includes(q) || fold(contactName(k)).includes(q);
+
+/** Ügyfélkeresés: név, cégnév ÉS a cég kapcsolati személyének neve alapján is (a céget adja vissza). */
+export function searchCustomers(snap: DataSnapshot, f: CustomerFilter = {}): Customer[] {
+  const q = fold((f.query ?? "").trim());
+  return snap.customers.filter((c) => {
+    if (f.type && c.type !== f.type) return false;
+    if (f.crmStatus && statusOf(c) !== f.crmStatus) return false;
+    if (!q) return true;
+    if (fold(customerName(c)).includes(q)) return true;
+    if (c.type === "individual" && fold(`${c.firstName} ${c.lastName}`).includes(q)) return true;
+    return c.type === "company" && snap.contacts.some((k) => k.companyId === c.id && contactMatches(k, q));
+  });
+}
+
+export function matchingContacts(snap: DataSnapshot, companyId: string, query: string): CompanyContact[] {
+  const q = fold(query.trim());
+  return q ? snap.contacts.filter((k) => k.companyId === companyId && contactMatches(k, q)) : [];
+}
+
 /**
  * Az elsődleges kapcsolati személy - DETERMINISZTIKUSAN: az `isPrimaryContact` jelölésű (több jelölt esetén a legkorábban
  * felvett, azonos időnél az azonosító szerinti első); ha nincs jelölt, a legkorábban felvett kapcsolattartó; ha nincs, undefined.
@@ -22,70 +94,6 @@ export function primaryContactOf(snap: DataSnapshot, companyId: string): Company
 export function otherContactsOf(snap: DataSnapshot, companyId: string): CompanyContact[] {
   const primary = primaryContactOf(snap, companyId);
   return snap.contacts.filter((k) => k.companyId === companyId && k.id !== primary?.id).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id));
-}
-
-export const contactName = (c: CompanyContact) => `${c.lastName} ${c.firstName}`;
-export const buildDisplayName = (firstName: string, lastName: string) => `${lastName} ${firstName}`.trim();
-
-/** Normalizálás kereséshez: kisbetű + ékezetek eltávolítása. */
-export function fold(s: string): string {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
-
-// --------------------------------------------------------------- Lekérdezések
-export const processesOf = (snap: DataSnapshot, customerId: string) => snap.processes.filter((p) => p.customerId === customerId);
-export const activeProcessesOf = (snap: DataSnapshot, customerId: string) => processesOf(snap, customerId).filter(isActive);
-
-export interface Scope { customerId?: string; processId?: string }
-
-export function lastActivity(snap: DataSnapshot, scope: Scope): Activity | undefined {
-  return snap.activities
-    .filter((a) => (scope.processId ? a.processId === scope.processId : a.customerId === scope.customerId))
-    .reduce<Activity | undefined>((best, a) => (!best || Date.parse(a.occurredAt) > Date.parse(best.occurredAt) ? a : best), undefined);
-}
-
-/** Következő teendő = a legkorábbi határidejű, nyitott feladat. */
-export function nextTask(snap: DataSnapshot, scope: Scope): Task | undefined {
-  return snap.tasks
-    .filter((t) => t.status !== "done" && (scope.processId ? t.processId === scope.processId : t.customerId === scope.customerId))
-    .reduce<Task | undefined>((best, t) => (!best || Date.parse(t.dueAt) < Date.parse(best.dueAt) ? t : best), undefined);
-}
-
-export interface CustomerFilter {
-  query?: string;
-  type?: "individual" | "company" | "";
-  contactStatus?: ContactStatus | "";
-  ownerId?: string;
-  processType?: ProcessType | "";
-  processStatus?: ProcessStatus | "";
-}
-
-const contactMatches = (k: CompanyContact, q: string) => fold(`${k.firstName} ${k.lastName}`).includes(q) || fold(contactName(k)).includes(q);
-
-/**
- * Ügyfélkeresés: név, cégnév ÉS a céges kapcsolattartók neve alapján is (a céget adja vissza).
- * A folyamat-szűrők az ügyfél AKTÍV folyamataira vonatkoznak.
- */
-export function searchCustomers(snap: DataSnapshot, f: CustomerFilter = {}): Customer[] {
-  const q = fold((f.query ?? "").trim());
-  return snap.customers.filter((c) => {
-    if (f.type && c.type !== f.type) return false;
-    if (f.contactStatus && c.contactStatus !== f.contactStatus) return false;
-    if (f.ownerId && c.ownerId !== f.ownerId) return false;
-    if (f.processType || f.processStatus) {
-      const ok = activeProcessesOf(snap, c.id).some((p) => (!f.processType || p.type === f.processType) && (!f.processStatus || p.status === f.processStatus));
-      if (!ok) return false;
-    }
-    if (!q) return true;
-    if (fold(customerName(c)).includes(q)) return true;
-    if (c.type === "individual" && fold(`${c.firstName} ${c.lastName}`).includes(q)) return true;
-    return c.type === "company" && snap.contacts.some((k) => k.companyId === c.id && contactMatches(k, q));
-  });
-}
-
-export function matchingContacts(snap: DataSnapshot, companyId: string, query: string): CompanyContact[] {
-  const q = fold(query.trim());
-  return q ? snap.contacts.filter((k) => k.companyId === companyId && contactMatches(k, q)) : [];
 }
 
 export interface RelationRefs { customerId: string; processId?: string; companyContactId?: string }
@@ -123,80 +131,65 @@ export function getContactability(
   return found ?? { id: "", customerId: target.customerId, companyContactId: target.companyContactId, purpose, channel, status: "unknown", evidenceStatus: "none" };
 }
 
-// ------------------------------------------------------------ Munkapult (Áttekintés)
+// -------------------------------------------------------------------- Feladatok
 export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 export const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-export const isOpenTask = (t: Task) => t.status !== "done";
 
+/** Mai feladatok: nyitott, mára esedékes határidejű feladatok (a határidő nélküliek nem). */
 export function tasksDueToday(snap: DataSnapshot, now: Date): Task[] {
   const s = startOfDay(now).getTime(), e = endOfDay(now).getTime();
-  return snap.tasks.filter((t) => isOpenTask(t) && Date.parse(t.dueAt) >= s && Date.parse(t.dueAt) < e);
+  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && Date.parse(t.dueAt) >= s && Date.parse(t.dueAt) < e);
 }
 export function overdueTasks(snap: DataSnapshot, now: Date): Task[] {
   const s = startOfDay(now).getTime();
-  return snap.tasks.filter((t) => isOpenTask(t) && Date.parse(t.dueAt) < s);
+  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && Date.parse(t.dueAt) < s);
 }
 
-const activeWith = (snap: DataSnapshot, pred: (p: CustomerProcess) => boolean) => snap.processes.filter((p) => isActive(p) && pred(p));
+const taskOrder = (a: Task, b: Task) =>
+  Number(isDone(a)) - Number(isDone(b)) || dueTime(a) - dueTime(b) || Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id);
 
-/** Új érdeklődések: aktív bejövő folyamatok, még meg nem kezdett kapcsolatfelvétellel. */
-export const newInquiries = (snap: DataSnapshot) => activeWith(snap, (p) => p.status === "new_inquiry");
-/** Következő kapcsolatfelvételek: aktív kimenő folyamatok, amelyek megkeresésre vagy kapcsolatfelvételre várnak. */
-export const nextOutreach = (snap: DataSnapshot) => activeWith(snap, (p) => p.type === "outbound_outreach" && (p.status === "pending_outreach" || p.status === "contact_in_progress"));
-export const activeProcessList = (snap: DataSnapshot) => activeWith(snap, () => true);
-/** Számlanyitásra váró vagy folyamatban lévő folyamatok (szolgáltatói mérföldkő szimulált). */
-export const accountOpeningQueue = (snap: DataSnapshot) => activeWith(snap, (p) => p.status === "account_prep" || p.status === "account_opening");
-/** Megnyitott, de még nem finanszírozott számlák (szimulált számláló). */
-export const unfundedAccounts = (snap: DataSnapshot) => activeWith(snap, (p) => p.status === "account_opened" || p.status === "awaiting_first_deposit");
-
-// ------------------------------------------------------------------ Pipeline
-export interface PipelineFilter { query?: string; ownerId?: string }
-
-export interface PipelineColumn {
-  status: ProcessStatus;
-  label: string;
-  phase: "outreach" | "sales";
-  /** Csak az adott folyamattípusnál élő kiinduló státusz esetén kitöltött. */
-  onlyFor?: ProcessType;
-  milestone: boolean;
-  processes: CustomerProcess[];
-}
-
-/** Egy folyamat megfelel-e a pipeline keresésnek (ügyfélnév, folyamat megnevezése, a cég kapcsolattartóinak neve) és a felelős szűrőnek. */
-export function matchesPipelineFilter(snap: DataSnapshot, p: CustomerProcess, f: PipelineFilter): boolean {
-  if (f.ownerId && p.ownerId !== f.ownerId) return false;
-  const q = fold((f.query ?? "").trim());
-  if (!q) return true;
-  const customer = snap.customers.find((c) => c.id === p.customerId);
-  if (customer && fold(customerName(customer)).includes(q)) return true;
-  if (fold(p.title).includes(q)) return true;
-  return snap.contacts.some((k) => k.companyId === p.customerId && contactMatches(k, q));
+export interface CustomerTasks {
+  /** Az aktuális státuszhoz tartozó feladatok (nyitottak elöl). */
+  current: Task[];
+  /** Korábbi státuszok feladatai státusz szerint csoportosítva (a státuszok sorrendjében). */
+  earlier: { status: CrmStatus; tasks: Task[] }[];
+  /** Státuszhoz nem rendelt (régi) feladatok: nem kapnak kitalált státuszt, de nem vesznek el. */
+  unassigned: Task[];
+  /** A korábbi és státusz nélküli feladatok közül a még nyitottak száma (a napi munkából ne vesszenek ki). */
+  openEarlier: number;
 }
 
 /**
- * Az aktív folyamatok oszloponként (a v0.2 tényleges státuszai, sorrendben). Egy ügyfél több kártyával is megjelenhet.
- * Oszlopon belül: a legkorábbi következő teendő határideje szerint, majd a legutóbb módosított elöl.
+ * Egy ügyfél feladatai az aktuális státusz szerint szétválasztva. A státuszváltás nem töröl, nem pipál ki és nem hoz létre feladatot:
+ * a feladat a létrehozáskori státuszához tartozik, így váltás után "korábbi" lesz, de megmarad.
  */
-export function pipelineColumns(snap: DataSnapshot, f: PipelineFilter = {}): PipelineColumn[] {
-  const due = (p: CustomerProcess) => {
-    const t = nextTask(snap, { processId: p.id });
-    return t ? Date.parse(t.dueAt) : Number.POSITIVE_INFINITY;
-  };
-  return PROCESS_STATUS_DEFS.map((d) => ({
-    status: d.key as ProcessStatus,
-    label: d.label,
-    phase: d.phase,
-    onlyFor: "types" in d ? (d.types as readonly ProcessType[])[0] : undefined,
-    milestone: "milestone" in d,
-    processes: snap.processes
-      .filter((p) => isActive(p) && p.status === d.key && matchesPipelineFilter(snap, p, f))
-      .sort((a, b) => due(a) - due(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id)),
-  }));
+export function tasksByStatus(snap: DataSnapshot, customer: Customer): CustomerTasks {
+  const mine = snap.tasks.filter((t) => t.customerId === customer.id);
+  const now = statusOf(customer);
+  const current = mine.filter((t) => t.crmStatus === now).sort(taskOrder);
+  const unassigned = mine.filter((t) => t.crmStatus === undefined).sort(taskOrder);
+  const earlier = CRM_STATUSES.filter((s) => s !== now)
+    .map((status) => ({ status, tasks: mine.filter((t) => t.crmStatus === status).sort(taskOrder) }))
+    .filter((g) => g.tasks.length > 0);
+  const openEarlier = [...unassigned, ...earlier.flatMap((g) => g.tasks)].filter(isOpenTask).length;
+  return { current, earlier, unassigned, openEarlier };
 }
 
-/** A lezárt folyamatok a pipeline-tól külön kezelve, legutóbb lezárt elöl. */
-export function closedProcesses(snap: DataSnapshot, f: PipelineFilter = {}): CustomerProcess[] {
-  return snap.processes
-    .filter((p) => !isActive(p) && matchesPipelineFilter(snap, p, f))
-    .sort((a, b) => Date.parse(b.closure.closedAt ?? b.updatedAt) - Date.parse(a.closure.closedAt ?? a.updatedAt));
+// ------------------------------------------------------------------- Pipeline
+export interface PipelineFilter { query?: string }
+
+export interface PipelineColumn {
+  status: CrmStatus;
+  label: string;
+  customers: Customer[];
+}
+
+/** A hét státusz oszlopai, minden ügyfél pontosan egy oszlopban (egy ügyfél = egy kártya), név szerint rendezve. */
+export function crmPipeline(snap: DataSnapshot, f: PipelineFilter = {}): PipelineColumn[] {
+  const matching = searchCustomers(snap, { query: f.query });
+  return CRM_STATUSES.map((status) => ({
+    status,
+    label: CRM_STATUS_LABELS[status],
+    customers: matching.filter((c) => statusOf(c) === status).sort((a, b) => customerName(a).localeCompare(customerName(b), "hu")),
+  }));
 }

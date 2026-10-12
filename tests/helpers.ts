@@ -26,3 +26,9 @@ export const processOf = (snap: DataSnapshot, customerId: string, titleStart: st
 
 export const U = "user-1";
 export const VERIFY = { sourceCategory: "provider_notification", complianceAcknowledged: true } as const;
+
+/** Repository, amelynek órája másodpercenként lép: a létrehozási sorrend mérhető (az azonos ezredmásodperces rekordok sorrendje nem determinisztikus). */
+export const tickRepo = (snap: DataSnapshot = seed()) => {
+  let n = 0;
+  return new DemoRepository(snap, { clock: () => new Date(NOW.getTime() + 1000 * n++) });
+};

@@ -1,17 +1,17 @@
 import type { ZodError } from "zod";
 import {
-  closeInput, companyContactInput, contactPersonInput, contactStatusInput, customerInput, customerUpdateInput, manualActivityInput,
+  closeInput, companyContactInput, contactStatusInput, crmStatusChangeInput, customerInput, customerUpdateInput, manualActivityInput,
   newCustomerForm, processInput, reopenInput, restrictionInput, statusChangeInput, taskInput,
 } from "@/domain/schemas";
 import {
-  CONTACT_STATUS_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
+  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import { buildDisplayName, primaryContactOf, validateRelations } from "@/domain/logic";
+import { buildDisplayName, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
 import type {
   Activity, CompanyContact, Contactability, ContactabilityStatus, ContactChannel, ContactPurpose, Customer, CustomerProcess,
   DataSnapshot, EvidenceStatus, Task, TaskStatus, Verification,
 } from "@/domain/types";
-import { initialStatus, isActive, isMilestone, validateClosure, validateContactStatusChange, validateTransition } from "@/domain/workflow";
+import { initialStatus, isActive, isCrmMilestone, isMilestone, validateClosure, validateContactStatusChange, validateCrmStatusChange, validateTransition } from "@/domain/workflow";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; errors: Record<string, string> };
 const fail = <T>(errors: Record<string, string>): Result<T> => ({ ok: false, errors });
@@ -35,14 +35,12 @@ function zodErrors(e: ZodError): Record<string, string> {
 export interface DataRepository {
   getSnapshot(): DataSnapshot;
   createCustomer(input: unknown): Result<Customer>;
-  /** Új ügyfél űrlapból (üzleti minimum): cégnél a kapcsolati személlyel együtt, mindent vagy semmit alapon. */
+  /** Új ügyfél az egyszerű űrlapból (üzleti minimum: név); cégnél a kapcsolati személlyel együtt, mindent vagy semmit alapon. */
   createCustomerFromForm(input: unknown): Result<{ customer: Customer; contact?: CompanyContact }>;
   /** Ügyféladatok szerkesztése (a kapcsolati státusz és a korlátozás külön, naplózott művelet). */
   updateCustomer(id: string, input: unknown): Result<Customer>;
-  /** A cég elsődleges kapcsolati személyének mentése: a meglévő elsődlegest frissíti, ha nincs, létrehozza. A többi kapcsolattartó érintetlen. */
-  savePrimaryContact(companyId: string, input: unknown): Result<CompanyContact>;
-  /** Meglévő kapcsolattartó kijelölése elsődlegesnek (a cégen belül pontosan egy elsődleges marad). */
-  makePrimaryContact(contactId: string): Result<CompanyContact>;
+  /** v0.5: az ügyfél egyetlen aktuális kapcsolati státuszának kézi módosítása (nem érinti a feladatokat). */
+  changeCrmStatus(customerId: string, input: unknown): Result<Customer>;
   updateCustomerOwner(id: string, ownerId: string): Result<Customer>;
   changeContactStatus(id: string, input: unknown): Result<Customer>;
   setRestriction(id: string, input: unknown): Result<Customer>;
@@ -54,7 +52,7 @@ export interface DataRepository {
   closeProcess(id: string, input: unknown): Result<CustomerProcess>;
   reopenProcess(id: string, input: unknown): Result<CustomerProcess>;
   createTask(input: unknown): Result<Task>;
-  updateTask(id: string, patch: { dueAt?: string; assigneeId?: string; title?: string }, recordedBy: string): Result<Task>;
+  updateTask(id: string, patch: { dueAt?: string | null; assigneeId?: string; title?: string }, recordedBy: string): Result<Task>;
   setTaskStatus(id: string, status: TaskStatus, recordedBy: string): Result<Task>;
   createActivity(input: unknown): Result<Activity>;
   setContactability(
@@ -129,32 +127,54 @@ export class DemoRepository implements DataRepository {
     return ok(customer);
   }
 
+  /**
+   * Új ügyfél az egyszerű űrlapból (v0.5): üzleti minimum a név; minden más opcionális. Az új ügyfél alapértelmezett státusza
+   * Kapcsolatfelvételre vár; más induló státusz naplózott státuszváltásként rögzül (a „Tőke elhelyezve” igazolással).
+   * Mindent vagy semmit: hiba esetén semmi nem jön létre.
+   */
   createCustomerFromForm(input: unknown): Result<{ customer: Customer; contact?: CompanyContact }> {
     const parsed = newCustomerForm.safeParse(input);
     if (!parsed.success) return fail(zodErrors(parsed.error));
     const d = parsed.data;
-    // Előzetes ellenőrzés: a kapcsolati státusz igazolási szabálya, hogy ne jöhessen létre részleges ügyfél.
-    const statusErrors = d.contactStatus === "prospect" ? {} : validateContactStatusChange("prospect", { to: d.contactStatus, verification: d.verification });
-    if (Object.keys(statusErrors).length) return fail(statusErrors);
-    const created =
+    const t = this.now();
+    const base = {
+      id: this.nextId("cust"), contactStatus: "prospect" as const, crmStatus: DEFAULT_CRM_STATUS, ownerId: d.recordedBy, source: d.source,
+      verificationStatus: "demo" as const, email: d.email, phone: d.phone, createdAt: t, updatedAt: t,
+    };
+    const draft: Customer =
       d.type === "individual"
-        ? this.createCustomer({ type: "individual", firstName: d.firstName, lastName: d.lastName, phone: d.phone, email: d.email, notes: d.notes, ownerId: d.ownerId, source: d.source })
-        : this.createCustomer({ type: "company", companyName: d.companyName, ownerId: d.ownerId, source: d.source });
-    if (!created.ok) return created;
-    let contact: CompanyContact | undefined;
-    if (d.type === "company") {
-      const c = this.addContact(created.value.id, { ...d.contact, isPrimaryContact: true });
-      if (!c.ok) return c;
-      contact = c.value;
+        ? { ...base, type: "individual", ...splitName(d.name), displayName: d.name, notes: d.notes }
+        : { ...base, type: "company", companyName: d.companyName };
+    if (d.crmStatus !== DEFAULT_CRM_STATUS) {
+      const errors = validateCrmStatusChange(draft, d.crmStatus, d.verification);
+      if (Object.keys(errors).length) return fail(errors);
     }
-    if (d.contactStatus !== "prospect") {
-      const r = this.changeContactStatus(created.value.id, { to: d.contactStatus, recordedBy: d.recordedBy, verification: d.verification, reason: "Rögzítve az ügyfél létrehozásakor." });
+    this.commit({ customers: [draft, ...this.snap.customers] });
+    let contact: CompanyContact | undefined;
+    if (d.type === "company" && d.contactName) contact = this.putContactPerson(draft.id, d.contactName, d.contactPosition);
+    if (d.crmStatus !== DEFAULT_CRM_STATUS) {
+      const r = this.changeCrmStatus(draft.id, { toStatus: d.crmStatus, verification: d.verification, recordedBy: d.recordedBy });
       if (!r.ok) return r;
       return ok({ customer: r.value, contact });
     }
-    return ok({ customer: created.value, contact });
+    return ok({ customer: draft, contact });
   }
 
+  /** A cég kapcsolati személye: a meglévő elsődleges rekord neve és szerepe frissül (az azonosító és a hivatkozások maradnak), különben új, elsődleges rekord jön létre. */
+  private putContactPerson(companyId: string, name: string, position?: string): CompanyContact {
+    const existing = primaryContactOf(this.snap, companyId);
+    const t = this.now();
+    if (existing) {
+      const next: CompanyContact = { ...existing, ...splitName(name), position, isPrimaryContact: true, updatedAt: t };
+      this.commit({ contacts: this.snap.contacts.map((k) => (k.id === existing.id ? next : k.companyId === companyId && k.isPrimaryContact ? { ...k, isPrimaryContact: false } : k)) });
+      return next;
+    }
+    const created: CompanyContact = { id: this.nextId("kont"), companyId, ...splitName(name), position, isPrimaryContact: true, createdAt: t, updatedAt: t };
+    this.commit({ contacts: [...this.snap.contacts, created] });
+    return created;
+  }
+
+  /** Ügyféladatok szerkesztése; a kapcsolati státusz külön művelet (`changeCrmStatus`). Egy lépésben, mindent vagy semmit. */
   updateCustomer(id: string, input: unknown): Result<Customer> {
     const cur = this.snap.customers.find((c) => c.id === id);
     if (!cur) return fail({ _form: "Az ügyfél nem található." });
@@ -162,29 +182,42 @@ export class DemoRepository implements DataRepository {
     if (!parsed.success) return fail(zodErrors(parsed.error));
     const d = parsed.data;
     if (d.type !== cur.type) return fail({ _form: "Az ügyfél típusa nem módosítható." });
+    const source = d.source ?? cur.source;
     if (d.type === "individual") {
-      return this.patchCustomer(id, { firstName: d.firstName, lastName: d.lastName, displayName: buildDisplayName(d.firstName, d.lastName), phone: d.phone, email: d.email, notes: d.notes, ownerId: d.ownerId, source: d.source });
+      return this.patchCustomer(id, { ...splitName(d.name), displayName: d.name, phone: d.phone, email: d.email, notes: d.notes, source });
     }
-    return this.patchCustomer(id, { companyName: d.companyName, ownerId: d.ownerId, source: d.source });
+    const primary = primaryContactOf(this.snap, id);
+    // A meglévő kapcsolattartói rekord nem veszhet el: üres névvel nem üríthető ki.
+    if (!d.contactName && primary) return fail({ contactName: "A kapcsolati személy neve nem üríthető ki (a meglévő kapcsolattartói rekord megmarad)." });
+    const res = this.patchCustomer(id, { companyName: d.companyName, phone: d.phone, email: d.email, source });
+    if (d.contactName) this.putContactPerson(id, d.contactName, d.contactPosition);
+    return res;
   }
 
-  savePrimaryContact(companyId: string, input: unknown): Result<CompanyContact> {
-    const company = this.snap.customers.find((c) => c.id === companyId);
-    if (!company || company.type !== "company") return fail({ _form: "Kapcsolati személy csak céghez adható meg." });
-    const parsed = contactPersonInput.safeParse(input);
+  /**
+   * Kapcsolati státusz kézi módosítása (v0.5). A státuszváltás kizárólag az ügyfél státuszmezőjét írja és naplóz:
+   * nem töröl, nem pipál ki és nem hoz létre feladatot. A „Tőke elhelyezve” szimulált szolgáltatói mérföldkőként, igazolással rögzül.
+   */
+  changeCrmStatus(customerId: string, input: unknown): Result<Customer> {
+    const cur = this.snap.customers.find((c) => c.id === customerId);
+    if (!cur) return fail({ _form: "Az ügyfél nem található." });
+    const parsed = crmStatusChangeInput.safeParse(input);
     if (!parsed.success) return fail(zodErrors(parsed.error));
-    const existing = primaryContactOf(this.snap, companyId);
-    if (!existing) return this.addContact(companyId, { ...parsed.data, isPrimaryContact: true });
-    // A meglévő elsődleges rekord azonosítója megmarad: a hivatkozó folyamatok és aktivitások érvényesek maradnak.
-    return this.updateContact(existing.id, { ...parsed.data, isPrimaryContact: true });
-  }
-
-  makePrimaryContact(contactId: string): Result<CompanyContact> {
-    const cur = this.snap.contacts.find((k) => k.id === contactId);
-    if (!cur) return fail({ _form: "A kapcsolattartó nem található." });
-    const next: CompanyContact = { ...cur, isPrimaryContact: true, updatedAt: this.now() };
-    this.commit({ contacts: this.snap.contacts.map((k) => (k.id === contactId ? next : k.companyId === cur.companyId && k.isPrimaryContact ? { ...k, isPrimaryContact: false } : k)) });
-    return ok(next);
+    const d = parsed.data;
+    const errors = validateCrmStatusChange(cur, d.toStatus, d.verification);
+    if (Object.keys(errors).length) return fail(errors);
+    const from = cur.crmStatus ?? DEFAULT_CRM_STATUS;
+    const milestone = isCrmMilestone(d.toStatus);
+    const verification = milestone && d.verification ? this.verification(d.verification, d.recordedBy) : undefined;
+    const res = this.patchCustomer(customerId, { crmStatus: d.toStatus });
+    this.log({
+      customerId, recordedBy: d.recordedBy, type: milestone ? "provider_milestone" : "crm_status_change",
+      summary: milestone
+        ? `Szimulált szolgáltatói mérföldkő: ${CRM_STATUS_LABELS[d.toStatus]} (igazolás forrása: ${VERIFICATION_SOURCE_LABELS[verification!.sourceCategory]})`
+        : `Kapcsolati státusz: ${CRM_STATUS_LABELS[from]} → ${CRM_STATUS_LABELS[d.toStatus]}`,
+      meta: { fromCrmStatus: from, toCrmStatus: d.toStatus, verification },
+    });
+    return res;
   }
 
   private patchCustomer(id: string, patch: Partial<Customer>): Result<Customer> {
@@ -387,7 +420,9 @@ export class DemoRepository implements DataRepository {
     const rel = validateRelations(this.snap, d);
     if (rel) return fail({ customerId: rel });
     const t = this.now();
-    const task: Task = { id: this.nextId("task"), ...d, createdAt: t, completedAt: d.status === "done" ? t : undefined };
+    // v0.5: a feladat automatikusan az ügyfél AKTUÁLIS státuszához kapcsolódik (külön státuszválasztás nélkül).
+    const customer = this.snap.customers.find((c) => c.id === d.customerId) as Customer;
+    const task: Task = { id: this.nextId("task"), ...d, crmStatus: d.crmStatus ?? customer.crmStatus ?? DEFAULT_CRM_STATUS, createdAt: t, completedAt: d.status === "done" ? t : undefined };
     this.commit({ tasks: [task, ...this.snap.tasks] });
     this.log({
       customerId: d.customerId, processId: d.processId, companyContactId: d.companyContactId, type: "task_created", recordedBy: recordedBy ?? d.assigneeId,
@@ -400,14 +435,17 @@ export class DemoRepository implements DataRepository {
     this.commit({ tasks: this.snap.tasks.map((t) => (t.id === next.id ? next : t)) });
   }
 
-  updateTask(id: string, patch: { dueAt?: string; assigneeId?: string; title?: string }, recordedBy: string): Result<Task> {
+  /** Feladat módosítása; `dueAt: null` törli a határidőt (a határidő opcionális). */
+  updateTask(id: string, patch: { dueAt?: string | null; assigneeId?: string; title?: string }, recordedBy: string): Result<Task> {
     const cur = this.snap.tasks.find((t) => t.id === id);
     if (!cur) return fail({ _form: "A feladat nem található." });
-    if (patch.dueAt !== undefined && Number.isNaN(Date.parse(patch.dueAt))) return fail({ dueAt: "Érvénytelen dátum" });
+    if (typeof patch.dueAt === "string" && Number.isNaN(Date.parse(patch.dueAt))) return fail({ dueAt: "Érvénytelen dátum" });
     if (patch.title !== undefined && !patch.title.trim()) return fail({ title: "Feladat címe kötelező" });
-    const next = { ...cur, ...patch };
+    const { dueAt: nextDue, ...rest } = patch;
+    const next: Task = { ...cur, ...rest, ...(nextDue === undefined ? {} : { dueAt: nextDue ?? undefined }) };
     this.putTask(next);
-    const changes = [patch.dueAt && patch.dueAt !== cur.dueAt ? "határidő" : "", patch.assigneeId && patch.assigneeId !== cur.assigneeId ? "felelős" : ""].filter(Boolean);
+    const dueChanged = nextDue !== undefined && (nextDue ?? undefined) !== cur.dueAt;
+    const changes = [dueChanged ? "határidő" : "", patch.assigneeId && patch.assigneeId !== cur.assigneeId ? "felelős" : ""].filter(Boolean);
     if (changes.length) {
       this.log({ customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, type: "task_updated", recordedBy,
         summary: `Feladat módosítva (${changes.join(", ")}): ${cur.title}`, meta: { taskId: id } });

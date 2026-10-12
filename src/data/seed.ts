@@ -6,6 +6,7 @@ import { emptySnapshot, type CallOutcome, type DataSnapshot, type ProcessStatus,
  * KIZÁRÓLAG FIKTÍV DEMÓADAT. Minden név, telefonszám és e-mail kitalált; az e-mail-címek a fenntartott `.example` TLD-t használják.
  * Nincs valós pénzügyi adat. A szolgáltatói mérföldkövek SZIMULÁLTAK.
  *
+ * FEJLESZTŐI/TESZT FIXTURE (nem töltődik be a felületen): a v0.2/v0.3 adatmodellű régi adatot mintázza.
  * A seedet a valódi repository-műveletekkel építjük fel (órával léptetve), így a státusz-, igazolási és aktivitásnapló
  * szabályai ugyanazok, mint élesben, és a napló mindig konzisztens az állapottal.
  */
@@ -163,5 +164,13 @@ export function createSeedData(now: Date = new Date()): DataSnapshot {
   const hosszu = company(-200, "Fiktív Kereskedelmi és Szolgáltató Korlátolt Felelősségű Társaság a Hosszú Név Tesztelésére", U2);
   contactStatus(-190, hosszu.id, "former_verified", U2, "Demó: korábbi kapcsolat.");
 
-  return repo.getSnapshot();
+  // A seed a v0.5 ELŐTTI (v0.2/v0.3) tárolt adatot mintázza: a feladatok nem kapnak automatikus státusz-hozzárendelést,
+  // így a régi adat (státusz nélküli ügyfelek és feladatok) kompatibilitása tesztelhető.
+  const snapshot = repo.getSnapshot();
+  const tasks = snapshot.tasks.map((task) => {
+    const legacy = { ...task };
+    delete legacy.crmStatus;
+    return legacy;
+  });
+  return { ...snapshot, tasks };
 }

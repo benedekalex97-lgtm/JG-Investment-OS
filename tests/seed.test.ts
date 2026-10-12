@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountOpeningQueue, lastActivity, newInquiries, nextOutreach, nextTask, overdueTasks, tasksDueToday, unfundedAccounts } from "@/domain/logic";
+import { lastActivity, nextTask, overdueTasks, tasksDueToday } from "@/domain/logic";
 import { NOW, byName, processOf, seed } from "./helpers";
 
 describe("fiktív demóadat lefedettsége", () => {
@@ -21,7 +21,7 @@ describe("fiktív demóadat lefedettsége", () => {
     expect(calls.some((a) => a.callOutcome === "callback_requested" && a.companyContactId)).toBe(true);
   });
   it("bejövő érdeklődő", () => {
-    expect(newInquiries(s).map((p) => p.customerId)).toContain(byName(s, "Tesztelek").id);
+    expect(s.processes.filter((p) => p.closure.state === "active" && p.status === "new_inquiry").map((p) => p.customerId)).toContain(byName(s, "Tesztelek").id);
   });
   it("meglévő magánszemély két külön folyamattal, a kapcsolati státusz érintetlen", () => {
     const anna = byName(s, "Mintaváry");
@@ -36,8 +36,8 @@ describe("fiktív demóadat lefedettsége", () => {
   });
   it("konzultációs, számlanyitás folyamatban, nem finanszírozott számla és sikeres lezárás állapotok", () => {
     expect(processOf(s, byName(s, "Minta Építő").id, "Céges").status).toBe("needs_assessment");
-    expect(accountOpeningQueue(s).some((p) => p.status === "account_opening")).toBe(true);
-    expect(unfundedAccounts(s).length).toBeGreaterThanOrEqual(1);
+    expect(s.processes.some((p) => p.closure.state === "active" && p.status === "account_opening")).toBe(true);
+    expect(s.processes.filter((p) => p.closure.state === "active" && (p.status === "account_opened" || p.status === "awaiting_first_deposit")).length).toBeGreaterThanOrEqual(1);
     const success = s.processes.filter((p) => p.closure.state === "closed_success");
     expect(success.length).toBeGreaterThanOrEqual(1);
     for (const p of success) expect(s.activities.some((a) => a.processId === p.id && a.meta?.toStatus === "first_deposit_verified" && a.meta.verification?.simulated)).toBe(true);
@@ -51,7 +51,7 @@ describe("fiktív demóadat lefedettsége", () => {
   it("a munkapult elemei élő adatból állnak", () => {
     expect(tasksDueToday(s, NOW).length).toBeGreaterThan(0);
     expect(overdueTasks(s, NOW).length).toBeGreaterThan(0);
-    expect(nextOutreach(s).length).toBeGreaterThan(0);
+    expect(s.processes.some((p) => p.type === "outbound_outreach" && p.closure.state === "active" && (p.status === "pending_outreach" || p.status === "contact_in_progress"))).toBe(true);
   });
   it("a napló konzisztens: minden folyamat státusza megegyezik az utolsó státuszváltás céljával", () => {
     for (const p of s.processes) {

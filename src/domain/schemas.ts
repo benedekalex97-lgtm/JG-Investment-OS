@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  CALL_OUTCOMES, CONTACT_STATUSES, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
+  CALL_OUTCOMES, CONTACT_STATUSES, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
   PROCESS_TYPES, RESTRICTION_KINDS, TASK_STATUSES, VERIFICATION_SOURCES,
 } from "./constants";
 
@@ -49,36 +49,32 @@ export const verificationInput = z
   })
   .strict();
 
-const reqPhone = z
-  .string({ message: "Telefonszám megadása kötelező" }).trim().min(1, "Telefonszám megadása kötelező")
-  .refine((v) => /^\+?[0-9 ()/-]{6,20}$/.test(v), "Érvénytelen telefonszám");
-
-/** Kapcsolati személy (cégnél): név és telefonszám kötelező; e-mail és beosztás/szerep opcionális. */
-export const contactPersonInput = z
-  .object({ firstName: req("Keresztnév"), lastName: req("Vezetéknév"), phone: reqPhone, email: optEmail, position: optText })
-  .strict();
-
 /**
- * Új ügyfél űrlap (v0.3): üzleti minimum - magánszemélynél név + telefon, cégnél cégnév + kapcsolati személy neve + telefon.
- * Az e-mail és a beosztás/szerep sosem kötelező. Az igazolt kapcsolati státuszhoz igazolási forrás kell.
+ * v0.5 egyszerű ügyfélűrlap: az üzleti minimum a név (cégnél a cégnév). A telefonszám, az e-mail, a kapcsolati személy,
+ * az adatforrás és a szerep mind opcionális. A kapcsolati státusz alapértéke: Kapcsolatfelvételre vár; a „Tőke elhelyezve”
+ * csak igazolási forrással és a compliance figyelmeztetés tudomásulvételével adható meg.
  */
 const formCommon = {
-  ownerId: req("Felelős"),
   source: z.string().trim().optional().transform((v) => (v ? v : "manuális (demó)")),
-  contactStatus: z.enum(CONTACT_STATUSES).default("prospect"),
+  crmStatus: z.enum(CRM_STATUSES).default(DEFAULT_CRM_STATUS),
   verification: verificationInput.optional(),
   recordedBy: req("Rögzítő"),
 };
 export const newCustomerForm = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("individual"), firstName: req("Keresztnév"), lastName: req("Vezetéknév"), phone: reqPhone, email: optEmail, notes: optText, ...formCommon }).strict(),
-  z.object({ type: z.literal("company"), companyName: req("Cégnév"), contact: contactPersonInput, ...formCommon }).strict(),
+  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, email: optEmail, notes: optText, ...formCommon }).strict(),
+  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, email: optEmail, contactName: optText, contactPosition: optText, ...formCommon }).strict(),
 ]);
 
 /** Ügyfél szerkesztése: a kapcsolati státusz és a korlátozás NEM itt módosul (külön, naplózott műveletek). */
 export const customerUpdateInput = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("individual"), firstName: req("Keresztnév"), lastName: req("Vezetéknév"), phone: reqPhone, email: optEmail, notes: optText, ownerId: req("Felelős"), source: req("Adatforrás") }).strict(),
-  z.object({ type: z.literal("company"), companyName: req("Cégnév"), ownerId: req("Felelős"), source: req("Adatforrás") }).strict(),
+  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, email: optEmail, notes: optText, source: optText }).strict(),
+  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, email: optEmail, contactName: optText, contactPosition: optText, source: optText }).strict(),
 ]);
+
+/** Kapcsolati státusz váltása (v0.5): nincs kötelező sorrend, indoklás; a „Tőke elhelyezve” igazolást kér. */
+export const crmStatusChangeInput = z
+  .object({ toStatus: z.enum(CRM_STATUSES, { message: "Válassz státuszt" }), verification: verificationInput.optional(), recordedBy: req("Rögzítő") })
+  .strict();
 
 export const processInput = z
   .object({
@@ -115,8 +111,9 @@ export const taskInput = z
     title: req("Feladat címe"),
     description: optText,
     assigneeId: req("Felelős"),
-    dueAt: isoDate,
+    dueAt: optIsoDate,
     status: z.enum(TASK_STATUSES).default("open"),
+    crmStatus: z.enum(CRM_STATUSES).optional(),
     recordedBy: z.string().trim().optional(),
   })
   .strict();
@@ -163,9 +160,9 @@ export const restrictionInput = z
   .strict();
 
 export type CustomerInput = z.infer<typeof customerInput>;
+export type CrmStatusChangeInput = z.infer<typeof crmStatusChangeInput>;
 export type NewCustomerForm = z.infer<typeof newCustomerForm>;
 export type CustomerUpdateInput = z.infer<typeof customerUpdateInput>;
-export type ContactPersonInput = z.infer<typeof contactPersonInput>;
 export type CompanyContactInput = z.infer<typeof companyContactInput>;
 export type ProcessInput = z.infer<typeof processInput>;
 export type ManualActivityInput = z.infer<typeof manualActivityInput>;

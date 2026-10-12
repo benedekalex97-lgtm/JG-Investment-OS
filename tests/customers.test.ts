@@ -86,16 +86,15 @@ describe("keresés és szűrés", () => {
     expect(searchCustomers(s, { query: "mintavary" }).map((c) => c.id)).toContain(byName(s, "Mintaváry").id);
     expect(searchCustomers(s, { query: "pekseg" })).toHaveLength(1);
   });
-  it("szűrés típusra, kapcsolati státuszra és felelősre", () => {
+  it("szűrés típusra és az új kapcsolati státuszra (a hiányzó státusz az alapértelmezett)", () => {
     expect(searchCustomers(s, { type: "company" }).every((c) => c.type === "company")).toBe(true);
-    expect(searchCustomers(s, { contactStatus: "archived" }).length).toBeGreaterThan(0);
-    expect(searchCustomers(s, { ownerId: "user-2" }).every((c) => c.ownerId === "user-2")).toBe(true);
-  });
-  it("szűrés folyamattípusra és folyamatstátuszra (csak aktív folyamatok)", () => {
-    const inbound = searchCustomers(s, { processType: "inbound_inquiry" });
-    expect(inbound.map((c) => c.id)).toContain(byName(s, "Tesztelek").id);
-    // Dénes folyamata lezárt, ezért aktív szűrőre nem találat
-    expect(searchCustomers(s, { processStatus: "needs_assessment" }).map((c) => c.id)).not.toContain(byName(s, "Kitalált").id);
+    expect(searchCustomers(s, { crmStatus: "waiting_for_contact" })).toHaveLength(s.customers.length);
+    expect(searchCustomers(s, { crmStatus: "meeting" })).toHaveLength(0);
+    const r = newRepo(seed());
+    const c = byName(r.getSnapshot(), "Mintaváry");
+    val(r.changeCrmStatus(c.id, { toStatus: "meeting", recordedBy: U }));
+    expect(searchCustomers(r.getSnapshot(), { crmStatus: "meeting" }).map((x) => x.id)).toEqual([c.id]);
+    expect(searchCustomers(r.getSnapshot(), { crmStatus: "waiting_for_contact" })).toHaveLength(s.customers.length - 1);
   });
   
 });

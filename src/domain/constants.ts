@@ -20,7 +20,29 @@ export const VERIFIED_CONTACT_STATUSES = ["existing_verified", "former_verified"
 export const RESTRICTION_KINDS = ["objection", "restriction"] as const;
 export const RESTRICTION_LABELS = { objection: "Tiltakozás", restriction: "Megkeresési korlátozás" } as const;
 
-// ------------------------------------------------------------------ Folyamat
+// ------------------------------------------------------- Egyszerű CRM (v0.5)
+/**
+ * Az ügyfél egyetlen aktuális kapcsolati státusza: pontosan hét, jóváhagyott megnevezés és sorrend.
+ * Ne bővítsd és ne nevezd át (üzleti döntés). A státusz közvetlenül az ügyfélhez tartozik; a korábbi
+ * CustomerProcess-alapú folyamatstátuszok (lásd lent) a háttérben megmaradnak, de nincs hozzájuk leképezés.
+ */
+export const CRM_STATUSES = ["waiting_for_contact", "contact", "relationship", "meeting", "account_opening", "capital_placed", "lost"] as const;
+export const CRM_STATUS_LABELS = {
+  waiting_for_contact: "Kapcsolatfelvételre vár",
+  contact: "Kapcsolatfelvétel",
+  relationship: "Kapcsolatépítés",
+  meeting: "Online/Személyes tárgyalás",
+  account_opening: "Számlanyitás",
+  capital_placed: "Tőke elhelyezve",
+  lost: "Elvesztett",
+} as const;
+export const DEFAULT_CRM_STATUS = "waiting_for_contact" as const;
+/** Kimenő megkeresést jelentő státuszok: megkeresési korlátozás/tiltakozás mellett nem választhatók. */
+export const CRM_OUTREACH_STATUSES = ["contact", "relationship"] as const;
+/** Szolgáltatói mérföldkő: csak igazolási forrás és compliance tudomásulvétel mellett (demóban szimulált). */
+export const CRM_MILESTONE_STATUSES = ["capital_placed"] as const;
+
+// ------------------------------------------------------------------ Folyamat (régi, háttérben megőrzött)
 export const PROCESS_TYPES = ["outbound_outreach", "inbound_inquiry"] as const;
 export const PROCESS_TYPE_LABELS = { outbound_outreach: "Kimenő kapcsolatépítés", inbound_inquiry: "Bejövő érdeklődés" } as const;
 
@@ -87,7 +109,7 @@ export const OUTREACH_COMPLIANCE_NOTICE =
 export const MANUAL_ACTIVITY_TYPES = ["call", "note", "meeting", "follow_up"] as const;
 export const SYSTEM_ACTIVITY_TYPES = [
   "status_change", "provider_milestone", "process_created", "process_closed", "process_reopened",
-  "task_created", "task_completed", "task_updated", "contact_status_change", "restriction_change",
+  "task_created", "task_completed", "task_updated", "contact_status_change", "restriction_change", "crm_status_change",
 ] as const;
 export const ACTIVITY_TYPES = [...MANUAL_ACTIVITY_TYPES, ...SYSTEM_ACTIVITY_TYPES] as const;
 export const ACTIVITY_LABELS = {
@@ -95,7 +117,7 @@ export const ACTIVITY_LABELS = {
   status_change: "Státuszváltás", provider_milestone: "Szolgáltatói mérföldkő (szimulált)",
   process_created: "Folyamat létrehozva", process_closed: "Folyamat lezárva", process_reopened: "Folyamat újranyitva",
   task_created: "Feladat létrehozva", task_completed: "Feladat elvégezve", task_updated: "Feladat módosítva",
-  contact_status_change: "Kapcsolati státusz módosítva", restriction_change: "Megkeresési korlátozás",
+  contact_status_change: "Régi kapcsolati státusz módosítva", restriction_change: "Megkeresési korlátozás", crm_status_change: "Kapcsolati státusz módosítva",
 } as const;
 
 export const CALL_OUTCOMES = [

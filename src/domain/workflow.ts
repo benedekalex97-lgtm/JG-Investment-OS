@@ -1,5 +1,5 @@
-import { PROCESS_STATUS_DEFS, VERIFIED_CONTACT_STATUSES } from "./constants";
-import type { ContactStatus, CustomerProcess, DataSnapshot, ProcessStatus, ProcessType } from "./types";
+import { CRM_MILESTONE_STATUSES, DEFAULT_CRM_STATUS, CRM_OUTREACH_STATUSES, PROCESS_STATUS_DEFS, RESTRICTION_LABELS, VERIFIED_CONTACT_STATUSES } from "./constants";
+import type { ContactStatus, CrmStatus, Customer, CustomerProcess, DataSnapshot, ProcessStatus, ProcessType, Verification } from "./types";
 import type { CloseInput, ContactStatusInput, StatusChangeInput } from "./schemas";
 
 /** A folyamattípushoz tartozó státuszok sorrendben (a másik típus kiinduló állapota nélkül). */
@@ -76,6 +76,26 @@ export function validateContactStatusChange(from: ContactStatus, input: Pick<Con
   if (input.to === from) return { to: "Az ügyfél már ebben a kapcsolati státuszban van." };
   if ((VERIFIED_CONTACT_STATUSES as readonly string[]).includes(input.to) && !input.verification) {
     return { verification: "Az „igazolt” besoroláshoz igazolási forrás és a figyelmeztetés tudomásulvétele szükséges." };
+  }
+  return {};
+}
+
+// ------------------------------------------------------------ v0.5 kapcsolati státusz
+export const isCrmMilestone = (s: CrmStatus) => (CRM_MILESTONE_STATUSES as readonly string[]).includes(s);
+
+/**
+ * Kapcsolati státuszváltás szabályai (v0.5). Nincs kötelező sorrend és nincs indoklás: bármely másik státuszra lehet váltani.
+ * - ugyanarra a státuszra nem váltható;
+ * - megkeresési korlátozás/tiltakozás mellett a kimenő kapcsolatfelvételi státuszok (Kapcsolatfelvétel, Kapcsolatépítés) nem választhatók;
+ * - a „Tőke elhelyezve” szolgáltatói mérföldkő: igazolási forrás + compliance tudomásulvétel nélkül nem rögzíthető (demóban szimulált).
+ */
+export function validateCrmStatusChange(customer: Customer, to: CrmStatus, verification?: Pick<Verification, "sourceCategory"> | { sourceCategory?: string; complianceAcknowledged?: boolean }): Record<string, string> {
+  if (to === (customer.crmStatus ?? DEFAULT_CRM_STATUS)) return { toStatus: "Az ügyfél már ebben a státuszban van." };
+  if (customer.restriction && (CRM_OUTREACH_STATUSES as readonly string[]).includes(to)) {
+    return { toStatus: `${RESTRICTION_LABELS[customer.restriction.kind]} van rögzítve: ebbe a kimenő kapcsolatfelvételi státuszba nem váltható.` };
+  }
+  if (isCrmMilestone(to) && !verification) {
+    return { verification: "A „Tőke elhelyezve” szolgáltatói mérföldkő csak igazolási forrással és a compliance figyelmeztetés tudomásulvételével rögzíthető." };
   }
   return {};
 }
