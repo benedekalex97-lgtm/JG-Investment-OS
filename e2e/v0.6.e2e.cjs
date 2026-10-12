@@ -101,7 +101,8 @@ async function login(page, email, pw) {
 async function openCustomer(page, name) {
   await page.goto(BASE + "/customers", { waitUntil: "networkidle" });
   await page.locator(`main a:has-text("${name}")`).first().click();
-  await page.waitForSelector("main h1");
+  await page.waitForURL("**/customers/cust-*");
+  await page.waitForSelector(`main h1:has-text("${name}")`);
 }
 async function newCustomer(page, fields) {
   await page.goto(BASE + "/customers/new", { waitUntil: "networkidle" });
@@ -114,7 +115,7 @@ async function newCustomer(page, fields) {
   if (fields.source) await page.getByLabel(/^Adatforrás/).fill(fields.source);
   await page.click('button:has-text("Ügyfél létrehozása")');
   await page.waitForURL("**/customers/cust-*");
-  await page.waitForSelector("main h1");
+  await page.waitForSelector(`main h1:has-text("${fields.name || fields.companyName}")`);
 }
 async function addTask(page, typeLabel, opts = {}) {
   await page.click('button:has-text("+ Feladat hozzáadása")');
