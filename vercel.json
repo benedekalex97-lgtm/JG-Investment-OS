@@ -1,8 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
-    "deploymentEnabled": {
-      "chore/jg-os-v063-runtime-role-actions": false
-    }
+    "deploymentEnabled": false
   }
 }
