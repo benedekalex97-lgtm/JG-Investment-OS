@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CrmStatusBadge, DataGate, TypeBadge } from "@/components/common";
+import { CrmStatusBadge, DataGate, RestrictedBadge, TypeBadge } from "@/components/common";
 import { FilterSelect } from "@/components/ui/form";
-import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
-import { CRM_STATUSES, CRM_STATUS_LABELS, CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS, RESTRICTION_LABELS } from "@/domain/constants";
+import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
+import { CRM_STATUSES, CRM_STATUS_LABELS, CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
 import { customerName, matchingContacts, nextTask, searchCustomers, statusOf, type CustomerFilter } from "@/domain/logic";
 import type { DataSnapshot } from "@/domain/types";
 import { formatDate } from "@/lib/format";
@@ -48,7 +48,7 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
                   <tr key={c.id} className="align-top hover:bg-canvas">
                     <td className="max-w-xs px-4 py-3">
                       <Link href={`/customers/${c.id}`} className="break-words font-medium text-accent hover:underline">{customerName(c)}</Link>
-                      {c.restriction ? <p className="mt-1"><Badge tone="danger">{RESTRICTION_LABELS[c.restriction.kind]}</Badge></p> : null}
+                      {c.restriction ? <p className="mt-1"><RestrictedBadge customer={c} /></p> : null}
                       {via.length && !customerName(c).toLowerCase().includes(f.query.toLowerCase()) ? <p className="text-xs text-ink-muted">Találat kapcsolati személyre: {via.map((k) => `${k.lastName} ${k.firstName}`.trim()).join(", ")}</p> : null}
                     </td>
                     <td className="px-4 py-3"><TypeBadge type={c.type} /></td>

@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useDemoData } from "@/data/store";
 import {
-  CRM_STATUS_LABELS, OUTREACH_COMPLIANCE_NOTICE, RESTRICTION_KINDS, RESTRICTION_LABELS, VERIFICATION_COMPLIANCE_WARNING, VERIFICATION_SOURCES,
-  VERIFICATION_SOURCE_LABELS,
+  CRM_STATUS_LABELS, TASK_TEXT_MAX, TASK_TYPES, VERIFICATION_COMPLIANCE_WARNING, VERIFICATION_SOURCES, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import type { Customer } from "@/domain/types";
+import type { Customer, Task } from "@/domain/types";
 import { fromDateInputValue } from "@/lib/format";
 import { Modal } from "./ui/modal";
 import { SelectInput, TextArea, TextInput } from "./ui/form";
@@ -77,73 +76,92 @@ function CapitalPlacedForm({ onClose, customer }: { onClose: () => void; custome
   );
 }
 
-// ----------------------------------------------------------- Korlátozás
-export function RestrictionModal({ open, onClose, customer }: { open: boolean; onClose: () => void; customer: Customer }) {
+const counter = (text: string) => `${text.length} / ${TASK_TEXT_MAX} karakter`;
+
+// ------------------------------------------------------------ Új feladat (modál)
+/**
+ * Új feladat (v0.5.1): külön modál. A feladat neve a kiválasztott feladattípus neve (központi lista: TASK_TYPES), az Input
+ * (leírás) opcionális, a határidő opcionális. A feladat automatikusan az ügyfél aktuális státuszához kapcsolódik.
+ */
+export function NewTaskModal({ open, onClose, customerId, statusLabel }: { open: boolean; onClose: () => void; customerId: string; statusLabel: string }) {
   return (
-    <Modal open={open} onClose={onClose} title="Tiltakozás / megkeresési korlátozás">
-      <RestrictionForm onClose={onClose} customer={customer} />
+    <Modal open={open} onClose={onClose} title="Új feladat">
+      <NewTaskForm onClose={onClose} customerId={customerId} statusLabel={statusLabel} />
     </Modal>
   );
 }
-function RestrictionForm({ onClose, customer }: { onClose: () => void; customer: Customer }) {
+function NewTaskForm({ onClose, customerId, statusLabel }: { onClose: () => void; customerId: string; statusLabel: string }) {
   const { repo, currentUserId } = useDemoData();
-  const [kind, setKind] = useState<string>(customer.restriction?.kind ?? "objection");
-  const [note, setNote] = useState("");
+  const [taskType, setTaskType] = useState("");
+  const [description, setDescription] = useState("");
+  const [due, setDue] = useState("");
   const [errors, setErrors] = useState<Errors>({});
+  const busy = useRef(false); // dupla kattintás/Enter elleni védelem
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const r = repo.setRestriction(customer.id, { kind, note, recordedBy: currentUserId });
-    if (!r.ok) return setErrors(r.errors);
-    onClose();
-  };
-  const lift = () => {
-    const r = repo.setRestriction(customer.id, { kind: null, note, recordedBy: currentUserId });
-    if (!r.ok) return setErrors(r.errors);
+    if (busy.current) return;
+    busy.current = true;
+    const r = repo.createTask({ customerId, taskType: taskType || undefined, description, dueAt: fromDateInputValue(due) || undefined, assigneeId: currentUserId, recordedBy: currentUserId });
+    if (!r.ok) {
+      busy.current = false;
+      return setErrors(r.errors);
+    }
     onClose();
   };
   return (
-    <FormShell onSubmit={submit} errors={errors} submitLabel={customer.restriction ? "Módosítás" : "Rögzítés"} onCancel={onClose}>
-      <p className="text-sm">{OUTREACH_COMPLIANCE_NOTICE}</p>
-      <p className="text-sm">A rögzített korlátozás jól látható figyelmeztetésként jelenik meg, és a kimenő kapcsolatfelvételi státuszokat (Kapcsolatfelvétel, Kapcsolatépítés) blokkolja.</p>
-      <SelectInput label="Típus" value={kind} onChange={(e) => setKind(e.target.value)}>
-        {RESTRICTION_KINDS.map((k) => <option key={k} value={k}>{RESTRICTION_LABELS[k]}</option>)}
+    <FormShell onSubmit={submit} errors={errors} submitLabel="Feladat létrehozása" onCancel={onClose}>
+      <p className="text-[13px] text-ink-muted">Az új feladat a(z) „{statusLabel}” státuszhoz kapcsolódik.</p>
+      <SelectInput label="Feladat típusa" required value={taskType} error={errors.taskType} onChange={(e) => setTaskType(e.target.value)} autoFocus>
+        <option value="">— válassz —</option>
+        {TASK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
       </SelectInput>
-      <TextArea label="Körülmények / megjegyzés" required value={note} error={errors.note} onChange={(e) => setNote(e.target.value)} />
-      {customer.restriction ? <div><Button variant="danger" onClick={lift}>Korlátozás feloldása</Button></div> : null}
+      <TextArea label="Leírás / Input" value={description} error={errors.description} maxLength={TASK_TEXT_MAX} rows={4} onChange={(e) => setDescription(e.target.value)} hint={`Mit kell elvégezni, vagy milyen információ alapján dolgozunk (opcionális). ${counter(description)}`} />
+      <TextInput label="Határidő (opcionális)" type="date" value={due} error={errors.dueAt} onChange={(e) => setDue(e.target.value)} />
     </FormShell>
   );
 }
 
-// ------------------------------------------------------ Feladat hozzáadása
+// -------------------------------------------------------- Feladat lezárása (modál)
 /**
- * Új feladat az ügyfélnél: megnevezés + opcionális határidő. Automatikusan az ügyfél aktuális státuszához kapcsolódik
- * (nincs státusz- vagy állapotválasztó, nincs folyamatkapcsolat).
+ * Feladat lezárása (v0.5.1): az elvégzettként jelölés ezt a modált nyitja; a lezárás csak itt, kitöltött Output (eredmény)
+ * mellett válik véglegessé. „Mégse” esetén a feladat nyitott marad.
  */
-export function AddTaskForm({ customerId, statusLabel }: { customerId: string; statusLabel: string }) {
+export function CloseTaskModal({ open, onClose, task }: { open: boolean; onClose: () => void; task: Task }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Feladat lezárása">
+      <CloseTaskForm onClose={onClose} task={task} />
+    </Modal>
+  );
+}
+function CloseTaskForm({ onClose, task }: { onClose: () => void; task: Task }) {
   const { repo, currentUserId } = useDemoData();
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [due, setDue] = useState("");
+  const [output, setOutput] = useState("");
   const [errors, setErrors] = useState<Errors>({});
-  const reset = () => { setOpen(false); setTitle(""); setDue(""); setErrors({}); };
+  const busy = useRef(false);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const r = repo.createTask({ customerId, title, dueAt: fromDateInputValue(due) || undefined, assigneeId: currentUserId, recordedBy: currentUserId });
-    if (!r.ok) return setErrors(r.errors);
-    reset();
+    if (busy.current) return;
+    busy.current = true;
+    const r = repo.closeTask(task.id, { output, recordedBy: currentUserId });
+    if (!r.ok) {
+      busy.current = false;
+      return setErrors(r.errors);
+    }
+    onClose();
   };
-  if (!open) return <div className="p-4"><Button variant="secondary" onClick={() => setOpen(true)}>+ Feladat hozzáadása</Button></div>;
   return (
-    <form onSubmit={submit} noValidate className="space-y-3 border-t border-line p-4">
-      <p className="text-[13px] text-ink-muted">Az új feladat a(z) „{statusLabel}” státuszhoz kapcsolódik.</p>
-      <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
-        <TextInput label="Feladat megnevezése" required value={title} error={errors.title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-        <TextInput label="Határidő (opcionális)" type="date" value={due} error={errors.dueAt} onChange={(e) => setDue(e.target.value)} />
+    <FormShell onSubmit={submit} errors={errors} submitLabel="Feladat lezárása" onCancel={onClose}>
+      <div className="space-y-3 rounded-md bg-canvas p-3 text-sm">
+        <div>
+          <p className="text-xs font-medium text-ink-muted">Feladat</p>
+          <p className="break-words font-medium">{task.title}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-ink-muted">Input</p>
+          <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words">{task.description || "— nincs megadva —"}</p>
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button type="submit">Feladat hozzáadása</Button>
-        <Button variant="secondary" onClick={reset}>Mégse</Button>
-      </div>
-    </form>
+      <TextArea label="Eredmény / Output" required value={output} error={errors.output} maxLength={TASK_TEXT_MAX} rows={4} onChange={(e) => setOutput(e.target.value)} autoFocus hint={`Mi történt, milyen eredménnyel zárult a feladat. ${counter(output)}`} />
+    </FormShell>
   );
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   CALL_OUTCOMES, CONTACT_STATUSES, TASK_TEXT_MAX, TASK_TYPE_KEYS, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
-  PROCESS_TYPES, RESTRICTION_KINDS, TASK_STATUSES, VERIFICATION_SOURCES,
+  PROCESS_TYPES, RESTRICTION_KINDS, VERIFICATION_SOURCES,
 } from "./constants";
 
 const req = (label: string) => z.string({ message: `${label} megadása kötelező` }).trim().min(1, `${label} megadása kötelező`);

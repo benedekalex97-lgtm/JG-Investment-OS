@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { DataGate, TypeBadge } from "@/components/common";
+import { DataGate, RestrictedBadge, TypeBadge } from "@/components/common";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
-import { RESTRICTION_LABELS } from "@/domain/constants";
 import { crmPipeline, customerName, nextTask, type PipelineColumn } from "@/domain/logic";
 import type { DataSnapshot } from "@/domain/types";
 import { cn } from "@/lib/cn";
@@ -21,7 +20,7 @@ function CustomerCard({ customer, data }: { customer: DataSnapshot["customers"][
         </h4>
         <div className="flex flex-wrap items-center gap-1.5">
           <TypeBadge type={customer.type} />
-          {customer.restriction ? <Badge tone="danger">{RESTRICTION_LABELS[customer.restriction.kind]}</Badge> : null}
+          <RestrictedBadge customer={customer} />
         </div>
         <p className="break-words text-xs text-ink-muted">
           Következő feladat: {task ? <>{task.title}{task.dueAt ? ` · ${formatDate(task.dueAt)}` : ""}</> : "nincs"}

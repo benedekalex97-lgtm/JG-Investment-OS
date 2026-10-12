@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { TypeBadge } from "@/components/common";
+import { RestrictedBadge, TypeBadge } from "@/components/common";
+import { StatusSelect } from "@/components/status-select";
 import { TextInput } from "@/components/ui/form";
-import { Button, Card, CardHeader } from "@/components/ui/primitives";
+import { Button, Card } from "@/components/ui/primitives";
 import { useDemoData } from "@/data/store";
-import { contactName, otherContactsOf, primaryContactOf } from "@/domain/logic";
+import { contactName, customerName, otherContactsOf, primaryContactOf } from "@/domain/logic";
 import type { CompanyContact, Customer, DataSnapshot } from "@/domain/types";
 
 type Errors = Record<string, string>;
@@ -42,8 +43,9 @@ function OtherContacts({ others }: { others: CompanyContact[] }) {
 }
 
 /**
- * Az ügyfél alapadatai (v0.5): név, típus, elérhetőségek, (cégnél) kapcsolati személy, adatforrás. Közvetlen „Szerkesztés”.
- * Magánszemély: név, telefon, e-mail, adatforrás. Cég: cégnév, kapcsolati személy neve (+ opcionális szerep), telefon, e-mail, adatforrás.
+ * Az ügyfél fejléce és alapadatai (v0.5.1): az ügyfél neve MELLETT a szerkeszthető kapcsolati státusz (mobilon a név alatt),
+ * alatta az alapadatok és a közvetlen „Szerkesztés”. Magánszemély: név, telefon, e-mail, adatforrás. Cég: cégnév, kapcsolati
+ * személy (+ opcionális szerep), telefon, e-mail, adatforrás. Aktív tiltakozás/korlátozás esetén rövid, csak olvasható jelzés.
  */
 export function CustomerDetails({ data, customer }: { data: DataSnapshot; customer: Customer }) {
   const [editing, setEditing] = useState(false);
@@ -54,25 +56,27 @@ export function CustomerDetails({ data, customer }: { data: DataSnapshot; custom
   const email = customer.email ?? primary?.email;
   return (
     <Card id="ugyfel">
-      <CardHeader
-        title="Ügyféladatok"
-        action={<span className="flex flex-wrap items-center gap-2"><TypeBadge type={customer.type} />{!editing ? <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Szerkesztés</Button> : null}</span>}
-      />
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line p-4">
+        <div className="min-w-0 max-w-full">
+          <h1 className="break-words text-2xl font-semibold tracking-tight text-ink">{customerName(customer)}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-muted"><TypeBadge type={customer.type} /><RestrictedBadge customer={customer} /></p>
+        </div>
+        <StatusSelect customer={customer} />
+      </header>
       {editing ? (
         <EditForm customer={customer} primary={primary} onDone={() => setEditing(false)} />
       ) : (
         <>
           <Fields
             items={[
-              ...(customer.type === "company"
-                ? [{ label: "Cégnév", value: customer.companyName }, { label: "Kapcsolati személy", value: primary ? `${contactName(primary)}${primary.position ? ` (${primary.position})` : ""}` : "" }]
-                : [{ label: "Név", value: customer.displayName }]),
+              ...(customer.type === "company" ? [{ label: "Kapcsolati személy", value: primary ? `${contactName(primary)}${primary.position ? ` (${primary.position})` : ""}` : "" }] : []),
               { label: "Telefonszám", value: phone },
               { label: "E-mail", value: email },
               { label: "Adatforrás", value: customer.source },
             ]}
           />
           <OtherContacts others={others} />
+          <div className="px-4 pb-4"><Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Szerkesztés</Button></div>
         </>
       )}
     </Card>
