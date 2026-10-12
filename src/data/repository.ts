@@ -1,10 +1,10 @@
 import type { ZodError } from "zod";
 import {
-  closeInput, companyContactInput, contactStatusInput, crmStatusChangeInput, customerInput, customerUpdateInput, manualActivityInput,
+  closeInput, closeTaskInput, companyContactInput, contactStatusInput, crmStatusChangeInput, customerInput, customerUpdateInput, manualActivityInput,
   newCustomerForm, processInput, reopenInput, restrictionInput, statusChangeInput, taskInput,
 } from "@/domain/schemas";
 import {
-  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
+  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, TASK_TYPE_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
 import { buildDisplayName, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
 import type {
@@ -53,6 +53,9 @@ export interface DataRepository {
   reopenProcess(id: string, input: unknown): Result<CustomerProcess>;
   createTask(input: unknown): Result<Task>;
   updateTask(id: string, patch: { dueAt?: string | null; assigneeId?: string; title?: string }, recordedBy: string): Result<Task>;
+  /** Feladat lezárása kötelező Output-tal (a lezárás egyetlen útja). */
+  closeTask(id: string, input: unknown): Result<Task>;
+  /** Státuszváltás a feladaton: csak az újranyitás (open) engedett; a lezáráshoz Output kell (`closeTask`). */
   setTaskStatus(id: string, status: TaskStatus, recordedBy: string): Result<Task>;
   createActivity(input: unknown): Result<Activity>;
   setContactability(
@@ -416,19 +419,39 @@ export class DemoRepository implements DataRepository {
   createTask(input: unknown): Result<Task> {
     const parsed = taskInput.safeParse(input);
     if (!parsed.success) return fail(zodErrors(parsed.error));
-    const { recordedBy, ...d } = parsed.data;
+    const { recordedBy, taskType, title, ...d } = parsed.data;
     const rel = validateRelations(this.snap, d);
     if (rel) return fail({ customerId: rel });
     const t = this.now();
     // v0.5: a feladat automatikusan az ügyfél AKTUÁLIS státuszához kapcsolódik (külön státuszválasztás nélkül).
     const customer = this.snap.customers.find((c) => c.id === d.customerId) as Customer;
-    const task: Task = { id: this.nextId("task"), ...d, crmStatus: d.crmStatus ?? customer.crmStatus ?? DEFAULT_CRM_STATUS, createdAt: t, completedAt: d.status === "done" ? t : undefined };
+    // v0.5.1: a feladat neve a kiválasztott típus neve.
+    const name = taskType ? TASK_TYPE_LABELS[taskType] : (title as string);
+    const task: Task = { id: this.nextId("task"), ...d, title: name, ...(taskType ? { taskType } : {}), crmStatus: d.crmStatus ?? customer.crmStatus ?? DEFAULT_CRM_STATUS, createdAt: t };
     this.commit({ tasks: [task, ...this.snap.tasks] });
     this.log({
       customerId: d.customerId, processId: d.processId, companyContactId: d.companyContactId, type: "task_created", recordedBy: recordedBy ?? d.assigneeId,
       summary: `Feladat létrehozva: ${task.title}`, meta: { taskId: task.id },
     });
     return ok(task);
+  }
+
+  /** Feladat lezárása: az Output kötelező. Újranyitás után az előzmény megmarad, az újabb lezárás új bejegyzést fűz hozzá (nem ír felül). */
+  closeTask(id: string, input: unknown): Result<Task> {
+    const cur = this.snap.tasks.find((t) => t.id === id);
+    if (!cur) return fail({ _form: "A feladat nem található." });
+    if (cur.status === "done") return fail({ _form: "A feladat már le van zárva." });
+    const parsed = closeTaskInput.safeParse(input);
+    if (!parsed.success) return fail(zodErrors(parsed.error));
+    const { output, recordedBy } = parsed.data;
+    const t = this.now();
+    const next: Task = { ...cur, status: "done", completedAt: t, outputs: [...(cur.outputs ?? []), { text: output, closedAt: t, closedBy: recordedBy }] };
+    this.putTask(next);
+    this.log({
+      customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, recordedBy, type: "task_completed",
+      summary: `Feladat lezárva: ${cur.title}`, meta: { taskId: id, output },
+    });
+    return ok(next);
   }
 
   private putTask(next: Task) {
@@ -456,13 +479,16 @@ export class DemoRepository implements DataRepository {
   setTaskStatus(id: string, status: TaskStatus, recordedBy: string): Result<Task> {
     const cur = this.snap.tasks.find((t) => t.id === id);
     if (!cur) return fail({ _form: "A feladat nem található." });
+    // A lezárás egyetlen útja a `closeTask` (kötelező Output): ezen a ponton nem kerülhető meg.
+    if (status === "done") return fail({ _form: "A feladat lezárásához Output (eredmény) megadása kötelező." });
     if (cur.status === status) return ok(cur);
-    const next: Task = { ...cur, status, completedAt: status === "done" ? (cur.completedAt ?? this.now()) : undefined };
+    // Újranyitás: az Output-előzmény (`outputs`) megmarad, csak az elvégzett állapot és a lezárás időpontja törlődik.
+    const next: Task = { ...cur, status, completedAt: undefined };
     this.putTask(next);
     this.log({
       customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, recordedBy, meta: { taskId: id },
-      type: status === "done" ? "task_completed" : "task_updated",
-      summary: status === "done" ? `Feladat elvégezve: ${cur.title}` : `Feladat állapota módosítva: ${cur.title}`,
+      type: "task_updated",
+      summary: cur.status === "done" ? `Feladat újranyitva: ${cur.title}` : `Feladat állapota módosítva: ${cur.title}`,
     });
     return ok(next);
   }

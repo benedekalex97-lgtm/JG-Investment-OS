@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptySnapshot } from "@/domain/types";
 import { nextTask, overdueTasks, tasksByStatus, tasksDueToday } from "@/domain/logic";
-import { NOW, U, byName, errs, newRepo, seed, tickRepo, val } from "./helpers";
+import { NOW, U, byName, closeIt, errs, newRepo, seed, tickRepo, val } from "./helpers";
 
 type Repo = ReturnType<typeof newRepo>;
 const mk = (r: Repo, name = "Feladat Teszt") => val(r.createCustomerFromForm({ type: "individual", name, recordedBy: U })).customer;
@@ -19,10 +19,10 @@ describe("feladat az ügyfél aktuális státusza alatt", () => {
     expect(t.dueAt).toBeUndefined();
     expect(add(r, c.id, "Határidős", { dueAt: "2026-12-01T12:00:00.000Z" }).dueAt).toBe("2026-12-01T12:00:00.000Z");
   });
-  it("megnevezés nélkül elutasítva; folyamathoz nem kötött (nincs kötelező CustomerProcess)", () => {
+  it("név/típus nélkül elutasítva; folyamathoz nem kötött (nincs kötelező CustomerProcess)", () => {
     const r = newRepo(emptySnapshot());
     const c = mk(r);
-    expect(errs(r.createTask({ customerId: c.id, title: " ", assigneeId: U }))).toHaveProperty("title");
+    expect(errs(r.createTask({ customerId: c.id, title: " ", assigneeId: U }))).toHaveProperty("taskType");
     expect(add(r, c.id, "Folyamat nélkül").processId).toBeUndefined();
     expect(r.getSnapshot().processes).toHaveLength(0);
   });
@@ -31,11 +31,11 @@ describe("feladat az ügyfél aktuális státusza alatt", () => {
     const c = mk(r);
     expect(errs(r.createTask({ customerId: c.id, title: "X", assigneeId: U, dueAt: "nem-datum" })).dueAt).toBeTruthy();
   });
-  it("checkboxszal elvégezhető és visszanyitható (elvégezve: igen/nem), naplózva; nincs külön állapotválasztás", () => {
+  it("a feladat elvégezhető (Output-tal) és visszanyitható; elvégezve: igen/nem; naplózva; nincs külön állapotválasztás", () => {
     const r = newRepo(emptySnapshot());
     const c = mk(r);
     const t = add(r, c.id, "Pipálható");
-    const done = val(r.setTaskStatus(t.id, "done", U));
+    const done = closeIt(r, t.id);
     expect(done.status).toBe("done");
     expect(done.completedAt).toBeTruthy();
     const reopened = val(r.setTaskStatus(t.id, "open", U));
@@ -59,12 +59,12 @@ describe("státuszváltás és feladatmegőrzés", () => {
     const c = mk(r);
     to(r, c.id, "contact");
     const call = add(r, c.id, "Telefonhívás");
-    val(r.setTaskStatus(call.id, "done", U));
+    closeIt(r, call.id);
     to(r, c.id, "relationship");
     const meet = add(r, c.id, "Újabb egyeztetés");
-    val(r.setTaskStatus(meet.id, "done", U));
+    closeIt(r, meet.id);
     const docs = add(r, c.id, "Dokumentumküldés");
-    val(r.setTaskStatus(docs.id, "done", U));
+    closeIt(r, docs.id);
     const open = add(r, c.id, "Még nyitott a kapcsolatépítésből");
     to(r, c.id, "meeting");
     const consult = add(r, c.id, "Konzultáció");
@@ -135,9 +135,9 @@ describe("következő nyitott feladat, mai és lejárt feladatok", () => {
     const late = add(r, c.id, "Későbbi", { dueAt: "2026-12-10T12:00:00.000Z" });
     const early = add(r, c.id, "Korábbi", { dueAt: "2026-12-01T12:00:00.000Z" });
     expect(nextTask(r.getSnapshot(), { customerId: c.id })!.id).toBe(early.id);
-    val(r.setTaskStatus(early.id, "done", U));
+    closeIt(r, early.id);
     expect(nextTask(r.getSnapshot(), { customerId: c.id })!.id).toBe(late.id);
-    val(r.setTaskStatus(late.id, "done", U));
+    closeIt(r, late.id);
     expect(nextTask(r.getSnapshot(), { customerId: c.id })!.title).toBe("Határidő nélkül");
   });
   it("határidő nélküli feladat sem a mai, sem a lejárt listában nem szerepel", () => {
@@ -148,7 +148,7 @@ describe("következő nyitott feladat, mai és lejárt feladatok", () => {
     const old = add(r, c.id, "Lejárt", { dueAt: new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - 2, 15).toISOString() });
     expect(tasksDueToday(r.getSnapshot(), NOW).map((t) => t.id)).toEqual([today.id]);
     expect(overdueTasks(r.getSnapshot(), NOW).map((t) => t.id)).toEqual([old.id]);
-    val(r.setTaskStatus(old.id, "done", U));
+    closeIt(r, old.id);
     expect(overdueTasks(r.getSnapshot(), NOW)).toHaveLength(0);
   });
 });

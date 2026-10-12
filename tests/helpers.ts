@@ -32,3 +32,6 @@ export const tickRepo = (snap: DataSnapshot = seed()) => {
   let n = 0;
   return new DemoRepository(snap, { clock: () => new Date(NOW.getTime() + 1000 * n++) });
 };
+
+/** Feladat lezárása a kötelező Output-tal (a `setTaskStatus` már nem zárhat le). */
+export const closeIt = (r: DemoRepository, id: string, output = "Eredmény rögzítve.") => val(r.closeTask(id, { output, recordedBy: U }));

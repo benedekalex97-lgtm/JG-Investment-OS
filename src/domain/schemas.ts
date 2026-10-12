@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  CALL_OUTCOMES, CONTACT_STATUSES, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
+  CALL_OUTCOMES, CONTACT_STATUSES, TASK_TEXT_MAX, TASK_TYPE_KEYS, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
   PROCESS_TYPES, RESTRICTION_KINDS, TASK_STATUSES, VERIFICATION_SOURCES,
 } from "./constants";
 
@@ -103,18 +103,36 @@ export const manualActivityInput = z
   .strict()
   .refine((v) => v.type === "call" || v.callOutcome === undefined, { path: ["callOutcome"], message: "Híváseredmény csak hívásnál adható meg" });
 
+const longText = z.string().trim().max(TASK_TEXT_MAX, `Legfeljebb ${TASK_TEXT_MAX} karakter adható meg`);
+
+/**
+ * Új feladat (v0.5.1): a feladat neve a kiválasztott `taskType` neve (központi lista: TASK_TYPES), nincs külön szabad szöveges név.
+ * A `title` kizárólag régi/belső útra (seed, tesztek) marad: a felület mindig `taskType`-ot küld. Az Input (`description`)
+ * opcionális és korlátozott hosszú. A feladat a létrehozáskori ügyfélstátuszhoz kapcsolódik (a repository tölti), nincs folyamathoz kötve.
+ */
 export const taskInput = z
   .object({
     customerId: req("Ügyfél"),
     processId: optText,
     companyContactId: optText,
-    title: req("Feladat címe"),
-    description: optText,
+    taskType: z.enum(TASK_TYPE_KEYS, { message: "A feladat típusának kiválasztása kötelező" }).optional(),
+    title: optText,
+    description: longText.optional().transform((v) => (v ? v : undefined)),
     assigneeId: req("Felelős"),
     dueAt: optIsoDate,
-    status: z.enum(TASK_STATUSES).default("open"),
+    /** Új feladat csak nyitott lehet; a lezárás Output-tal, a `closeTask` műveleten át történik (a „folyamatban” csak régi adat). */
+    status: z.enum(["open", "in_progress"]).default("open"),
     crmStatus: z.enum(CRM_STATUSES).optional(),
     recordedBy: z.string().trim().optional(),
+  })
+  .strict()
+  .refine((v) => v.taskType !== undefined || (v.title ?? "") !== "", { path: ["taskType"], message: "A feladat típusának kiválasztása kötelező" });
+
+/** Feladat lezárása: az Output (eredmény) kitöltése kötelező; üres vagy csak szóközt tartalmazó nem fogadható el. */
+export const closeTaskInput = z
+  .object({
+    output: z.string({ message: "Az Output kitöltése kötelező" }).trim().min(1, "Az Output kitöltése kötelező").max(TASK_TEXT_MAX, `Legfeljebb ${TASK_TEXT_MAX} karakter adható meg`),
+    recordedBy: req("Rögzítő"),
   })
   .strict();
 
@@ -167,6 +185,7 @@ export type CompanyContactInput = z.infer<typeof companyContactInput>;
 export type ProcessInput = z.infer<typeof processInput>;
 export type ManualActivityInput = z.infer<typeof manualActivityInput>;
 export type TaskInput = z.infer<typeof taskInput>;
+export type CloseTaskInput = z.infer<typeof closeTaskInput>;
 export type StatusChangeInput = z.infer<typeof statusChangeInput>;
 export type CloseInput = z.infer<typeof closeInput>;
 export type ReopenInput = z.infer<typeof reopenInput>;

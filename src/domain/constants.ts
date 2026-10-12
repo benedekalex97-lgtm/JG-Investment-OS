@@ -128,6 +128,24 @@ export const CALL_OUTCOME_LABELS = {
   callback_requested: "Visszahívást kért", interested: "Érdeklődést mutatott", not_interested: "Nem érdeklődik", consultation_scheduled: "Konzultáció egyeztetve",
 } as const;
 
+/**
+ * Feladattípusok (v0.5.1): a kiválasztott típus neve maga a feladat neve. IDEIGLENES, felülvizsgálandó demó-lista:
+ * a végleges feladattípusokat az ügyfél még nem hagyta jóvá. Csak itt kell módosítani (a komponensek innen olvasnak);
+ * a már létrehozott feladatok a létrehozáskori nevüket őrzik, ezért a lista változása nem érinti őket.
+ */
+export const TASK_TYPES = [
+  { key: "phone_call", label: "Telefonhívás" },
+  { key: "email", label: "E-mail" },
+  { key: "online_meeting", label: "Online tárgyalás" },
+  { key: "in_person_meeting", label: "Személyes tárgyalás" },
+  { key: "follow_up", label: "Utánkövetés" },
+  { key: "other", label: "Egyéb" },
+] as const;
+export const TASK_TYPE_KEYS = TASK_TYPES.map((t) => t.key) as unknown as readonly (typeof TASK_TYPES)[number]["key"][];
+export const TASK_TYPE_LABELS = Object.fromEntries(TASK_TYPES.map((t) => [t.key, t.label])) as Record<(typeof TASK_TYPES)[number]["key"], string>;
+/** Karakterhossz-korlát a feladat Input (leírás) és Output (eredmény) szövegére. */
+export const TASK_TEXT_MAX = 2000;
+
 export const TASK_STATUSES = ["open", "in_progress", "done"] as const;
 export const TASK_STATUS_LABELS = { open: "Nyitott", in_progress: "Folyamatban", done: "Elvégzett" } as const;
 

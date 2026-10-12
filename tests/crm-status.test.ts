@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
 import { statusOf } from "@/domain/logic";
 import { emptySnapshot } from "@/domain/types";
-import { U, VERIFY, errs, newRepo, seed, val } from "./helpers";
+import { U, VERIFY, closeIt, errs, newRepo, seed, val } from "./helpers";
 
 const newCustomer = (r: ReturnType<typeof newRepo>, name = "Státusz Teszt") =>
   val(r.createCustomerFromForm({ type: "individual", name, recordedBy: U })).customer;
@@ -46,7 +46,8 @@ describe("kézi státuszváltás", () => {
     const r = newRepo(emptySnapshot());
     const c = newCustomer(r);
     const t1 = val(r.createTask({ customerId: c.id, title: "Nyitott", recordedBy: U, assigneeId: U }));
-    const t2 = val(r.createTask({ customerId: c.id, title: "Kész", recordedBy: U, assigneeId: U, status: "done" }));
+    const t2 = val(r.createTask({ customerId: c.id, title: "Kész", recordedBy: U, assigneeId: U }));
+    closeIt(r, t2.id);
     const before = r.getSnapshot();
     change(r, c.id, "relationship");
     change(r, c.id, "meeting");

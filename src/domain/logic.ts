@@ -44,6 +44,8 @@ export function lastActivity(snap: DataSnapshot, scope: Scope): Activity | undef
 }
 
 export const isDone = (t: Task) => t.status === "done";
+/** A feladat aktuális (legutolsó) Output-ja; a régi, Output nélkül elvégzett feladatnál undefined. */
+export const latestOutput = (t: Task) => t.outputs?.[t.outputs.length - 1];
 export const isOpenTask = (t: Task) => !isDone(t);
 const dueTime = (t: Task) => (t.dueAt ? Date.parse(t.dueAt) : Number.POSITIVE_INFINITY);
 

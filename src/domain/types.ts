@@ -1,7 +1,7 @@
 import type {
   ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CRM_STATUSES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
   EVIDENCE_STATUSES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_TYPES, PROCESS_STATUS_DEFS, RESTRICTION_KINDS,
-  TASK_STATUSES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
+  TASK_STATUSES, TASK_TYPES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
 } from "./constants";
 
 export type ContactStatus = (typeof CONTACT_STATUSES)[number];
@@ -16,6 +16,7 @@ export type ProcessSource = (typeof PROCESS_SOURCES)[number];
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+export type TaskType = (typeof TASK_TYPES)[number]["key"];
 export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
 export type RestrictionKind = (typeof RESTRICTION_KINDS)[number];
 export type ContactPurpose = (typeof CONTACT_PURPOSES)[number];
@@ -122,6 +123,8 @@ export interface ActivityMeta {
   closureReason?: NoResultReason;
   fromContactStatus?: ContactStatus;
   toContactStatus?: ContactStatus;
+  /** Feladat lezárásakor rögzített Output (eredmény). */
+  output?: string;
   fromCrmStatus?: CrmStatus;
   toCrmStatus?: CrmStatus;
   taskId?: string;
@@ -141,13 +144,26 @@ export interface Activity {
   meta?: ActivityMeta;
 }
 
+/** Egy feladat-lezárás eredménye. Újranyitás után az előzmény megmarad, az újabb lezárás új bejegyzést fűz hozzá. */
+export interface TaskOutput {
+  text: string;
+  closedAt: string;
+  closedBy: string;
+}
+
 export interface Task {
   id: string;
   customerId: string;
   processId?: string;
   companyContactId?: string;
+  /** A feladat neve: új feladatnál a kiválasztott feladattípus neve; régi feladatnál a korábbi szabad szöveg (változatlanul). */
   title: string;
+  /** Feladattípus kulcsa (v0.5.1). Hiányzik a régebbi feladatokon: ők nem kapnak kitalált típust. */
+  taskType?: TaskType;
+  /** Input / leírás: mit kell elvégezni, milyen információ alapján dolgozunk. */
   description?: string;
+  /** Lezárási eredmények (Output) időrendben; a legutolsó az aktuális. Hiányzik a régi, elvégzett feladatokon. */
+  outputs?: TaskOutput[];
   assigneeId: string;
   /** Opcionális határidő (v0.5). */
   dueAt?: string;

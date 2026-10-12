@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nextSteps, processPath, requiresReason } from "@/domain/workflow";
-import { U, VERIFY, byName, errs, newRepo, val } from "./helpers";
+import { U, VERIFY, byName, closeIt, errs, newRepo, val } from "./helpers";
 import type { CustomerProcess } from "@/domain/types";
 
 const mkProcess = (r: ReturnType<typeof newRepo>, customerId: string, type: CustomerProcess["type"]) =>
@@ -232,7 +232,7 @@ describe("feladatok", () => {
     const t = val(r.createTask({ customerId: id, title: "Teszt", assigneeId: U, dueAt: "2026-10-09T10:00:00.000Z", recordedBy: U }));
     expect(t.status).toBe("open");
     expect(r.updateTask(t.id, { dueAt: "2026-12-01T10:00:00.000Z", assigneeId: "user-2" }, U).ok).toBe(true);
-    const done = val(r.setTaskStatus(t.id, "done", U));
+    const done = closeIt(r, t.id);
     expect(done.completedAt).toBeTruthy();
     expect(val(r.setTaskStatus(t.id, "open", U)).completedAt).toBeUndefined();
     const types = r.getSnapshot().activities.filter((a) => a.meta?.taskId === t.id).map((a) => a.type);
