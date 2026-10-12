@@ -1,0 +1,228 @@
+name: JG OS - Neon preview runtime role
+run-name: "JG preview runtime role / ${{ inputs.operation }}"
+
+# Ez a workflow NEM fut push, pull_request vagy schedule hatására; kizárólag kézi indítással (workflow_dispatch),
+# és csak az alapértelmezett ágról. A workflow_dispatch csak akkor érhető el, ha a fájl az alapértelmezett ágon létezik.
+# Kizárólag a jg_os_preview adatbázis `jg_runtime` szerepkörét kezeli (legkisebb jogosultságú futási szerepkör).
+# Nincs ügyféladat-import, nincs production művelet, nincs automatikus újrapróbálás.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "verify: csak olvasó ellenőrzés (alapértelmezett). provision: a jg_runtime szerepkör létrehozása/jelszavának cseréje + ellenőrzés"
+        required: true
+        type: choice
+        default: verify
+        options:
+          - verify
+          - provision
+      confirmation:
+        description: 'Csak provision esetén, pontosan: PROVISION JG RUNTIME'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jg-os-neon-preview-migration
+  cancel-in-progress: false
+
+jobs:
+  runtime-role:
+    name: JG Neon preview runtime role - ${{ inputs.operation }}
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A titkok csak azokban a lépésekben érhetők el, amelyeknek kell (a függőségtelepítés és a Node-beállítás nem látja őket).
+    env:
+      JG_ENV: preview
+      OPERATION: ${{ inputs.operation }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      EXPECTED_HOST: ep-proud-silence-bate28uz.c-8.eu-central-1.aws.neon.tech
+      EXPECTED_DB: jg_os_preview
+      EXPECTED_USER: jg_os_preview_owner
+      RUNTIME_ROLE: jg_runtime
+    steps:
+      - name: Validate request, database target and secrets without displaying them
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+          JG_RUNTIME_PASSWORD: ${{ secrets.JG_NEON_PREVIEW_RUNTIME_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ "$OPERATION" != "verify" && "$OPERATION" != "provision" ]]; then
+            echo "::error::Unsupported operation."
+            exit 1
+          fi
+          if [[ "$OPERATION" == "provision" && "$CONFIRMATION" != "PROVISION JG RUNTIME" ]]; then
+            echo "::error::Provision confirmation does not match."
+            exit 1
+          fi
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "::error::Missing repository secret JG_NEON_PREVIEW_DATABASE_URL."
+            exit 1
+          fi
+          if [[ ${#JG_RUNTIME_PASSWORD} -lt 24 ]] || ! [[ "$JG_RUNTIME_PASSWORD" =~ ^[[:graph:]]+$ ]]; then
+            echo "::error::Missing or invalid repository secret JG_NEON_PREVIEW_RUNTIME_PASSWORD (min. 24 visible ASCII characters, no spaces)."
+            exit 1
+          fi
+          node <<'NODE'
+          try {
+            const url = new URL(process.env.DATABASE_URL);
+            const ok = (
+              ["postgres:", "postgresql:"].includes(url.protocol) &&
+              url.hostname === process.env.EXPECTED_HOST &&
+              decodeURIComponent(url.pathname) === "/" + process.env.EXPECTED_DB &&
+              decodeURIComponent(url.username) === process.env.EXPECTED_USER &&
+              (url.port === "" || url.port === "5432") &&
+              url.searchParams.get("sslmode") === "require"
+            );
+            if (!ok) throw Error("not-approved-preview-target");
+            console.log("Verified JG Neon preview host, database, owner role and TLS requirement.");
+          } catch {
+            console.error("::error::Database connection does not match the approved Neon preview target.");
+            process.exit(1);
+          }
+          NODE
+
+      # Rögzített, már átnézett kód (a v0.6.2 PR SCRAM-verifieres, nem szuperfelhasználóval is újrafuttatható runtime-role:provision implementációja).
+      # A DB-titkot kezelő job nem checkoutolhat tetszőleges, felhasználó által megadott ref-et.
+      - name: Checkout reviewed JG OS source (pinned commit)
+        uses: actions/checkout@v4
+        with:
+          ref: bd407f13bf2967511e282b81bf7ba1481181dc18
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install pinned dependencies once
+        run: npm ci --no-audit --no-fund
+
+      - name: Check schema status and environment label (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+        run: npm run db -- status
+
+      - name: Provision runtime role - manual confirmation required
+        if: ${{ inputs.operation == 'provision' }}
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+          JG_RUNTIME_PASSWORD: ${{ secrets.JG_NEON_PREVIEW_RUNTIME_PASSWORD }}
+        run: npm run db -- runtime-role:provision jg_runtime
+
+      - name: Verify runtime role privileges (read-only, no data written)
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+          JG_RUNTIME_PASSWORD: ${{ secrets.JG_NEON_PREVIEW_RUNTIME_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import pg from "pg";
+
+          const role = process.env.RUNTIME_ROLE;
+          const failures = [];
+          const check = (name, ok) => { console.log(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) failures.push(name); };
+
+          // Kapcsolat: ellenőrzött TLS (rejectUnauthorized), az sslmode az URL-ből kikerül - ahogy az alkalmazás is teszi.
+          const connect = (user, password) => {
+            const u = new URL(process.env.DATABASE_URL);
+            if (user) { u.username = user; u.password = password; }
+            u.searchParams.delete("sslmode");
+            return new pg.Client({ connectionString: u.toString(), ssl: { rejectUnauthorized: true }, connectionTimeoutMillis: 15000 });
+          };
+          const sameSet = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+
+          // 1) Tulajdonosi nézet: szerepkör-attribútumok, tagság, jogosultságok, szabályok (csak olvasás).
+          const owner = connect();
+          await owner.connect();
+          try {
+            const q = async (sql, params = []) => (await owner.query(sql, params)).rows;
+            const roleRows = await q("select rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls, rolinherit, rolconnlimit from pg_roles where rolname = $1", [role]);
+            if (!roleRows.length) {
+              console.error(`FAIL ${role} szerepkör nem létezik`);
+              process.exit(1);
+            }
+            const r = roleRows[0];
+            check("LOGIN", r.rolcanlogin === true);
+            check("nem SUPERUSER", r.rolsuper === false);
+            check("nem CREATEDB", r.rolcreatedb === false);
+            check("nem CREATEROLE", r.rolcreaterole === false);
+            check("nem BYPASSRLS", r.rolbypassrls === false);
+            check("NOINHERIT (nem örökli automatikusan a jg_app jogait)", r.rolinherit === false);
+            check("kapcsolatkorlát beállítva", r.rolconnlimit > 0);
+
+            const mem = await q("select g.rolname as role, m.inherit_option, m.set_option, m.admin_option from pg_auth_members m join pg_roles g on g.oid = m.roleid where m.member = $1::regrole", [role]);
+            check("egyetlen tagság: jg_app, SET igen, INHERIT nem, ADMIN nem", mem.length === 1 && mem[0].role === "jg_app" && mem[0].set_option === true && mem[0].inherit_option === false && mem[0].admin_option === false);
+
+            const owned = await q("select count(*)::int as n from pg_class where relowner = $1::regrole", [role]);
+            check("nem tulajdonos (nincs saját objektuma)", owned[0].n === 0);
+            const sch = await q("select has_schema_privilege($1, 'public', 'CREATE') as c, has_database_privilege($1, current_database(), 'CREATE') as d", [role]);
+            check("nincs CREATE jog a public sémán és az adatbázison (nincs sémaírás)", sch[0].c === false && sch[0].d === false);
+
+            const grants = await q("select table_name, privilege_type from information_schema.role_table_grants where grantee = $1 and table_schema = 'public'", [role]);
+            const got = grants.map((g) => `${g.table_name}:${g.privilege_type}`);
+            const want = [
+              "users:SELECT", "sessions:SELECT", "sessions:INSERT", "sessions:UPDATE", "sessions:DELETE",
+              "login_attempts:SELECT", "login_attempts:INSERT", "login_attempts:DELETE", "meta:SELECT", "schema_migrations:SELECT",
+            ];
+            check("táblajogok pontosan a minimális készlet (CRM-táblákon nincs közvetlen jog)", sameSet(got, want));
+            const cols = await q("select table_name, column_name from information_schema.column_privileges where grantee = $1 and table_schema = 'public' and privilege_type = 'UPDATE' and table_name = 'users'", [role]);
+            check("users: csak a last_login_at módosítható (jelszó, aktív, e-mail nem)", cols.length === 1 && cols[0].column_name === "last_login_at");
+            const pol = await q("select tablename, policyname from pg_policies where $1 = any(roles) order by tablename", [role]);
+            check("RLS-szabály csak a 4 hitelesítési/rendszer táblán", sameSet(pol.map((p) => p.tablename), ["users", "sessions", "login_attempts", "meta"]) && pol.every((p) => p.policyname === `rt_${role}`));
+            const rls = await q("select count(*)::int as n from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and relname in ('customers','tasks','task_results','customer_restrictions','activities','audit_events','request_log') and relrowsecurity and relforcerowsecurity");
+            check("a CRM- és naplótáblák RLS-e (FORCE) aktív", rls[0].n === 7);
+            const counts = await q("select (select count(*)::int from customers) as customers, (select count(*)::int from tasks) as tasks, (select count(*)::int from users) as users");
+            console.log("Rekordszámok (csak számok):", JSON.stringify(counts[0]));
+          } finally {
+            await owner.end();
+          }
+
+          // 2) Működési ellenőrzés a futási szerepkörrel (minden tranzakció visszagörgetve, adat nem íródik).
+          const rt = connect(role, process.env.JG_RUNTIME_PASSWORD);
+          await rt.connect();
+          try {
+            const inTx = async (fn) => {
+              await rt.query("begin");
+              try { return await fn(); } finally { await rt.query("rollback"); }
+            };
+            const denied = async (sql) => {
+              try { await inTx(() => rt.query(sql)); return false; } catch (e) { return /permission denied|must be owner/i.test(String(e.message)); }
+            };
+            const who = await rt.query("select current_user as u");
+            check("a futási jelszóval a bejelentkezés sikeres", who.rows[0].u === role);
+            const sw = await inTx(async () => {
+              await rt.query("set local role jg_app");
+              await rt.query("select set_config('app.user_id', '', true)");
+              const rows = await rt.query("select count(*)::int as n from customers");
+              const cur = await rt.query("select current_user as u");
+              return { n: rows.rows[0].n, u: cur.rows[0].u };
+            });
+            check("SET LOCAL ROLE jg_app engedélyezett; felhasználói azonosító nélkül az RLS nem enged adatot", sw.u === "jg_app" && sw.n === 0);
+            check("közvetlen CRM-táblaolvasás tiltott", await denied("select 1 from customers"));
+            check("közvetlen CRM-táblaírás tiltott", await denied("insert into customers (id, type) values ('x','individual')"));
+            check("sémaírás tiltott (CREATE TABLE)", await denied("create table jg_probe (id int)"));
+            check("táblamódosítás tiltott (ALTER TABLE)", await denied("alter table customers add column jg_probe int"));
+            check("jelszó-módosítás tiltott (users.password_hash)", await denied("update users set password_hash = 'x' where false"));
+            check("felhasználó-létrehozás tiltott", await denied("insert into users (id, email, name, password_hash) values ('x','x@example.test','x','x')"));
+            check("meta módosítás tiltott", await denied("update meta set value = 'production' where false"));
+            const env = await rt.query("select value from meta where key = 'environment'");
+            check("meta.environment olvasható és preview", env.rows[0]?.value === "preview");
+            const mig = await rt.query("select count(*)::int as n from schema_migrations where id = '0001_init'");
+            check("schema_migrations olvasható, 0001_init megvan", mig.rows[0].n === 1);
+          } finally {
+            await rt.end();
+          }
+
+          if (failures.length) {
+            console.error(`::error::${failures.length} ellenőrzés sikertelen: ${failures.join("; ")}`);
+            process.exit(1);
+          }
+          console.log("Runtime role verification: minden ellenőrzés sikeres.");
+          NODE
