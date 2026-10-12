@@ -46,10 +46,15 @@ const canon = (v: unknown): string =>
 const JSONB = new Set(["meta"]);
 
 /** Egy sor beszúrása vagy frissítése (a kulcsok kizárólag a rows.ts leképezéseiből jönnek, nem kliensből). */
-async function upsert(tx: Tx, table: string, pk: string[], row: Row) {
+async function upsert(tx: Tx, table: string, pk: string[], row: Row, appendOnly = false) {
   const cols = Object.keys(row);
   const vals = cols.map((c) => row[c]);
   const ph = cols.map((c, i) => (JSONB.has(c) ? `$${i + 1}::jsonb` : `$${i + 1}`)).join(", ");
+  if (appendOnly) {
+    // Hozzáfűző tábla (az alkalmazás-szerepkörnek nincs UPDATE joga): csak sima beszúrás, ütközésnél hiba.
+    await tx.query(`insert into ${table} (${cols.join(", ")}) values (${ph})`, vals);
+    return;
+  }
   const upd = cols.filter((c) => !pk.includes(c)).map((c) => `${c} = excluded.${c}`).join(", ");
   await tx.query(`insert into ${table} (${cols.join(", ")}) values (${ph}) on conflict (${pk.join(", ")}) ${upd ? `do update set ${upd}` : "do nothing"}`, vals);
 }
@@ -105,12 +110,12 @@ export async function saveDiff(tx: Tx, before: DataSnapshot, after: DataSnapshot
     const old = before.tasks.find((x) => x.id === t.id)?.outputs ?? [];
     const now = t.outputs ?? [];
     if (now.length < old.length || old.some((o, i) => canon(o) !== canon(now[i]))) throw new InvariantError("A korábbi feladat-eredmények nem módosíthatók és nem törölhetők.");
-    for (let i = old.length; i < now.length; i++) await upsert(tx, "task_results", ["task_id", "seq"], resultToRow(t.id, i, now[i]));
+    for (let i = old.length; i < now.length; i++) await upsert(tx, "task_results", ["task_id", "seq"], resultToRow(t.id, i, now[i]), true);
   }
   const acts = changed(before.activities, after.activities);
   if (acts.updated.length) throw new InvariantError("Az aktivitásnapló bejegyzései nem módosíthatók.");
   for (const a of acts.added) {
-    await upsert(tx, "activities", ["id"], activityToRow(a));
+    await upsert(tx, "activities", ["id"], activityToRow(a), true);
     touched.add(a.customerId);
   }
   const cont = changed(before.contactability, after.contactability);
