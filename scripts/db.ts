@@ -5,18 +5,19 @@
  * Használat: npm run db -- <parancs>
  *   status | migrate | user:create <email> <név> | user:set-password <email> | user:deactivate <email> | user:activate <email>
  *   backup <fájl> | restore <fájl>
- *   runtime-role:provision <szerepkör-név>   (legkisebb jogosultságú futási szerepkör; jelszó: JG_RUNTIME_PASSWORD)
+ *   runtime-role:provision <szerepkör-név>   (legkisebb jogosultságú futási szerepkör; jelszó: JG_RUNTIME_PASSWORD;
+ *       JG_RUNTIME_PASSWORD_MODE=scram (alapértelmezett) | plaintext (Neon: csak tiszta szöveges jelszót fogad el; TLS kötelező))
  * A jelszót a JG_USER_PASSWORD környezeti változó vagy interaktív (rejtett) bekérés adja - parancssori argumentum nem.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { exportBackup, restoreBackup, type Backup } from "../src/server/backup";
-import { checkConfig, dbHost, readConfig, type JgEnv } from "../src/server/config";
+import { checkConfig, dbHost, isLocalHost, readConfig, type JgEnv } from "../src/server/config";
 import { checkSchema, LATEST_MIGRATION, migrate } from "../src/server/db/migrate";
 import { createPgDb } from "../src/server/db/pg-driver";
 import { createPgliteDb } from "../src/server/db/pglite-driver";
 import { createUser, setActive, setPassword } from "../src/server/auth/service";
-import { provisionRuntimeRole } from "../src/server/db/runtime-role";
+import { PASSWORD_MODES, provisionRuntimeRole, type PasswordMode } from "../src/server/db/runtime-role";
 
 async function promptHidden(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
@@ -75,7 +76,11 @@ async function main() {
         const pw = process.env.JG_RUNTIME_PASSWORD;
         if (!name || !pw) throw new Error("Használat: JG_RUNTIME_PASSWORD=<generált, min. 24 karakter> runtime-role:provision <szerepkör-név>");
         if (env === "production" && process.env.JG_CONFIRM_PRODUCTION !== "yes") throw new Error("Éles szerepkör-módosításhoz JG_CONFIRM_PRODUCTION=yes szükséges.");
-        await provisionRuntimeRole(db, { name, password: pw });
+        const mode = (process.env.JG_RUNTIME_PASSWORD_MODE || "scram") as PasswordMode;
+        if (!PASSWORD_MODES.includes(mode)) throw new Error("Érvénytelen JG_RUNTIME_PASSWORD_MODE (scram vagy plaintext).");
+        // Nem helyi adatbázisnál a tiszta jelszó csak ellenőrzött TLS-sel küldhető (a művelet előtt a kapcsolat titkosítása ellenőrzött).
+        await provisionRuntimeRole(db, { name, password: pw, passwordMode: mode, requireTls: Boolean(cfg.databaseUrl) && !isLocalHost(dbHost(cfg.databaseUrl as string)) });
+        console.log(`Jelszó-mód: ${mode}.`);
         console.log(`Futási szerepkör kész: ${name}. A DATABASE_URL felhasználóját/jelszavát a futtatási környezetben erre kell cserélni; a migrációs URL külön marad.`);
         break;
       }

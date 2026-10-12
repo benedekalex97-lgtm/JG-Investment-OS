@@ -1,9 +1,10 @@
+import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkSchema, migrate } from "@/server/db/migrate";
 import { createPgDb } from "@/server/db/pg-driver";
-import { provisionRuntimeRole, validateRuntimeRole } from "@/server/db/runtime-role";
+import { provisionRuntimeRole, redactedError, validateRuntimeRole, type PasswordMode } from "@/server/db/runtime-role";
 import { scramSha256Verifier } from "@/server/db/scram";
 import type { Db } from "@/server/db/types";
 import { PASSWORD_A, addPilotUsers, client, makeApi, makeTestDb, type TestDb } from "./helpers";
@@ -16,6 +17,98 @@ describe("futási szerepkör: bemenet-ellenőrzés", () => {
     expect(() => validateRuntimeRole({ name: "jg_runtime", password: pw })).not.toThrow();
     expect(() => validateRuntimeRole({ name: "jg_runtime", password: "x".repeat(20) + " abcd" })).toThrow(/ASCII/);
     expect(() => validateRuntimeRole({ name: "jg_runtime", password: "á".repeat(30) })).toThrow(/ASCII/);
+  });
+});
+
+/** Fiktív adatbázis: rögzíti a kiadott utasításokat (a jelszó-kezelés vizsgálatához), valódi szerver nélkül. */
+function fakeDb(opts: { tls?: boolean; failOn?: RegExp; failMessage?: (sql: string) => string } = {}) {
+  const statements: string[] = [];
+  let systemCalls = 0;
+  const tx = {
+    query: async () => [] as never[],
+    exec: async (sql: string) => {
+      statements.push(sql);
+      if (opts.failOn?.test(sql)) throw Object.assign(new Error(opts.failMessage?.(sql) ?? "hiba"), { code: "42501", query: sql });
+    },
+  };
+  const db = { kind: "pg" as const, tls: opts.tls, system: async <T,>(fn: (t: typeof tx) => Promise<T>) => { systemCalls++; return fn(tx); }, asUser: async () => { throw new Error("nem használt"); }, close: async () => undefined };
+  return { db: db as unknown as Db, statements, calls: () => systemCalls };
+}
+const PW = "Abc123def456Ghi789Jkl012Mno345";
+
+describe("futási szerepkör: jelszó-módok (scram / plaintext)", () => {
+  it("tiszta szöveges módban a jelszó aposztrófot vagy fordított perjelet nem tartalmazhat; ismeretlen mód elutasítva", () => {
+    const base = { name: "jg_runtime", password: PW };
+    expect(() => validateRuntimeRole({ ...base, passwordMode: "plaintext" })).not.toThrow();
+    expect(() => validateRuntimeRole({ ...base, password: `${PW}'x`, passwordMode: "plaintext" })).toThrow(/aposztróf/);
+    expect(() => validateRuntimeRole({ ...base, password: `${PW}\\x`, passwordMode: "plaintext" })).toThrow(/aposztróf|perjel/);
+    expect(() => validateRuntimeRole({ ...base, password: `${PW}'x`, passwordMode: "scram" })).not.toThrow();
+    expect(() => validateRuntimeRole({ ...base, passwordMode: "md5" as PasswordMode })).toThrow(/Ismeretlen jelszó-mód/);
+  });
+
+  it("scram (alapértelmezett): az utasításban csak a verifier szerepel, a tiszta jelszó sehol", async () => {
+    const f = fakeDb();
+    await provisionRuntimeRole(f.db, { name: "jg_runtime", password: PW });
+    const roleStmt = f.statements.find((x) => /^create role/.test(x)) as string;
+    expect(roleStmt).toMatch(/password 'SCRAM-SHA-256\$4096:/);
+    expect(f.statements.join("\n")).not.toContain(PW);
+  });
+
+  it("plaintext (Neon): a tiszta jelszó pontosan egy utasításban, a CREATE ROLE-ban szerepel; a jogosultsági attribútumok változatlanok", async () => {
+    const f = fakeDb();
+    await provisionRuntimeRole(f.db, { name: "jg_runtime", password: PW, passwordMode: "plaintext" });
+    const withPw = f.statements.filter((x) => x.includes(PW));
+    expect(withPw).toHaveLength(1);
+    expect(withPw[0]).toBe(`create role "jg_runtime" with login nosuperuser nocreatedb nocreaterole noinherit nobypassrls connection limit 20 password '${PW}'`);
+    expect(f.statements.join("\n")).not.toContain("SCRAM-SHA-256");
+    expect(f.statements).toContain('grant jg_app to "jg_runtime" with inherit false, set true');
+  });
+
+  it("TLS-kényszer: tiszta jelszó csak akkor megy ki, ha a meghajtó TLS-t kényszerít; egyébként egyetlen utasítás sem fut", async () => {
+    const noTls = fakeDb({ tls: false });
+    await expect(provisionRuntimeRole(noTls.db, { name: "jg_runtime", password: PW, passwordMode: "plaintext", requireTls: true })).rejects.toThrow(/TLS/);
+    expect(noTls.calls()).toBe(0);
+    expect(noTls.statements).toHaveLength(0);
+    const tls = fakeDb({ tls: true });
+    await provisionRuntimeRole(tls.db, { name: "jg_runtime", password: PW, passwordMode: "plaintext", requireTls: true });
+    expect(tls.statements.some((x) => x.includes(PW))).toBe(true);
+    // scram módban a tiszta jelszó nem utazik, ezért a TLS-kényszer nem blokkol
+    const scram = fakeDb({ tls: false });
+    await provisionRuntimeRole(scram.db, { name: "jg_runtime", password: PW, requireTls: true });
+    expect(scram.statements.length).toBeGreaterThan(5);
+  });
+
+  it("a meghajtó TLS-jelzője: nem helyi pg kapcsolat kötelezően TLS, loopback nem", async () => {
+    const remote = createPgDb("postgres://u:p@ep-x.c-8.eu-central-1.aws.neon.tech/db?sslmode=require");
+    const local = createPgDb("postgres://u:p@127.0.0.1:5432/db");
+    expect([remote.tls, local.tls]).toEqual([true, false]);
+    await remote.close();
+    await local.close();
+  });
+
+  it("hiba esetén a jelszó nem szivároghat a hibába: sem a szövegbe, sem az eredeti hibaobjektumba (query tulajdonság, cause)", async () => {
+    for (const mode of ["plaintext", "scram"] as const) {
+      const f = fakeDb({ failOn: /^create role/, failMessage: (sql) => `syntax error at or near "${sql.slice(sql.indexOf("password"))}"` });
+      let err: Error | undefined;
+      try {
+        await provisionRuntimeRole(f.db, { name: "jg_runtime", password: PW, passwordMode: mode });
+      } catch (e) {
+        err = e as Error;
+      }
+      expect(err, mode).toBeInstanceOf(Error);
+      const dump = `${err?.message}\n${err?.stack}\n${JSON.stringify(err, Object.getOwnPropertyNames(err as object))}`;
+      expect(dump, mode).not.toContain(PW);
+      expect(dump, mode).not.toMatch(/SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]{20,}/);
+      expect((err as Error & { query?: string }).query).toBeUndefined();
+      expect(err?.message).toContain("***");
+      expect(err?.message).toContain("42501");
+    }
+  });
+
+  it("a redactedError minden megadott titkot kiszűr, és csonkolja a hosszú üzenetet", () => {
+    const e = redactedError(new Error(`valami ${PW} más ${PW} ${"x".repeat(1000)}`), [PW, ""]);
+    expect(e.message).not.toContain(PW);
+    expect(e.message.length).toBeLessThan(400);
   });
 });
 
@@ -154,7 +247,7 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: legkiseb
  * PostgreSQL 16+ alatt ez a szerepkör meglévő szerepkörön nem adhat meg privilegizált attribútum-opciót (pl. NOSUPERUSER) - a szuperfelhasználós
  * tesztek ezt elfedik. Ez a teszt a provisioning újrafuttatását (jelszócsere) és a tiltott attribútumok kezelését ilyen tulajdonossal ellenőrzi.
  */
-describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: Neon-szerű (nem szuperfelhasználó) tulajdonossal", () => {
+describe.skipIf(!process.env.JG_TEST_DATABASE_URL).each(["scram", "plaintext"] as const)("futási szerepkör: Neon-szerű (nem szuperfelhasználó) tulajdonossal, jelszó-mód: %s", (mode) => {
   const tag = randomBytes(4).toString("hex");
   const ownerRole = `jgt_own_${tag}`;
   const ownerPw = randomBytes(16).toString("hex");
@@ -206,11 +299,11 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: Neon-sze
   it("létrehozás, majd újrafuttatás (jelszócsere) nem szuperfelhasználó tulajdonossal is működik; a régi jelszó érvénytelen, az új jó", async () => {
     const first = randomBytes(24).toString("hex");
     const second = randomBytes(24).toString("hex");
-    await provisionRuntimeRole(ownerDb, { name: runtime, password: first });
+    await provisionRuntimeRole(ownerDb, { name: runtime, password: first, passwordMode: mode });
     const a = createPgDb(urlFor(runtime, first));
     expect(await checkSchema(a, "local")).toEqual({ ok: true });
     await a.close();
-    await provisionRuntimeRole(ownerDb, { name: runtime, password: second });
+    await provisionRuntimeRole(ownerDb, { name: runtime, password: second, passwordMode: mode });
     const old = createPgDb(urlFor(runtime, first));
     expect(await denied(() => old.system((tx) => tx.query("select 1")))).toMatch(/password authentication failed/i);
     await old.close();
@@ -224,11 +317,93 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: Neon-sze
 
   it("ha a meglévő futási szerepkör privilegizált (CREATEROLE/BYPASSRLS), a provisioning megáll és nem kerüli meg", async () => {
     await admin.query(`alter role "${runtime}" createrole bypassrls`);
-    const msg = await denied(() => provisionRuntimeRole(ownerDb, { name: runtime, password: randomBytes(24).toString("hex") }));
+    const msg = await denied(() => provisionRuntimeRole(ownerDb, { name: runtime, password: randomBytes(24).toString("hex"), passwordMode: mode }));
     expect(msg).toMatch(/CREATEROLE/);
     expect(msg).toMatch(/BYPASSRLS/);
     expect(msg).toMatch(/Kézi javítás/);
     await admin.query(`alter role "${runtime}" nocreaterole nobypassrls`);
-    await provisionRuntimeRole(ownerDb, { name: runtime, password: randomBytes(24).toString("hex") });
+    await provisionRuntimeRole(ownerDb, { name: runtime, password: randomBytes(24).toString("hex"), passwordMode: mode });
+  });
+
+  it("a szerver mindkét módban SCRAM verifierként tárolja a jelszót (tiszta szöveg nincs az adatbázisban)", async () => {
+    const [r] = await admin.query<{ rolpassword: string }>(`select rolpassword from pg_authid where rolname = '${runtime}'`).then((x) => x.rows);
+    expect(r.rolpassword).toMatch(/^SCRAM-SHA-256\$4096:/);
+  });
+});
+
+/** A parancssori eszköz (amit a GitHub Actions workflow futtat) mindkét jelszó-móddal, valódi PostgreSQL-en; a kimenet nem tartalmazhat jelszót. */
+describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("db CLI: runtime-role:provision jelszó-módokkal (valódi PostgreSQL)", () => {
+  const role = `jg_cli_${randomBytes(4).toString("hex")}`;
+  let owner: TestDb;
+  const run = (env: Record<string, string>) =>
+    spawnSync("node_modules/.bin/tsx", ["scripts/db.ts", "runtime-role:provision", role], {
+      cwd: process.cwd(), encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", JG_ENV: "local", DATABASE_URL: owner.url as string, ...env } as unknown as NodeJS.ProcessEnv,
+    });
+  const url = (pw: string) => {
+    const u = new URL(owner.url as string);
+    u.username = role;
+    u.password = pw;
+    return u.toString();
+  };
+  const canLogin = async (pw: string) => {
+    const db = createPgDb(url(pw));
+    try {
+      return (await db.system((tx) => tx.query("select 1"))).length === 1;
+    } catch {
+      return false;
+    } finally {
+      await db.close();
+    }
+  };
+
+  beforeAll(async () => { owner = await makeTestDb("pg"); });
+  afterAll(async () => {
+    await owner.cleanup();
+    const admin = new Pool({ connectionString: process.env.JG_TEST_DATABASE_URL, max: 1 });
+    await admin.query(`drop role if exists "${role}"`);
+    await admin.end();
+  });
+
+  it("plaintext mód (Neon): létrehozás, majd jelszócsere; a régi jelszó érvénytelen, az új jó; a kimenet nem tartalmaz jelszót", async () => {
+    const one = randomBytes(24).toString("hex");
+    const two = randomBytes(24).toString("hex");
+    const a = run({ JG_RUNTIME_PASSWORD: one, JG_RUNTIME_PASSWORD_MODE: "plaintext" });
+    expect(a.status, a.stderr).toBe(0);
+    expect(a.stdout).toContain("Jelszó-mód: plaintext");
+    expect(await canLogin(one)).toBe(true);
+    const b = run({ JG_RUNTIME_PASSWORD: two, JG_RUNTIME_PASSWORD_MODE: "plaintext" });
+    expect(b.status, b.stderr).toBe(0);
+    expect(await canLogin(one)).toBe(false);
+    expect(await canLogin(two)).toBe(true);
+    for (const out of [a.stdout, a.stderr, b.stdout, b.stderr]) {
+      expect(out).not.toContain(one);
+      expect(out).not.toContain(two);
+    }
+  });
+
+  it("scram mód (alapértelmezett, nincs mód megadva) szintén működik", async () => {
+    const pw = randomBytes(24).toString("hex");
+    const r = run({ JG_RUNTIME_PASSWORD: pw });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("Jelszó-mód: scram");
+    expect(await canLogin(pw)).toBe(true);
+    expect(r.stdout + r.stderr).not.toContain(pw);
+  });
+
+  it("hibás konfiguráció elutasítva, a kimenet nem tartalmaz jelszót: ismeretlen mód, aposztróf a tiszta jelszóban, rövid jelszó", async () => {
+    const pw = randomBytes(24).toString("hex");
+    const bad1 = run({ JG_RUNTIME_PASSWORD: pw, JG_RUNTIME_PASSWORD_MODE: "md5" });
+    expect(bad1.status).toBe(1);
+    expect(bad1.stderr).toMatch(/Érvénytelen JG_RUNTIME_PASSWORD_MODE/);
+    const quoted = `${pw}'x`;
+    const bad2 = run({ JG_RUNTIME_PASSWORD: quoted, JG_RUNTIME_PASSWORD_MODE: "plaintext" });
+    expect(bad2.status).toBe(1);
+    expect(bad2.stderr).toMatch(/aposztróf/);
+    const bad3 = run({ JG_RUNTIME_PASSWORD: "rovid", JG_RUNTIME_PASSWORD_MODE: "plaintext" });
+    expect(bad3.status).toBe(1);
+    for (const o of [bad1, bad2, bad3]) {
+      expect(o.stdout + o.stderr).not.toContain(pw);
+      expect(o.stdout + o.stderr).not.toContain(quoted);
+    }
   });
 });

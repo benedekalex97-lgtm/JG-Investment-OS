@@ -36,6 +36,7 @@ export function createPgDb(connectionString: string): Db {
 
   return {
     kind: "pg",
+    tls: ssl !== false,
     system: (fn) => transaction(async () => undefined, fn),
     asUser: (userId, fn) =>
       transaction(async (tx) => {

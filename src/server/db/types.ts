@@ -11,6 +11,8 @@ export const APP_ROLE = "jg_app";
 
 export interface Db {
   readonly kind: "pg" | "pglite";
+  /** Igaz, ha a meghajtó a kapcsolatot kötelezően, ellenőrzött tanúsítvánnyal titkosítja (nem helyi `pg` kapcsolat); TLS nélküli szervernél a kapcsolat hibával megáll. */
+  readonly tls?: boolean;
   /** Tranzakció a kapcsolódási (tulajdonos) szerepkörrel: hitelesítési táblák, migráció. NEM adható át felhasználói kérés adatműveletéhez. */
   system<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
   /** Tranzakció korlátozott `jg_app` szerepkörrel és a hitelesített felhasználó azonosítójával: az RLS csak aktív felhasználónak enged. */
