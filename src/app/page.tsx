@@ -1,66 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { DataGate, TaskRow } from "@/components/common";
-import { useDemoData } from "@/data/store";
-import { TaskFormModal } from "@/components/forms";
-import { ProcessLine } from "@/components/process-line";
-import { Button, Card, CardHeader, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
-import { accountOpeningQueue, activeProcessList, newInquiries, nextOutreach, overdueTasks, tasksDueToday, unfundedAccounts } from "@/domain/logic";
+import { Card, CardHeader, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
+import { overdueTasks, tasksDueToday } from "@/domain/logic";
 
+/** Minimális áttekintés (v0.5): mai feladatok, lejárt feladatok, ügyfelek száma. Nincs részletes riport. */
 export default function OverviewPage() {
-  const [taskOpen, setTaskOpen] = useState(false);
-  const { data: current } = useDemoData();
-  const hasCustomers = (current?.customers.length ?? 0) > 0;
   return (
     <>
-      <PageHeader
-        title="Áttekintés"
-        description="Munkapult a közös csapatnézetben, fiktív demóadatokból. A folyamatok és feladatok részletei az ügyféladatlapokon érhetők el."
-        actions={hasCustomers ? <><LinkButton href="/customers/new" variant="secondary">+ Új ügyfél</LinkButton><Button onClick={() => setTaskOpen(true)}>Új feladat</Button></> : undefined}
-      />
+      <PageHeader title="Áttekintés" description="A mai teendők és az ügyfelek száma. A részletek az ügyféladatlapokon érhetők el." />
       <DataGate>
         {(data) => {
-          // Üres CRM: nincs statisztika, nincs félrevezető nulla-számláló.
           if (data.customers.length === 0) {
             return (
               <Card>
-                <EmptyState
-                  title="Még nincs rögzített ügyfél."
-                  hint="Az áttekintés az első ügyfél és folyamat rögzítése után jelenik meg. Ez egy üres demó-CRM: ne rögzíts valós ügyféladatot."
-                  action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>}
-                />
+                <EmptyState title="Még nincs rögzített ügyfél." hint="Az áttekintés az első ügyfél és feladat rögzítése után jelenik meg. Ez egy üres demó-CRM: ne rögzíts valós ügyféladatot." action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>} />
               </Card>
             );
           }
           const now = new Date();
           const today = tasksDueToday(data, now);
           const overdue = overdueTasks(data, now);
-          const inquiries = newInquiries(data);
-          const outreach = nextOutreach(data);
-          const active = activeProcessList(data);
-          const opening = accountOpeningQueue(data);
-          const unfunded = unfundedAccounts(data);
-          const stats = [
-            { label: "Mai feladatok", value: today.length, href: "#feladatok" },
-            { label: "Lejárt feladatok", value: overdue.length, href: "#feladatok" },
-            { label: "Új érdeklődések", value: inquiries.length, href: "#uj-erdeklodesek" },
-            { label: "Aktív folyamatok", value: active.length, href: "#aktiv-folyamatok" },
-            { label: "Számlanyitásra váró / folyamatban", value: opening.length, href: "#szamlanyitas" },
-            { label: "Megnyitott, nem finanszírozott számla (szimulált)", value: unfunded.length, href: "#nem-finanszirozott" },
-          ];
-          const processCard = (id: string, title: string, list: typeof active, empty: string, hint?: string) => (
-            <Card id={id}>
-              <CardHeader title={title} count={list.length} />
-              {hint ? <p className="px-4 pt-3 text-[13px] text-ink-muted">{hint}</p> : null}
-              {list.length ? <ul className="divide-y divide-line">{list.map((p) => <ProcessLine key={p.id} process={p} data={data} />)}</ul> : <EmptyState title={empty} />}
-            </Card>
-          );
           return (
             <div className="space-y-6">
-              <ul className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-                {stats.map((s) => (
+              <ul className="grid grid-cols-3 gap-3">
+                {[
+                  { label: "Mai feladatok", value: today.length, href: "#mai-feladatok" },
+                  { label: "Lejárt feladatok", value: overdue.length, href: "#lejart-feladatok" },
+                  { label: "Ügyfelek", value: data.customers.length, href: "/customers" },
+                ].map((s) => (
                   <li key={s.label}>
                     <Link href={s.href} className="block h-full rounded-lg bg-surface p-4 ring-1 ring-line transition-colors hover:bg-accent-soft">
                       <span className="block text-3xl font-semibold tabular-nums">{s.value}</span>
@@ -69,30 +38,20 @@ export default function OverviewPage() {
                   </li>
                 ))}
               </ul>
-
-              <div id="feladatok" className="grid scroll-mt-4 gap-6 lg:grid-cols-2">
-                <Card>
-                  <CardHeader title="Mai feladatok" count={today.length} />
-                  {today.length ? <ul className="divide-y divide-line">{today.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul> : <EmptyState title="Ma nincs esedékes feladat" />}
-                </Card>
-                <Card>
-                  <CardHeader title="Lejárt feladatok" count={overdue.length} />
-                  {overdue.length ? <ul className="divide-y divide-line">{overdue.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul> : <EmptyState title="Nincs lejárt feladat" />}
-                </Card>
-              </div>
-
               <div className="grid gap-6 lg:grid-cols-2">
-                {processCard("uj-erdeklodesek", "Új érdeklődések", inquiries, "Nincs új, még nem kezelt érdeklődés", "Bejövő érdeklődések, amelyeknél a kapcsolatfelvétel még nem kezdődött meg.")}
-                {processCard("kovetkezo-kapcsolatfelvetelek", "Következő kapcsolatfelvételek", outreach, "Nincs esedékes kapcsolatfelvétel", "Kimenő kapcsolatépítés: megkeresésre váró vagy folyamatban lévő folyamatok. Megkeresés előtt ellenőrizendő az adatforrás és a megkeresési jogalap.")}
-                {processCard("aktiv-folyamatok", "Aktív folyamatok", active, "Nincs aktív folyamat")}
-                {processCard("szamlanyitas", "Számlanyitásra váró vagy folyamatban lévő", opening, "Nincs ilyen folyamat", "A számlanyitás szolgáltatói folyamat; a CRM csak követi, nem végzi.")}
-                {processCard("nem-finanszirozott", "Megnyitott, de még nem finanszírozott számlák (szimulált)", unfunded, "Nincs ilyen folyamat", "Szimulált számláló: nem valós egyenleg- vagy pénzmozgási adat.")}
+                <Card id="mai-feladatok">
+                  <CardHeader title="Mai feladatok" count={today.length} />
+                  {today.length ? <ul className="divide-y divide-line">{today.map((t) => <TaskRow key={t.id} task={t} data={data} showCustomer showStatus />)}</ul> : <EmptyState title="Ma nincs esedékes feladat" />}
+                </Card>
+                <Card id="lejart-feladatok">
+                  <CardHeader title="Lejárt feladatok" count={overdue.length} />
+                  {overdue.length ? <ul className="divide-y divide-line">{overdue.map((t) => <TaskRow key={t.id} task={t} data={data} showCustomer showStatus />)}</ul> : <EmptyState title="Nincs lejárt feladat" />}
+                </Card>
               </div>
             </div>
           );
         }}
       </DataGate>
-      <TaskFormModal open={taskOpen} onClose={() => setTaskOpen(false)} />
     </>
   );
 }

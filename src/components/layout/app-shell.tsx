@@ -47,7 +47,7 @@ function Brand() {
   return (
     <Link href="/" className="block rounded-md px-3 py-1 text-on-carbon">
       <span className="block text-[15px] font-semibold tracking-tight">JG Investment OS</span>
-      <span className="block text-xs text-on-carbon-muted">v0.2 · demó</span>
+      <span className="block text-xs text-on-carbon-muted">v0.5 · demó</span>
     </Link>
   );
 }

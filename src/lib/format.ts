@@ -18,3 +18,17 @@ export function fromInputValue(v: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 export const nowInputValue = () => toInputValue(new Date().toISOString());
+
+/** ISO → `date` input érték (helyi nap). */
+export function toDateInputValue(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+/** `date` input érték → ISO (a nap déli 12:00-ja helyi időben, így sosem esik át másik napra); üres marad üres. */
+export function fromDateInputValue(v: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return "";
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}

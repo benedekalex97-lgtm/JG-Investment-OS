@@ -5,7 +5,7 @@ import { DemoDataProvider } from "@/data/store";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "JG Investment OS — Foundation v0.1 (demó)",
+  title: "JG Investment OS — v0.5 (demó)",
   description: "Belső CRM demó fiktív adatokkal. Nem éles rendszer.",
   robots: { index: false, follow: false },
 };
