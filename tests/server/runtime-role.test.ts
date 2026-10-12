@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkSchema } from "@/server/db/migrate";
 import { createPgDb } from "@/server/db/pg-driver";
 import { provisionRuntimeRole, validateRuntimeRole } from "@/server/db/runtime-role";
+import { scramSha256Verifier } from "@/server/db/scram";
 import type { Db } from "@/server/db/types";
 import { PASSWORD_A, addPilotUsers, client, makeApi, makeTestDb, type TestDb } from "./helpers";
 
@@ -13,6 +14,32 @@ describe("futási szerepkör: bemenet-ellenőrzés", () => {
     for (const name of ["jg_app", "pg_monitor", "Nagy", "a", "rossz-nev", 'x";drop', "1abc"]) expect(() => validateRuntimeRole({ name, password: pw }), name).toThrow();
     expect(() => validateRuntimeRole({ name: "jg_runtime", password: "rovid" })).toThrow(/24/);
     expect(() => validateRuntimeRole({ name: "jg_runtime", password: pw })).not.toThrow();
+    expect(() => validateRuntimeRole({ name: "jg_runtime", password: "x".repeat(20) + " abcd" })).toThrow(/ASCII/);
+    expect(() => validateRuntimeRole({ name: "jg_runtime", password: "á".repeat(30) })).toThrow(/ASCII/);
+  });
+});
+
+describe("SCRAM-SHA-256 verifier", () => {
+  it("formátum: iteráció, só, StoredKey, ServerKey; a tiszta jelszó nincs benne; véletlen sóval minden hívás más", () => {
+    const v = scramSha256Verifier("titkos-jelszo-1234567890abcd");
+    expect(v).toMatch(/^SCRAM-SHA-256\$4096:[A-Za-z0-9+/]{22}==\$[A-Za-z0-9+/]{43}=:[A-Za-z0-9+/]{43}=$/);
+    expect(v).not.toContain("titkos");
+    expect(scramSha256Verifier("titkos-jelszo-1234567890abcd")).not.toBe(v);
+    expect(scramSha256Verifier("x", { salt: Buffer.alloc(16, 1) })).toBe(scramSha256Verifier("x", { salt: Buffer.alloc(16, 1) }));
+  });
+  it("az RFC 7677 tesztvektor: a verifier kulcsaiból a hivatalos kliens-bizonyíték és szerver-aláírás adódik", async () => {
+    const { createHmac, createHash } = await import("node:crypto");
+    const v = scramSha256Verifier("pencil", { salt: Buffer.from("W22ZaJ0SNY7soEsUEjb6gQ==", "base64") });
+    const [, , keys] = v.split("$");
+    const [stored, server] = keys.split(":").map((k) => Buffer.from(k, "base64"));
+    const authMessage = "n=user,r=rOprNGfwEbeRWgbNEkqO,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096,c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0";
+    const clientSig = createHmac("sha256", stored).update(authMessage).digest();
+    const serverSig = createHmac("sha256", server).update(authMessage).digest().toString("base64");
+    expect(serverSig).toBe("6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=");
+    // ClientProof = ClientKey XOR ClientSignature; a hivatalos érték: dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=
+    const proof = Buffer.from("dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=", "base64");
+    const clientKey = Buffer.from(proof.map((b, i) => b ^ clientSig[i]));
+    expect(createHash("sha256").update(clientKey).digest().equals(stored)).toBe(true);
   });
 });
 
@@ -56,6 +83,12 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: legkiseb
     const [r] = await owner.db.system((tx) => tx.query<Record<string, boolean>>(`select rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls, rolinherit from pg_roles where rolname = '${role}'`));
     expect(r).toEqual({ rolcanlogin: true, rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolbypassrls: false, rolinherit: false });
     expect(await owner.db.system((tx) => tx.query(`select 1 from pg_class where relowner = '${role}'::regrole`))).toHaveLength(0);
+  });
+
+  it("a jelszó SCRAM-SHA-256 verifierként tárolódik; a tiszta jelszó nem szerepel az adatbázisban", async () => {
+    const [r] = await owner.db.system((tx) => tx.query<{ rolpassword: string }>(`select rolpassword from pg_authid where rolname = '${role}'`));
+    expect(r.rolpassword).toMatch(/^SCRAM-SHA-256\$4096:/);
+    expect(r.rolpassword).not.toContain(password);
   });
 
   it("a teljes alkalmazás-folyamat működik a futási szerepkörrel: belépés, ügyfél, feladat, lezárás, pillanatkép, kijelentkezés", async () => {

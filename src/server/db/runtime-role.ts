@@ -1,3 +1,4 @@
+import { scramSha256Verifier } from "./scram";
 import { APP_ROLE, type Db, type Tx } from "./types";
 
 /**
@@ -11,14 +12,15 @@ import { APP_ROLE, type Db, type Tx } from "./types";
  *      users: SELECT + UPDATE(last_login_at) (nincs jelszó-módosítás, nincs létrehozás, nincs törlés),
  *      sessions: SELECT/INSERT/UPDATE/DELETE, login_attempts: SELECT/INSERT/DELETE, meta és schema_migrations: SELECT.
  * A felhasználók létrehozása, jelszócsere és letiltás továbbra is a tulajdonosi kapcsolattal futó `npm run db` CLI feladata.
- * Idempotens; adatot nem érint. A szerepkör jelszava csak a végrehajtás pillanatában létezik, soha nem naplózódik.
+ * Idempotens; adatot nem érint. Újrafuttatáskor a jelszó cserélődik (a régi azonnal érvénytelen). A jelszó SCRAM-SHA-256 verifierként
+ * kerül az adatbázisba (a tiszta jelszó nem jut el a szerverre, az utasításszövegbe és a naplókba), és sehol nem naplózódik.
  */
 export const RUNTIME_ROLE_NAME_RE = /^[a-z][a-z0-9_]{2,40}$/;
 
 const ident = (name: string) => `"${name}"`;
-/** Szabványos SQL-literál (standard_conforming_strings=on): az aposztróf duplázása; NUL nem engedett. */
+/** Szabványos SQL-literál (standard_conforming_strings=on): az aposztróf duplázása; NUL nem engedett. A verifier base64/`$`/`:` karaktereket tartalmaz, aposztrófot nem. */
 function literal(value: string): string {
-  if (value.includes("\0")) throw new Error("Érvénytelen jelszó.");
+  if (value.includes("\0")) throw new Error("Érvénytelen érték.");
   return `'${value.replace(/'/g, "''")}'`;
 }
 
@@ -30,6 +32,7 @@ export interface RuntimeRoleOptions {
 export function validateRuntimeRole(o: RuntimeRoleOptions): void {
   if (!RUNTIME_ROLE_NAME_RE.test(o.name) || o.name === APP_ROLE || o.name.startsWith("pg_")) throw new Error("Érvénytelen szerepkör-név (kisbetű/szám/aláhúzás, 3-41 karakter, nem jg_app).");
   if (o.password.length < 24) throw new Error("A futási szerepkör jelszava legalább 24 karakter legyen (generált, véletlen érték).");
+  if (!/^[\x21-\x7e]+$/.test(o.password)) throw new Error("A futási szerepkör jelszava csak látható ASCII karakterekből álljon (szóköz nélkül).");
 }
 
 /** A szerepkör létrehozása/frissítése, jogosultságok és az auth-táblákra szóló RLS-szabályok. A tulajdonosi (`system`) kapcsolaton fut. */
@@ -39,8 +42,9 @@ export async function provisionRuntimeRole(db: Db, o: RuntimeRoleOptions): Promi
   await db.system(async (tx: Tx) => {
     const exists = await tx.query("select 1 from pg_roles where rolname = $1", [o.name]);
     const attrs = "login nosuperuser nocreatedb nocreaterole noinherit nobypassrls connection limit 20";
-    if (exists.length) await tx.exec(`alter role ${role} with ${attrs} password ${literal(o.password)}`);
-    else await tx.exec(`create role ${role} with ${attrs} password ${literal(o.password)}`);
+    const verifier = literal(scramSha256Verifier(o.password));
+    if (exists.length) await tx.exec(`alter role ${role} with ${attrs} password ${verifier}`);
+    else await tx.exec(`create role ${role} with ${attrs} password ${verifier}`);
     // Az alkalmazás-szerepkörre válthat (SET LOCAL ROLE), de annak jogait nem örökli alapértelmezetten.
     await tx.exec(`grant ${APP_ROLE} to ${role} with inherit false, set true`);
     await tx.exec(`revoke create on schema public from ${role}`);
