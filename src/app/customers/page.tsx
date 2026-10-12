@@ -73,7 +73,7 @@ export default function CustomersPage() {
         {(data) =>
           data.customers.length === 0 ? (
             <Card>
-              <EmptyState title="Még nincs rögzített ügyfél." hint="Ez egy üres demó-CRM. Az adatok csak ebben a böngészőfülben élnek, ne rögzíts valós ügyféladatot." action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>} />
+              <EmptyState title="Még nincs rögzített ügyfél." hint="Az adatbázis még üres. Az adat mentése tartós; fiktív/előnézeti környezetben ne rögzíts valós ügyféladatot." action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>} />
             </Card>
           ) : (
             <CustomerTable data={data} />

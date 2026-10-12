@@ -1,179 +1,218 @@
 "use client";
 
-import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { DataSnapshot } from "@/domain/types";
-import { DEMO_USERS } from "@/domain/constants";
-import { DemoRepository, type DataRepository } from "./repository";
-import { loadSnapshot, planDemoRemoval, removeDemoRecords, type DemoRemovalPlan, type DemoRemovalResult } from "./persistence";
+import { loadSnapshot } from "./persistence";
+import { RemoteRepository } from "./remote";
 
 /**
- * DEMÓ adat-store. A módosítások a böngészőfül sessionStorage-ában élnek:
- * oldalfrissítést túlélnek, de a fül bezárásakor elvesznek. Ez NEM éles
- * adatmegőrzés, nincs szerveroldali mentés vagy jogosultság-érvényesítés.
- * Üres kezdőállapot: a fiktív seed csak a fejlesztői tesztekben létezik.
+ * CRM adat-store (v0.6): az adat az adatbázisban él, a böngésző csak megjeleníti. A munkamenetet a szerver kezeli (HttpOnly süti);
+ * a kliens sehol nem tárol üzleti adatot (sem localStorage, sem sessionStorage) - a régi böngészős demóadatot csak felismeri és
+ * exportálhatóvá teszi, automatikusan nem importálja és nem törli.
  */
-const STORAGE_KEY = "jg-os-demo-v0.2";
-/** A v0.1 adatmodell tárolókulcsa: a v0.2 NEM írja felül és NEM törli automatikusan (nincs csendes adatvesztés). */
-const LEGACY_KEY = "jg-os-demo-v0.1";
-const USER_KEY = "jg-os-demo-user";
+export interface PublicUser { id: string; name: string }
+export interface SessionUser extends PublicUser { email: string }
+/** `loading`: induló lekérdezés; `ready`: bejelentkezve; `unauthenticated`: belépés szükséges; `unavailable`: az adatbázis/konfiguráció nem rendelkezésre álló. */
+export type Phase = "loading" | "ready" | "unauthenticated" | "unavailable";
 
-type Listener = () => void;
+/** Régi, csak böngészőben tárolt demóadat (v0.1 / v0.2-v0.5.x). */
+const LEGACY_KEYS = ["jg-os-demo-v0.2", "jg-os-demo-v0.1"] as const;
+export interface LegacyBrowserData { key: string; customers: number; raw: string }
 
-class DemoStore {
-  private repo: DataRepository | null = null;
-  private listeners = new Set<Listener>();
-
-  private ensure(): DataRepository {
-    if (!this.repo) {
-      let raw: string | null = null;
-      try {
-        raw = window.sessionStorage.getItem(STORAGE_KEY);
-      } catch {
-        raw = null;
-      }
-      // Új munkamenet = ÜRES CRM. Fiktív seed nem töltődik be automatikusan.
-      this.repo = new DemoRepository(loadSnapshot(raw));
-    }
-    return this.repo;
-  }
-
-  subscribe = (l: Listener) => {
-    this.listeners.add(l);
-    return () => this.listeners.delete(l);
-  };
-  getSnapshot = (): DataSnapshot | null => (typeof window === "undefined" ? null : this.ensure().getSnapshot());
-  getServerSnapshot = (): DataSnapshot | null => null;
-
-  repository(): DataRepository {
-    return this.ensure();
-  }
-  /** Mutáció után hívandó: perzisztál (munkamenet) és értesít. */
-  notify() {
-    try {
-      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(this.ensure().getSnapshot()));
-    } catch {
-      /* a sessionStorage nem elérhető - a demó memóriában tovább működik */
-    }
-    this.listeners.forEach((l) => l());
-  }
-  getLegacySnapshot = (): boolean => {
-    try {
-      return window.sessionStorage.getItem(LEGACY_KEY) !== null;
-    } catch {
-      return false;
-    }
-  };
-  exportLegacy(): string | null {
-    try {
-      return window.sessionStorage.getItem(LEGACY_KEY);
-    } catch {
-      return null;
-    }
-  }
-  /** Csak kifejezett felhasználói döntésre hívandó. */
-  discardLegacy() {
-    try {
-      window.sessionStorage.removeItem(LEGACY_KEY);
-    } catch {
-      /* ignore */
-    }
-    this.listeners.forEach((l) => l());
-  }
-  currentUser(): string {
-    try {
-      const id = window.sessionStorage.getItem(USER_KEY);
-      if (id && DEMO_USERS.some((u) => u.id === id)) return id;
-    } catch {
-      /* ignore */
-    }
-    return DEMO_USERS[0].id;
-  }
-  setCurrentUser(id: string) {
-    try {
-      window.sessionStorage.setItem(USER_KEY, id);
-    } catch {
-      /* ignore */
-    }
-    this.listeners.forEach((l) => l());
-  }
-  /** Explicit, megerősítés után hívandó: csak a felismert demó rekordokat törli (lásd persistence.ts). */
-  removeDemo(): DemoRemovalResult {
-    const result = removeDemoRecords(this.ensure().getSnapshot());
-    this.repo = new DemoRepository(result.snapshot);
-    this.notify();
-    return result;
-  }
-  demoPlan(): DemoRemovalPlan {
-    return planDemoRemoval(this.ensure().getSnapshot());
-  }
-  exportData(): string {
-    return JSON.stringify(this.ensure().getSnapshot(), null, 2);
-  }
-  /** Explicit, megerősítés után hívandó: az ÖSSZES rekordot törli (üres CRM). */
-  reset() {
-    try {
-      window.sessionStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-    this.repo = null;
-    this.listeners.forEach((l) => l());
-  }
-}
-
-const store = new DemoStore();
+const REFRESH_MS = 30_000;
 
 interface Ctx {
-  /** null = még nem töltődött be (betöltési állapot). */
+  phase: Phase;
+  /** Az `unavailable` állapot oka (szerver által jelzett kód), pl. not_configured. */
+  problem: string | null;
+  /** null = még nem töltődött be. */
   data: DataSnapshot | null;
-  /** Írási műveletek után a store automatikusan értesít és perzisztál (munkamenet). */
-  repo: DataRepository;
-  reset: () => void;
-  demo: { plan: DemoRemovalPlan; remove: () => DemoRemovalResult; exportJson: () => string };
-  /** Az aktuális (fiktív) felhasználó: a naplózott műveletek rögzítője. */
+  repo: RemoteRepository;
+  user: SessionUser | null;
+  users: PublicUser[];
+  environmentLabel: string;
+  /** A bejelentkezett felhasználó azonosítója (a naplózott műveletek rögzítője - a szerver állítja be). */
   currentUserId: string;
-  setCurrentUserId: (id: string) => void;
-  legacy: { present: boolean; exportJson: () => string | null; discard: () => void };
+  login: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  logout: () => Promise<void>;
+  refresh: () => Promise<void>;
+  legacy: { items: LegacyBrowserData[]; discard: () => void };
 }
 const StoreContext = createContext<Ctx | null>(null);
 
-/** A repository műveleteit becsomagolja: minden hívás után perzisztál és értesít. */
-function notifying(raw: DataRepository): DataRepository {
-  return new Proxy(raw, {
-    get(target, prop, receiver) {
-      const v = Reflect.get(target, prop, receiver);
-      if (typeof v !== "function") return v;
-      if (prop === "getSnapshot") return v.bind(target);
-      return (...args: unknown[]) => {
-        const res = (v as (...a: unknown[]) => unknown).apply(target, args);
-        store.notify();
-        return res;
-      };
-    },
-  });
+const MSG = {
+  invalid: "Hibás e-mail-cím vagy jelszó.",
+  locked: "Túl sok sikertelen próba. Várj 15 percet, majd próbáld újra.",
+  network: "Nincs kapcsolat a szerverrel. Próbáld újra.",
+  unavailable: "A rendszer jelenleg nem érhető el.",
+  generic: "A belépés nem sikerült. Próbáld újra.",
+} as const;
+
+async function getJson(url: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await res.json()) as Record<string, unknown>;
+  } catch {
+    /* nem JSON válasz */
+  }
+  return { status: res.status, body };
 }
 
-export function DemoDataProvider({ children }: { children: ReactNode }) {
-  const data = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
-  const legacyPresent = useSyncExternalStore(store.subscribe, store.getLegacySnapshot, () => false);
-  const currentUserId = useSyncExternalStore(store.subscribe, () => (typeof window === "undefined" ? DEMO_USERS[0].id : store.currentUser()), () => DEMO_USERS[0].id);
-  const value = useMemo<Ctx>(
-    () => ({
-      data,
-      repo: notifying(data ? store.repository() : ({} as DataRepository)),
-      reset: () => store.reset(),
-      demo: { plan: data ? store.demoPlan() : { removable: [], kept: [] }, remove: () => store.removeDemo(), exportJson: () => store.exportData() },
-      currentUserId,
-      setCurrentUserId: (id) => store.setCurrentUser(id),
-      legacy: { present: legacyPresent, exportJson: () => store.exportLegacy(), discard: () => store.discardLegacy() },
-    }),
-    [data, currentUserId, legacyPresent],
+export function CrmDataProvider({ children }: { children: ReactNode }) {
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [data, setData] = useState<DataSnapshot | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [users, setUsers] = useState<PublicUser[]>([]);
+  const [environmentLabel, setEnvironmentLabel] = useState("");
+  const [legacyItems, setLegacyItems] = useState<LegacyBrowserData[]>([]);
+
+  const [repo] = useState(
+    () =>
+      new RemoteRepository({
+        onSnapshot: (s) => setData(s),
+        onSession: (e) => {
+          if (e === "unauthenticated") {
+            setData(null);
+            setUser(null);
+            setPhase("unauthenticated");
+          } else {
+            setProblem("unreachable");
+          }
+        },
+      }),
   );
+
+  const loadSnapshotFromServer = useCallback(async (): Promise<boolean> => {
+    try {
+      const { status, body } = await getJson("/api/crm/snapshot");
+      if (status === 200) {
+        setData(body.snapshot as DataSnapshot);
+        setUsers(body.users as PublicUser[]);
+        setPhase("ready");
+        setProblem(null);
+        return true;
+      }
+      if (status === 401) {
+        setData(null);
+        setUser(null);
+        setPhase("unauthenticated");
+      } else if (status === 503) {
+        setProblem(String(body.state ?? "unreachable"));
+        setPhase("unavailable");
+      }
+    } catch {
+      /* átmeneti hálózati hiba: a meglévő nézet marad, a következő frissítés újrapróbálja */
+    }
+    return false;
+  }, []);
+
+  const bootstrap = useCallback(async () => {
+    try {
+      const { status, body } = await getJson("/api/auth/me");
+      if (status === 200) {
+        setUser(body.user as SessionUser);
+        setEnvironmentLabel(String(body.environmentLabel ?? ""));
+        await loadSnapshotFromServer();
+      } else if (status === 401) {
+        const s = await getJson("/api/status");
+        setEnvironmentLabel(String(s.body.environmentLabel ?? ""));
+        setPhase("unauthenticated");
+      } else {
+        setProblem(String(body.state ?? "unreachable"));
+        setPhase("unavailable");
+      }
+    } catch {
+      setProblem("unreachable");
+      setPhase("unavailable");
+    }
+  }, [loadSnapshotFromServer]);
+
+  useEffect(() => {
+    // Induló lekérdezés + a régi böngészős demóadat felismerése (csak olvasás).
+    const t = setTimeout(() => {
+      void bootstrap();
+      const found: LegacyBrowserData[] = [];
+      for (const key of LEGACY_KEYS) {
+        try {
+          const raw = window.sessionStorage.getItem(key);
+          if (raw) found.push({ key, raw, customers: loadSnapshot(raw).customers.length });
+        } catch {
+          /* a sessionStorage nem elérhető */
+        }
+      }
+      setLegacyItems(found);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [bootstrap]);
+
+  // A két pilot felhasználó közös nézete: frissítés fókuszra és időközönként (nincs helyi gyorsítótár).
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const tick = () => {
+      if (document.visibilityState === "visible") void loadSnapshotFromServer();
+    };
+    const id = setInterval(tick, REFRESH_MS);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [phase, loadSnapshotFromServer]);
+
+  const login = useCallback<Ctx["login"]>(async (email, password) => {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", cache: "no-store", body: JSON.stringify({ email, password }),
+      });
+      if (res.status === 401) return { ok: false, error: MSG.invalid };
+      if (res.status === 429) return { ok: false, error: MSG.locked };
+      if (res.status === 503) return { ok: false, error: MSG.unavailable };
+      if (!res.ok) return { ok: false, error: MSG.generic };
+      const body = (await res.json()) as { user: SessionUser; environmentLabel?: string };
+      setUser(body.user);
+      setEnvironmentLabel(body.environmentLabel ?? "");
+      await loadSnapshotFromServer();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: MSG.network };
+    }
+  }, [loadSnapshotFromServer]);
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", cache: "no-store", body: "{}" });
+    } catch {
+      /* a süti a szerveren lejár; a nézetet mindenképp lezárjuk */
+    }
+    setData(null);
+    setUser(null);
+    setPhase("unauthenticated");
+  }, []);
+
+  const value: Ctx = {
+    phase, problem, data, repo, user, users, environmentLabel, currentUserId: user?.id ?? "", login, logout, refresh: async () => void (await loadSnapshotFromServer()),
+    legacy: {
+      items: legacyItems,
+      /** Csak kifejezett felhasználói döntésre hívandó: a régi, csak böngészőben tárolt adat törlése. */
+      discard: () => {
+        for (const k of LEGACY_KEYS) {
+          try {
+            window.sessionStorage.removeItem(k);
+          } catch {
+            /* ignore */
+          }
+        }
+        setLegacyItems([]);
+      },
+    },
+  };
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
-export function useDemoData(): Ctx {
+export function useCrmData(): Ctx {
   const ctx = useContext(StoreContext);
-  if (!ctx) throw new Error("useDemoData csak DemoDataProvideren belül használható");
+  if (!ctx) throw new Error("useCrmData csak CrmDataProvideren belül használható");
   return ctx;
 }

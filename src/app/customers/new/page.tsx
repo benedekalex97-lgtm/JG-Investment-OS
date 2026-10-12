@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import { VerificationFields } from "@/components/forms";
 import { SelectInput, TextInput } from "@/components/ui/form";
 import { Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
-import { useDemoData } from "@/data/store";
+import { useCrmData } from "@/data/store";
 import { CRM_STATUSES, CRM_STATUS_LABELS, CUSTOMER_TYPE_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
 import { isCrmMilestone } from "@/domain/workflow";
 import { cn } from "@/lib/cn";
@@ -18,7 +18,8 @@ type Errors = Record<string, string>;
  */
 export default function NewCustomerPage() {
   const router = useRouter();
-  const { repo, currentUserId } = useDemoData();
+  const { repo } = useCrmData();
+  const [busy, setBusy] = useState(false);
   const [type, setType] = useState<"individual" | "company">("individual");
   const [f, setF] = useState({ name: "", companyName: "", contactName: "", contactPosition: "", phone: "", email: "", source: "", crmStatus: DEFAULT_CRM_STATUS as string });
   const [vSource, setVSource] = useState("");
@@ -27,18 +28,23 @@ export default function NewCustomerPage() {
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
   const milestone = isCrmMilestone(f.crmStatus as typeof DEFAULT_CRM_STATUS);
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     const common = {
-      phone: f.phone, email: f.email, source: f.source, crmStatus: f.crmStatus, recordedBy: currentUserId,
+      phone: f.phone, email: f.email, source: f.source, crmStatus: f.crmStatus,
       verification: milestone && (vSource || vAck) ? { sourceCategory: vSource || undefined, complianceAcknowledged: vAck } : undefined,
     };
-    const created = repo.createCustomerFromForm(
+    setBusy(true);
+    const created = await repo.createCustomerFromForm(
       type === "individual"
         ? { type, name: f.name, ...common }
         : { type, companyName: f.companyName, contactName: f.contactName, contactPosition: f.contactPosition, ...common },
     );
-    if (!created.ok) return setErrors(created.errors);
+    if (!created.ok) {
+      setBusy(false);
+      return setErrors(created.errors);
+    }
     router.push(`/customers/${created.value.customer.id}`);
   };
 
@@ -84,10 +90,10 @@ export default function NewCustomerPage() {
           </div>
         </Card>
 
-        <p className="text-[13px] text-ink-muted">Demó: ne rögzíts valós személyes adatot. Az adatok csak ebben a böngészőfülben élnek.</p>
+        <p className="text-[13px] text-ink-muted">Az adat az adatbázisba mentődik. Fiktív/előnézeti környezetben ne rögzíts valós személyes adatot.</p>
         <div className="flex flex-wrap gap-2">
-          <Button type="submit">Ügyfél létrehozása</Button>
-          <Button variant="secondary" onClick={() => router.push("/customers")}>Mégse</Button>
+          <Button type="submit" disabled={busy} aria-busy={busy}>Ügyfél létrehozása</Button>
+          <Button variant="secondary" onClick={() => router.push("/customers")} disabled={busy}>Mégse</Button>
         </div>
       </form>
     </>

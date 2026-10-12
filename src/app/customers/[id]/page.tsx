@@ -2,17 +2,17 @@
 
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { ActivityItem, DataGate, TaskRow } from "@/components/common";
+import { ActivityItem, DataGate, TaskRow, useUserName } from "@/components/common";
 import { NewTaskModal } from "@/components/forms";
-import { CustomerDetails } from "@/components/customer-details";
+import { ContactSidebar, CustomerHeader } from "@/components/customer-details";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorState } from "@/components/ui/primitives";
 import { CLOSURE_LABELS, CRM_STATUS_LABELS, PROCESS_STATUS_LABELS } from "@/domain/constants";
 import { statusOf, tasksByStatus } from "@/domain/logic";
 import type { Customer, DataSnapshot } from "@/domain/types";
-import { userName } from "@/components/common";
 
 /** Régi (v0.2/v0.3) adatok és napló: csak olvasható archívum, a meglévő adat megőrzéséhez. */
 function ArchiveSection({ data, customer }: { data: DataSnapshot; customer: Customer }) {
+  const userName = useUserName();
   const processes = data.processes.filter((p) => p.customerId === customer.id);
   const log = data.activities.filter((a) => a.customerId === customer.id).sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
   if (!processes.length && !log.length) return null;
@@ -45,8 +45,11 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
   const view = tasksByStatus(data, customer);
   const hasEarlier = view.earlier.length > 0 || view.unassigned.length > 0;
   return (
-    <div className="space-y-6">
-      <CustomerDetails data={data} customer={customer} />
+    <div className="space-y-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)] lg:items-start lg:gap-6 lg:space-y-0">
+      {/* DOM-sorrend = mobil sorrend: név+státusz, kapcsolati adatok, feladatok. Desktopon a kapcsolati adatok a jobb oldali sávba kerülnek. */}
+      <CustomerHeader customer={customer} className="lg:col-span-2" />
+      <ContactSidebar data={data} customer={customer} className="lg:sticky lg:top-4 lg:col-start-2 lg:row-start-2" />
+      <div className="min-w-0 space-y-6 lg:col-start-1 lg:row-start-2">
 
       <Card id="feladatok-lista">
         <CardHeader title={`Feladatok — ${CRM_STATUS_LABELS[status]}`} count={view.current.length} action={<Button size="sm" onClick={() => setNewTask(true)}>+ Feladat hozzáadása</Button>} />
@@ -83,6 +86,7 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
       ) : null}
 
       <ArchiveSection data={data} customer={customer} />
+      </div>
       <NewTaskModal open={newTask} onClose={() => setNewTask(false)} customerId={customer.id} statusLabel={CRM_STATUS_LABELS[status]} />
     </div>
   );
@@ -94,7 +98,7 @@ export default function CustomerPage() {
     <DataGate>
       {(data) => {
         const customer = data.customers.find((c) => c.id === id);
-        if (!customer) return <ErrorState title="Az ügyfél nem található" message="Lehet, hogy a demóadat törlése eltávolította, vagy hibás a hivatkozás." />;
+        if (!customer) return <ErrorState title="Az ügyfél nem található" message="Hibás lehet a hivatkozás, vagy az ügyfél nem létezik ebben az adatbázisban." />;
         return <Profile data={data} customer={customer} />;
       }}
     </DataGate>

@@ -15,7 +15,7 @@ export default function OverviewPage() {
           if (data.customers.length === 0) {
             return (
               <Card>
-                <EmptyState title="Még nincs rögzített ügyfél." hint="Az áttekintés az első ügyfél és feladat rögzítése után jelenik meg. Ez egy üres demó-CRM: ne rögzíts valós ügyféladatot." action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>} />
+                <EmptyState title="Még nincs rögzített ügyfél." hint="Az áttekintés az első ügyfél és feladat rögzítése után jelenik meg." action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>} />
               </Card>
             );
           }

@@ -5,7 +5,7 @@ import { RestrictedBadge, TypeBadge } from "@/components/common";
 import { StatusSelect } from "@/components/status-select";
 import { TextInput } from "@/components/ui/form";
 import { Button, Card } from "@/components/ui/primitives";
-import { useDemoData } from "@/data/store";
+import { useCrmData } from "@/data/store";
 import { contactName, customerName, otherContactsOf, primaryContactOf } from "@/domain/logic";
 import type { CompanyContact, Customer, DataSnapshot } from "@/domain/types";
 
@@ -13,11 +13,11 @@ type Errors = Record<string, string>;
 
 function Fields({ items }: { items: { label: string; value: ReactNode }[] }) {
   return (
-    <dl className="grid gap-x-6 gap-y-3 p-4 sm:grid-cols-2">
+    <dl className="space-y-3 p-4">
       {items.map((i) => (
         <div key={i.label} className="min-w-0">
           <dt className="text-xs font-medium text-ink-muted">{i.label}</dt>
-          <dd className="mt-0.5 break-words text-sm text-ink">{i.value || "—"}</dd>
+          <dd className="mt-0.5 break-words text-sm text-ink">{i.value || <span className="text-ink-subtle">Nincs megadva</span>}</dd>
         </div>
       ))}
     </dl>
@@ -43,11 +43,29 @@ function OtherContacts({ others }: { others: CompanyContact[] }) {
 }
 
 /**
- * Az ügyfél fejléce és alapadatai (v0.5.1): az ügyfél neve MELLETT a szerkeszthető kapcsolati státusz (mobilon a név alatt),
- * alatta az alapadatok és a közvetlen „Szerkesztés”. Magánszemély: név, telefon, e-mail, adatforrás. Cég: cégnév, kapcsolati
- * személy (+ opcionális szerep), telefon, e-mail, adatforrás. Aktív tiltakozás/korlátozás esetén rövid, csak olvasható jelzés.
+ * Az ügyfél fejléce (v0.6): a név MELLETT a szerkeszthető kapcsolati státusz (mobilon a név alatt). A kapcsolati adatok nem itt,
+ * hanem a jobb oldali sávban ({@link ContactSidebar}) jelennek meg. Aktív tiltakozás/korlátozás esetén rövid, csak olvasható jelzés.
  */
-export function CustomerDetails({ data, customer }: { data: DataSnapshot; customer: Customer }) {
+export function CustomerHeader({ customer, className }: { customer: Customer; className?: string }) {
+  return (
+    <Card id="ugyfel" className={className}>
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
+        <div className="min-w-0 max-w-full">
+          <h1 className="break-words text-2xl font-semibold tracking-tight text-ink">{customerName(customer)}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-muted"><TypeBadge type={customer.type} /><RestrictedBadge customer={customer} /></p>
+        </div>
+        <StatusSelect customer={customer} />
+      </header>
+    </Card>
+  );
+}
+
+/**
+ * Kapcsolati adatok (v0.6): desktopon a jobb oldali sáv, mobilon a név/státusz és a feladatok közé kerülő blokk. Magánszemély: telefon,
+ * e-mail, adatforrás. Cég: kapcsolati személy (+ szerep), telefon, e-mail, adatforrás. A hiányzó adat visszafogottan „Nincs megadva”.
+ * A szerkesztés ugyanazt az űrlapot használja, mint korábban; mentés után a sáv a friss adatot mutatja.
+ */
+export function ContactSidebar({ data, customer, className }: { data: DataSnapshot; customer: Customer; className?: string }) {
   const [editing, setEditing] = useState(false);
   const primary = customer.type === "company" ? primaryContactOf(data, customer.id) : undefined;
   const others = customer.type === "company" ? otherContactsOf(data, customer.id) : [];
@@ -55,36 +73,35 @@ export function CustomerDetails({ data, customer }: { data: DataSnapshot; custom
   const phone = customer.phone ?? primary?.phone;
   const email = customer.email ?? primary?.email;
   return (
-    <Card id="ugyfel">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-line p-4">
-        <div className="min-w-0 max-w-full">
-          <h1 className="break-words text-2xl font-semibold tracking-tight text-ink">{customerName(customer)}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-muted"><TypeBadge type={customer.type} /><RestrictedBadge customer={customer} /></p>
+    <aside aria-labelledby="kapcsolati-adatok-cim" className={className}>
+      <Card id="kapcsolati-adatok">
+        <div className="border-b border-line px-4 py-3">
+          <h2 id="kapcsolati-adatok-cim" className="text-sm font-semibold text-ink">Kapcsolati adatok</h2>
         </div>
-        <StatusSelect customer={customer} />
-      </header>
-      {editing ? (
-        <EditForm customer={customer} primary={primary} onDone={() => setEditing(false)} />
-      ) : (
-        <>
-          <Fields
-            items={[
-              ...(customer.type === "company" ? [{ label: "Kapcsolati személy", value: primary ? `${contactName(primary)}${primary.position ? ` (${primary.position})` : ""}` : "" }] : []),
-              { label: "Telefonszám", value: phone },
-              { label: "E-mail", value: email },
-              { label: "Adatforrás", value: customer.source },
-            ]}
-          />
-          <OtherContacts others={others} />
-          <div className="px-4 pb-4"><Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Szerkesztés</Button></div>
-        </>
-      )}
-    </Card>
+        {editing ? (
+          <EditForm customer={customer} primary={primary} onDone={() => setEditing(false)} />
+        ) : (
+          <>
+            <Fields
+              items={[
+                ...(customer.type === "company" ? [{ label: "Kapcsolati személy", value: primary ? `${contactName(primary)}${primary.position ? ` (${primary.position})` : ""}` : "" }] : []),
+                { label: "Telefonszám", value: phone },
+                { label: "E-mail", value: email },
+                { label: "Adatforrás", value: customer.source },
+              ]}
+            />
+            <OtherContacts others={others} />
+            <div className="px-4 pb-4"><Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Szerkesztés</Button></div>
+          </>
+        )}
+      </Card>
+    </aside>
   );
 }
 
 function EditForm({ customer, primary, onDone }: { customer: Customer; primary?: CompanyContact; onDone: () => void }) {
-  const { repo } = useDemoData();
+  const { repo } = useCrmData();
+  const [busy, setBusy] = useState(false);
   const [f, setF] = useState({
     name: customer.type === "individual" ? customer.displayName : "", companyName: customer.type === "company" ? customer.companyName : "",
     contactName: primary ? contactName(primary) : "", contactPosition: primary?.position ?? "",
@@ -93,14 +110,17 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
   const [errors, setErrors] = useState<Errors>({});
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const r = repo.updateCustomer(
+    if (busy) return;
+    setBusy(true);
+    const r = await repo.updateCustomer(
       customer.id,
       customer.type === "individual"
         ? { type: "individual", name: f.name, phone: f.phone, email: f.email, source: f.source }
         : { type: "company", companyName: f.companyName, contactName: f.contactName, contactPosition: f.contactPosition, phone: f.phone, email: f.email, source: f.source },
     );
+    setBusy(false);
     if (!r.ok) return setErrors(r.errors);
     onDone();
   };
@@ -108,7 +128,7 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
   return (
     <form onSubmit={submit} noValidate className="space-y-4 p-4">
       {errors._form ? <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{errors._form}</p> : null}
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4">
         {customer.type === "company" ? (
           <>
             <TextInput label="Cégnév" required value={f.companyName} error={errors.companyName} onChange={set("companyName")} />
@@ -123,8 +143,8 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
         <TextInput label="Adatforrás" value={f.source} error={errors.source} onChange={set("source")} />
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit">Mentés</Button>
-        <Button variant="secondary" onClick={onDone}>Mégse</Button>
+        <Button type="submit" disabled={busy} aria-busy={busy}>Mentés</Button>
+        <Button variant="secondary" onClick={onDone} disabled={busy}>Mégse</Button>
       </div>
     </form>
   );

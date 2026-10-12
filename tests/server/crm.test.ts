@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { statusOf, tasksByStatus } from "@/domain/logic";
+import { customerName, statusOf, tasksByStatus } from "@/domain/logic";
 import type { Customer, Task } from "@/domain/types";
 import { makeApi, makeTestDb, addPilotUsers, client, DRIVERS, PASSWORD_A, PASSWORD_B, type Client, type TestDb } from "./helpers";
 
@@ -85,7 +85,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
     const task = await newTask(one, c.id);
     expect(task.assigneeId).toBe(ids.a);
     expect(task.status).toBe("open");
-    expect((await snap(one)).customers.some((x) => x.displayName === "Más Tulaj")).toBe(false);
+    expect((await snap(one)).customers.some((x) => customerName(x) === "Más Tulaj")).toBe(false);
     for (const op of ["restriction.set", "process.create", "customer.delete", "contactability.set"]) {
       const r = await one.op(op, { customerId: c.id });
       expect(r.status, op).toBe(400);
@@ -174,7 +174,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
     expect(a.body.replayed).toBe(false);
     expect(b.body.replayed).toBe(true);
     expect(b.body.result.value!.customer.id).toBe(a.body.result.value!.customer.id);
-    expect((await snap(one)).customers.filter((c) => c.displayName === "Ismétlődő Imre")).toHaveLength(1);
+    expect((await snap(one)).customers.filter((c) => customerName(c) === "Ismétlődő Imre")).toHaveLength(1);
     const other = await two.op("customer.create", { input: { type: "individual", name: "Más" } }, rid);
     expect(other.status).toBe(400);
   });
@@ -183,7 +183,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
     const rid = randomUUID();
     const rs = await Promise.all([1, 2, 3].map(() => one.op("customer.create", { input: { type: "individual", name: "Párhuzamos Pál" } }, rid)));
     expect(rs.map((r) => r.status)).toEqual([200, 200, 200]);
-    expect((await snap(one)).customers.filter((c) => c.displayName === "Párhuzamos Pál")).toHaveLength(1);
+    expect((await snap(one)).customers.filter((c) => customerName(c) === "Párhuzamos Pál")).toHaveLength(1);
   });
 
   it("nem létező ügyfél/feladat: kezelt hiba, nincs csonka írás", async () => {

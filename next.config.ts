@@ -6,6 +6,8 @@ import type { NextConfig } from "next";
  * - Feladatok: az Áttekintés munkapultján és az ügyféladatlapokon.
  */
 const nextConfig: NextConfig = {
+  // A PostgreSQL-meghajtók (pg) és a helyi PGlite nem csomagolódnak be: futásidőben töltődnek be a node_modules-ból.
+  serverExternalPackages: ["pg", "@electric-sql/pglite"],
   async redirects() {
     return [
       { source: "/cases", destination: "/customers", permanent: false },
