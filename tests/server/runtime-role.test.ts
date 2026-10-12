@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { checkSchema } from "@/server/db/migrate";
+import { checkSchema, migrate } from "@/server/db/migrate";
 import { createPgDb } from "@/server/db/pg-driver";
 import { provisionRuntimeRole, validateRuntimeRole } from "@/server/db/runtime-role";
 import { scramSha256Verifier } from "@/server/db/scram";
@@ -146,5 +146,89 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: legkiseb
     expect(await checkSchema(fresh, "local")).toEqual({ ok: true });
     await fresh.close();
     expect(await owner.db.system((tx) => tx.query("select count(*)::int as n from users"))).toEqual(before);
+  });
+});
+
+/**
+ * Neon-szerű tulajdonos: NEM szuperfelhasználó, de CREATEROLE + CREATEDB + BYPASSRLS (a Neon `<db>_owner` szerepköre ilyen).
+ * PostgreSQL 16+ alatt ez a szerepkör meglévő szerepkörön nem adhat meg privilegizált attribútum-opciót (pl. NOSUPERUSER) - a szuperfelhasználós
+ * tesztek ezt elfedik. Ez a teszt a provisioning újrafuttatását (jelszócsere) és a tiltott attribútumok kezelését ilyen tulajdonossal ellenőrzi.
+ */
+describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: Neon-szerű (nem szuperfelhasználó) tulajdonossal", () => {
+  const tag = randomBytes(4).toString("hex");
+  const ownerRole = `jgt_own_${tag}`;
+  const ownerPw = randomBytes(16).toString("hex");
+  const dbName = `jgt_neon_${tag}`;
+  const runtime = `jg_rt_${tag}`;
+  let admin: Pool;
+  let ownerDb: Db;
+
+  const urlFor = (user: string, pw: string) => {
+    const u = new URL(process.env.JG_TEST_DATABASE_URL as string);
+    u.pathname = `/${dbName}`;
+    u.username = user;
+    u.password = pw;
+    return u.toString();
+  };
+  const denied = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (e) {
+      return String((e as Error).message);
+    }
+    return "";
+  };
+
+  beforeAll(async () => {
+    admin = new Pool({ connectionString: process.env.JG_TEST_DATABASE_URL, max: 1 });
+    await admin.query(`create role "${ownerRole}" login createrole createdb bypassrls nosuperuser password '${ownerPw}'`);
+    await admin.query(`create database "${dbName}" owner "${ownerRole}"`);
+    // A Neonon a jg_app szerepkört a tulajdonos hozta létre (ADMIN OPTION-nel); itt a hermetikus tesztklaszteren ezt szimuláljuk.
+    await admin.query("do $$ begin if not exists (select 1 from pg_roles where rolname = 'jg_app') then create role jg_app nologin noinherit nosuperuser nocreatedb nocreaterole nobypassrls; end if; end $$");
+    await admin.query(`grant jg_app to "${ownerRole}" with admin option`);
+    ownerDb = createPgDb(urlFor(ownerRole, ownerPw));
+    await migrate(ownerDb, { env: "local" });
+  });
+  afterAll(async () => {
+    await ownerDb.close();
+    await admin.query(`drop database if exists "${dbName}" with (force)`);
+    await admin.query(`drop role if exists "${runtime}"`);
+    await admin.query(`drop role if exists "${ownerRole}"`);
+    await admin.end();
+  });
+
+  it("a tulajdonos valóban nem szuperfelhasználó, a migráció mégis lefutott", async () => {
+    const [r] = await ownerDb.system((tx) => tx.query<{ rolsuper: boolean }>("select rolsuper from pg_roles where rolname = current_user"));
+    expect(r.rolsuper).toBe(false);
+    expect(await checkSchema(ownerDb, "local")).toEqual({ ok: true });
+  });
+
+  it("létrehozás, majd újrafuttatás (jelszócsere) nem szuperfelhasználó tulajdonossal is működik; a régi jelszó érvénytelen, az új jó", async () => {
+    const first = randomBytes(24).toString("hex");
+    const second = randomBytes(24).toString("hex");
+    await provisionRuntimeRole(ownerDb, { name: runtime, password: first });
+    const a = createPgDb(urlFor(runtime, first));
+    expect(await checkSchema(a, "local")).toEqual({ ok: true });
+    await a.close();
+    await provisionRuntimeRole(ownerDb, { name: runtime, password: second });
+    const old = createPgDb(urlFor(runtime, first));
+    expect(await denied(() => old.system((tx) => tx.query("select 1")))).toMatch(/password authentication failed/i);
+    await old.close();
+    const fresh = createPgDb(urlFor(runtime, second));
+    expect(await checkSchema(fresh, "local")).toEqual({ ok: true });
+    expect(await denied(() => fresh.system((tx) => tx.exec("create table x (id int)")))).toMatch(/permission denied/i);
+    await fresh.close();
+    const [attrs] = await ownerDb.system((tx) => tx.query<Record<string, boolean>>(`select rolsuper, rolcreatedb, rolcreaterole, rolbypassrls, rolinherit, rolcanlogin from pg_roles where rolname = '${runtime}'`));
+    expect(attrs).toEqual({ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolbypassrls: false, rolinherit: false, rolcanlogin: true });
+  });
+
+  it("ha a meglévő futási szerepkör privilegizált (CREATEROLE/BYPASSRLS), a provisioning megáll és nem kerüli meg", async () => {
+    await admin.query(`alter role "${runtime}" createrole bypassrls`);
+    const msg = await denied(() => provisionRuntimeRole(ownerDb, { name: runtime, password: randomBytes(24).toString("hex") }));
+    expect(msg).toMatch(/CREATEROLE/);
+    expect(msg).toMatch(/BYPASSRLS/);
+    expect(msg).toMatch(/Kézi javítás/);
+    await admin.query(`alter role "${runtime}" nocreaterole nobypassrls`);
+    await provisionRuntimeRole(ownerDb, { name: runtime, password: randomBytes(24).toString("hex") });
   });
 });

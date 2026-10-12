@@ -40,11 +40,20 @@ export async function provisionRuntimeRole(db: Db, o: RuntimeRoleOptions): Promi
   validateRuntimeRole(o);
   const role = ident(o.name);
   await db.system(async (tx: Tx) => {
-    const exists = await tx.query("select 1 from pg_roles where rolname = $1", [o.name]);
-    const attrs = "login nosuperuser nocreatedb nocreaterole noinherit nobypassrls connection limit 20";
+    const existing = await tx.query<Record<string, boolean>>(
+      "select rolsuper, rolcreatedb, rolcreaterole, rolbypassrls, rolreplication from pg_roles where rolname = $1", [o.name],
+    );
     const verifier = literal(scramSha256Verifier(o.password));
-    if (exists.length) await tx.exec(`alter role ${role} with ${attrs} password ${verifier}`);
-    else await tx.exec(`create role ${role} with ${attrs} password ${verifier}`);
+    if (existing.length) {
+      // PostgreSQL 16+: nem szuperfelhasználó (CREATEROLE) tulajdonos meglévő szerepkörön NEM adhat meg privilegizált attribútum-opciót
+      // (NOSUPERUSER/NOCREATEDB/NOBYPASSRLS stb. - a jelenlét számít, nem az érték), ezért itt csak a megengedett opciókat állítjuk,
+      // a tiltott attribútumokat pedig ellenőrizzük: ha bármelyik be van kapcsolva, nem folytatjuk (kézi javítás kell, nem kerüljük meg).
+      const bad = Object.entries(existing[0]).filter(([, on]) => on).map(([k]) => k.replace(/^rol/, "").toUpperCase());
+      if (bad.length) throw new Error(`A(z) ${o.name} szerepkör nem megengedett attribútummal rendelkezik (${bad.join(", ")}); a futási szerepkör nem lehet privilegizált. Kézi javítás szükséges.`);
+      await tx.exec(`alter role ${role} with login noinherit connection limit 20 password ${verifier}`);
+    } else {
+      await tx.exec(`create role ${role} with login nosuperuser nocreatedb nocreaterole noinherit nobypassrls connection limit 20 password ${verifier}`);
+    }
     // Az alkalmazás-szerepkörre válthat (SET LOCAL ROLE), de annak jogait nem örökli alapértelmezetten.
     await tx.exec(`grant ${APP_ROLE} to ${role} with inherit false, set true`);
     await tx.exec(`revoke create on schema public from ${role}`);
