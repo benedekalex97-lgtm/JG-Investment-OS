@@ -67,6 +67,11 @@ jobs:
             echo "::error::Missing or invalid repository secret JG_NEON_PREVIEW_RUNTIME_PASSWORD (min. 24 visible ASCII characters, no spaces)."
             exit 1
           fi
+          # A Neon tiszta szöveges jelszót vár (SQL-literálban): aposztróf és fordított perjel nélküli, generált érték kell (pl. openssl rand -hex 24).
+          if [[ "$JG_RUNTIME_PASSWORD" == *"'"* || "$JG_RUNTIME_PASSWORD" == *"\\"* ]]; then
+            echo "::error::JG_NEON_PREVIEW_RUNTIME_PASSWORD must not contain an apostrophe or a backslash (use a generated hex/base64 value)."
+            exit 1
+          fi
           node <<'NODE'
           try {
             const url = new URL(process.env.DATABASE_URL);
@@ -86,12 +91,12 @@ jobs:
           }
           NODE
 
-      # Rögzített, már átnézett kód (a v0.6.2 PR SCRAM-verifieres, nem szuperfelhasználóval is újrafuttatható runtime-role:provision implementációja).
+      # Rögzített, már átnézett kód (a v0.6.2 PR runtime-role:provision implementációja: nem szuperfelhasználóval is újrafuttatható, explicit Neon-kompatibilis plaintext jelszó-móddal).
       # A DB-titkot kezelő job nem checkoutolhat tetszőleges, felhasználó által megadott ref-et.
       - name: Checkout reviewed JG OS source (pinned commit)
         uses: actions/checkout@v4
         with:
-          ref: bd407f13bf2967511e282b81bf7ba1481181dc18
+          ref: 629fa251ea3c7e49744cc5adf962b424f93d60a1
           persist-credentials: false
 
       - name: Set up Node.js
@@ -108,11 +113,15 @@ jobs:
           DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
         run: npm run db -- status
 
+      # A Neon vezérlőrétege a SCRAM-verifiert elutasítja ("Neon only supports being given plaintext passwords"), ezért itt - és csak itt -
+      # explicit tiszta szöveges jelszó-mód: a jelszó ellenőrzött TLS-en (a CLI a nem helyi adatbázisnál kikényszeríti) jut a Neonra,
+      # sehol nem naplózódik (a CLI a hibaüzenetből is kiszűri). A jogosultsági attribútumok és korlátozások változatlanok.
       - name: Provision runtime role - manual confirmation required
         if: ${{ inputs.operation == 'provision' }}
         env:
           DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
           JG_RUNTIME_PASSWORD: ${{ secrets.JG_NEON_PREVIEW_RUNTIME_PASSWORD }}
+          JG_RUNTIME_PASSWORD_MODE: plaintext
         run: npm run db -- runtime-role:provision jg_runtime
 
       - name: Verify runtime role privileges (read-only, no data written)
