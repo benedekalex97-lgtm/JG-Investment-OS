@@ -1,4 +1,4 @@
-# E2E (Playwright) — v0.3
+# E2E (Playwright) — v0.5
 
 ```bash
 npm run build && npx next start -p 3100 &

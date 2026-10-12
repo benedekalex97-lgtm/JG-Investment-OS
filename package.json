@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/v0.3.e2e.cjs"
+    "e2e": "node e2e/v0.5.e2e.cjs"
   },
   "dependencies": {
     "next": "^16.4.0",

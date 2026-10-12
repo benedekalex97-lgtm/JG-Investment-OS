@@ -1,4 +1,4 @@
-# Demókorlátok — v0.3
+# Demókorlátok — v0.5
 
 - **Adatmegőrzés:** a módosítások a böngészőfül `sessionStorage`-ában élnek; frissítést túlélnek, a fül bezárásakor elvesznek. Nincs szerveroldali mentés, backup. A felület is jelzi ("DEMÓ" sáv, visszaállítás gomb).
 - **Nincs hitelesítés és jogosultság:** a két "Admin" fiktív felhasználó (`DEMO_USERS`), a közös csapatnézet nem jogosultság-érvényesítés, és nem írhatja felül a később meghatározandó adatkezelési/hozzáférési szabályokat. Alkalmazásszintű Admin ≠ infrastruktúra-/adatbázis-/Gmail-admin.
@@ -7,7 +7,10 @@
 - **Kapcsolati státusz (igazolt meglévő/korábbi ügyfél):** a besorolás kézi, naplózott demóművelet; nem igazolt szolgáltatói ügyfélstátusz.
 - **Megkeresési jogalap, adatforrás, tiltakozás:** a felület csak jelzi az ellenőrzés szükségességét és rögzíti a tiltakozást/korlátozást; a jogszerűséget nem vizsgálja, a kontaktadatbázisban szereplés nem igazol jogalapot. Nincs automatikus megkeresés, hideghívás vagy e-mail-küldés.
 - **Üres kezdőállapot (v0.3):** új munkamenetben nincs fiktív adat; a rögzített adat csak a böngészőfül `sessionStorage`-ában él, a fül bezárásakor elvész. A rendszer nem alkalmas valós ügyféladatok tárolására. A korábbi munkamenetekből maradt demóadat csak explicit, megerősítést kérő művelettel távolítható el.
-- **Pipeline (v0.3):** nincs drag-and-drop; a státuszváltás gombbal történik, hogy a kötelező indoklás és a szolgáltatói igazolási kontroll ne legyen megkerülhető.
+- **Pipeline (v0.5):** egyszerű ügyfélstátusz-tábla, drag-and-drop és automatizmus nélkül; a státusz az ügyféladatlapon módosítható.
+- **Egyszerű státuszmodell (v0.5):** hét, üzletileg jóváhagyott kapcsolati státusz; „Tőke elhelyezve” csak igazolási forrással és compliance tudomásulvétellel (a demóban szimulált). A „Számlanyitás” nem jelent tényleges számlanyitást. A JG a K&H Értékpapír / Patria Finance függő ügynöke, nem vezet számlát és nem vesz át ügyfélpénzt.
+- **Régi adatok (v0.5):** a régi folyamatok, négyértékű besorolás és feladatok megmaradnak (csak olvasható archívum / státusz nélküli feladatok); a régi folyamatstátuszokra nincs leképezés, a státusz nélküli ügyfél alapértelmezetten a „Kapcsolatfelvételre vár” státuszban jelenik meg (az adat csak felhasználói váltáskor módosul).
+- **Megkeresési korlátozás:** a kimenő kapcsolatfelvételi státuszok (Kapcsolatfelvétel, Kapcsolatépítés) blokkoltak; ez a v0.2 szabály kiterjesztése az új státuszokra (üzleti jóváhagyásra vár).
 - **v0.1 adat:** nincs automatikus migráció (lásd `docs/V0.2-WORKFLOW.md`); a régi adat érintetlen marad, exportálható vagy törölhető.
 - **Státuszok és pipeline-szakaszok:** előzetes, üzletileg még nem jóváhagyott megnevezések (`src/domain/constants.ts`), nem jogi vagy szolgáltatói ügyfélstátusz-igazolások; nem sugallnak JG-hatáskört.
 - **Tevékenységek:** belső demórekordok; nincs telefon-, Google Calendar- vagy Gmail-kapcsolat.
