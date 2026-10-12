@@ -1,4 +1,7 @@
-# Demókorlátok — v0.5.1
+# Demókorlátok — v0.5.1 (történeti; a v0.6 felülírja a tárolásra és hitelesítésre vonatkozó pontokat: lásd `docs/V0.6-PERSISTENCE.md`)
+
+> **v0.6:** az adat tartós (PostgreSQL), van bejelentkezés és szerveroldali jogosultság. Az alábbi „böngészőfül/sessionStorage”, „nincs hitelesítés”, „nincs auditnapló/RLS” pontok a v0.5.1 állapotot írják le. Változatlanul érvényes: nincs K&H/Patria szinkron, a szolgáltatói mérföldkő szimulált, nincs megkeresési jogalap-vizsgálat, az éles használat külön jóváhagyás nélkül tiltott.
+
 
 - **Adatmegőrzés:** a módosítások a böngészőfül `sessionStorage`-ában élnek; frissítést túlélnek, a fül bezárásakor elvesznek. Nincs szerveroldali mentés, backup. A felület is jelzi ("DEMÓ" sáv, visszaállítás gomb).
 - **Nincs hitelesítés és jogosultság:** a két "Admin" fiktív felhasználó (`DEMO_USERS`), a közös csapatnézet nem jogosultság-érvényesítés, és nem írhatja felül a később meghatározandó adatkezelési/hozzáférési szabályokat. Alkalmazásszintű Admin ≠ infrastruktúra-/adatbázis-/Gmail-admin.

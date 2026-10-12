@@ -51,41 +51,41 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
       <ContactSidebar data={data} customer={customer} className="lg:sticky lg:top-4 lg:col-start-2 lg:row-start-2" />
       <div className="min-w-0 space-y-6 lg:col-start-1 lg:row-start-2">
 
-      <Card id="feladatok-lista">
-        <CardHeader title={`Feladatok — ${CRM_STATUS_LABELS[status]}`} count={view.current.length} action={<Button size="sm" onClick={() => setNewTask(true)}>+ Feladat hozzáadása</Button>} />
-        {view.current.length ? (
-          <ul className="divide-y divide-line">{view.current.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
-        ) : (
-          <EmptyState title="Ennél a státusznál még nincs feladat" hint="A hozzáadott feladat automatikusan az aktuális státuszhoz kapcsolódik." />
-        )}
-      </Card>
-
-      {hasEarlier ? (
-        <Card id="korabbi-feladatok">
-          <details open={view.openEarlier > 0}>
-            <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
-              Korábbi státuszok feladatai{" "}
-              {view.openEarlier > 0 ? <Badge tone="warn">{view.openEarlier} nyitott</Badge> : <span className="font-normal text-ink-muted">(mind elvégezve)</span>}
-            </summary>
-            <div className="border-t border-line">
-              {view.earlier.map((g) => (
-                <section key={g.status} aria-label={`Korábbi státusz: ${CRM_STATUS_LABELS[g.status]}`}>
-                  <h3 className="bg-canvas px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-subtle">{CRM_STATUS_LABELS[g.status]}</h3>
-                  <ul className="divide-y divide-line">{g.tasks.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
-                </section>
-              ))}
-              {view.unassigned.length ? (
-                <section aria-label="Státuszhoz nem rendelt (régi) feladatok">
-                  <h3 className="bg-canvas px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-subtle">Régi feladatok (státusz nélkül)</h3>
-                  <ul className="divide-y divide-line">{view.unassigned.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
-                </section>
-              ) : null}
-            </div>
-          </details>
+        <Card id="feladatok-lista">
+          <CardHeader title={`Feladatok — ${CRM_STATUS_LABELS[status]}`} count={view.current.length} action={<Button size="sm" onClick={() => setNewTask(true)}>+ Feladat hozzáadása</Button>} />
+          {view.current.length ? (
+            <ul className="divide-y divide-line">{view.current.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
+          ) : (
+            <EmptyState title="Ennél a státusznál még nincs feladat" hint="A hozzáadott feladat automatikusan az aktuális státuszhoz kapcsolódik." />
+          )}
         </Card>
-      ) : null}
 
-      <ArchiveSection data={data} customer={customer} />
+        {hasEarlier ? (
+          <Card id="korabbi-feladatok">
+            <details open={view.openEarlier > 0}>
+              <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+                Korábbi státuszok feladatai{" "}
+                {view.openEarlier > 0 ? <Badge tone="warn">{view.openEarlier} nyitott</Badge> : <span className="font-normal text-ink-muted">(mind elvégezve)</span>}
+              </summary>
+              <div className="border-t border-line">
+                {view.earlier.map((g) => (
+                  <section key={g.status} aria-label={`Korábbi státusz: ${CRM_STATUS_LABELS[g.status]}`}>
+                    <h3 className="bg-canvas px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-subtle">{CRM_STATUS_LABELS[g.status]}</h3>
+                    <ul className="divide-y divide-line">{g.tasks.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
+                  </section>
+                ))}
+                {view.unassigned.length ? (
+                  <section aria-label="Státuszhoz nem rendelt (régi) feladatok">
+                    <h3 className="bg-canvas px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-subtle">Régi feladatok (státusz nélkül)</h3>
+                    <ul className="divide-y divide-line">{view.unassigned.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
+                  </section>
+                ) : null}
+              </div>
+            </details>
+          </Card>
+        ) : null}
+
+        <ArchiveSection data={data} customer={customer} />
       </div>
       <NewTaskModal open={newTask} onClose={() => setNewTask(false)} customerId={customer.id} statusLabel={CRM_STATUS_LABELS[status]} />
     </div>

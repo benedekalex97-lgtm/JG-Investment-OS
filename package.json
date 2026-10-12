@@ -9,8 +9,8 @@
     "lint": "eslint .",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/v0.5.e2e.cjs",
-    "db": "tsx scripts/db.ts"
+    "e2e": "node e2e/v0.6.e2e.cjs",
+    "db": "tsx --env-file-if-exists=.env.local scripts/db.ts"
   },
   "dependencies": {
     "next": "^16.4.0",

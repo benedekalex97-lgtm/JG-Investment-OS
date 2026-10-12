@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { APP_ROLE, type Db, type Tx } from "./types";
 
 interface PgliteTx {
@@ -18,6 +19,7 @@ interface PgliteInstance {
 export async function createPgliteDb(dataDir?: string): Promise<Db> {
   const name = "@electric-sql/pglite";
   const mod = (await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ name)) as { PGlite: new (dir?: string) => PgliteInstance };
+  if (dataDir) mkdirSync(dataDir, { recursive: true });
   const pg = new mod.PGlite(dataDir);
   await pg.waitReady;
 

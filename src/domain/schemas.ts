@@ -19,7 +19,7 @@ const optIsoDate = z
 
 const customerCommon = {
   ownerId: req("Felelős"),
-  source: z.string().trim().default("manuális (demó)"),
+  source: z.string().trim().default(""),
   email: optEmail,
   phone: optPhone,
 };
@@ -55,7 +55,7 @@ export const verificationInput = z
  * csak igazolási forrással és a compliance figyelmeztetés tudomásulvételével adható meg.
  */
 const formCommon = {
-  source: z.string().trim().optional().transform((v) => (v ? v : "manuális (demó)")),
+  source: z.string().trim().optional().transform((v) => (v ? v : "")),
   crmStatus: z.enum(CRM_STATUSES).default(DEFAULT_CRM_STATUS),
   verification: verificationInput.optional(),
   recordedBy: req("Rögzítő"),
