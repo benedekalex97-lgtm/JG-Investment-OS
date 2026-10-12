@@ -1,6 +1,6 @@
-import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS } from "./constants";
+import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, TASK_INPUT_LABELS, TASK_OUTPUT_LABELS } from "./constants";
 import type {
-  Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task,
+  Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task, TaskOutput,
 } from "./types";
 import { isActive } from "./workflow";
 
@@ -46,6 +46,22 @@ export function lastActivity(snap: DataSnapshot, scope: Scope): Activity | undef
 export const isDone = (t: Task) => t.status === "done";
 /** A feladat aktuális (legutolsó) Output-ja; a régi, Output nélkül elvégzett feladatnál undefined. */
 export const latestOutput = (t: Task) => t.outputs?.[t.outputs.length - 1];
+
+/**
+ * Megjelenítendő Output-szöveg: a választott érték címkéje (+ az „Egyéb” megjegyzése); a régi, szabad szöveges lezárás
+ * változatlanul a rögzített szöveg. A listából később kivezetett kulcs magát a kulcsot mutatja (nincs adatvesztés).
+ */
+export function outputText(o: Pick<TaskOutput, "key" | "text">): string {
+  if (!o.key) return o.text;
+  const label = (TASK_OUTPUT_LABELS as Record<string, string>)[o.key] ?? o.key;
+  return o.text ? `${label} — ${o.text}` : label;
+}
+/** Megjelenítendő Input: a választott érték (+ megjegyzés), különben a régi szabad szöveges leírás; egyébként üres szöveg. */
+export function inputText(t: Pick<Task, "inputKey" | "inputNote" | "description">): string {
+  if (!t.inputKey) return t.description ?? "";
+  const label = (TASK_INPUT_LABELS as Record<string, string>)[t.inputKey] ?? t.inputKey;
+  return t.inputNote ? `${label} — ${t.inputNote}` : label;
+}
 export const isOpenTask = (t: Task) => !isDone(t);
 const dueTime = (t: Task) => (t.dueAt ? Date.parse(t.dueAt) : Number.POSITIVE_INFINITY);
 

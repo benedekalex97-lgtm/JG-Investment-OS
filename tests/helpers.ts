@@ -34,4 +34,5 @@ export const tickRepo = (snap: DataSnapshot = seed()) => {
 };
 
 /** Feladat lezárása a kötelező Output-tal (a `setTaskStatus` már nem zárhat le). */
-export const closeIt = (r: DemoRepository, id: string, output = "Eredmény rögzítve.") => val(r.closeTask(id, { output, recordedBy: U }));
+export const closeIt = (r: DemoRepository, id: string, outputKey = "completed", outputNote?: string) =>
+  val(r.closeTask(id, { outputKey, ...(outputNote ? { outputNote } : {}), recordedBy: U }));

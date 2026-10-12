@@ -4,9 +4,9 @@ import {
   newCustomerForm, processInput, reopenInput, restrictionInput, statusChangeInput, taskInput,
 } from "@/domain/schemas";
 import {
-  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, TASK_TYPE_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
+  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, TASK_OUTPUT_LABELS, DEFAULT_CRM_STATUS, TASK_TYPE_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import { buildDisplayName, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
+import { buildDisplayName, outputText, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
 import type {
   Activity, CompanyContact, Contactability, ContactabilityStatus, ContactChannel, ContactPurpose, Customer, CustomerProcess,
   DataSnapshot, EvidenceStatus, Task, TaskStatus, Verification,
@@ -53,7 +53,7 @@ export interface DataRepository {
   reopenProcess(id: string, input: unknown): Result<CustomerProcess>;
   createTask(input: unknown): Result<Task>;
   updateTask(id: string, patch: { dueAt?: string | null; assigneeId?: string; title?: string }, recordedBy: string): Result<Task>;
-  /** Feladat lezárása kötelező Output-tal (a lezárás egyetlen útja). */
+  /** Feladat lezárása kötelezően kiválasztott Output-tal (a lezárás egyetlen útja). */
   closeTask(id: string, input: unknown): Result<Task>;
   /** Státuszváltás a feladaton: csak az újranyitás (open) engedett; a lezáráshoz Output kell (`closeTask`). */
   setTaskStatus(id: string, status: TaskStatus, recordedBy: string): Result<Task>;
@@ -436,20 +436,24 @@ export class DemoRepository implements DataRepository {
     return ok(task);
   }
 
-  /** Feladat lezárása: az Output kötelező. Újranyitás után az előzmény megmarad, az újabb lezárás új bejegyzést fűz hozzá (nem ír felül). */
+  /**
+   * Feladat lezárása: az Output (legördülő kulcs) kötelező és elegendő; nem módosítja az ügyfél státuszát. Újranyitás után az
+   * előzmény megmarad (a régi, szabad szöveges lezárások is), az újabb lezárás új bejegyzést fűz hozzá (nem ír felül).
+   */
   closeTask(id: string, input: unknown): Result<Task> {
     const cur = this.snap.tasks.find((t) => t.id === id);
     if (!cur) return fail({ _form: "A feladat nem található." });
     if (cur.status === "done") return fail({ _form: "A feladat már le van zárva." });
     const parsed = closeTaskInput.safeParse(input);
     if (!parsed.success) return fail(zodErrors(parsed.error));
-    const { output, recordedBy } = parsed.data;
+    const { outputKey, outputNote, recordedBy } = parsed.data;
     const t = this.now();
-    const next: Task = { ...cur, status: "done", completedAt: t, outputs: [...(cur.outputs ?? []), { text: output, closedAt: t, closedBy: recordedBy }] };
+    const entry = { key: outputKey, text: outputNote ?? "", closedAt: t, closedBy: recordedBy };
+    const next: Task = { ...cur, status: "done", completedAt: t, outputs: [...(cur.outputs ?? []), entry] };
     this.putTask(next);
     this.log({
       customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, recordedBy, type: "task_completed",
-      summary: `Feladat lezárva: ${cur.title}`, meta: { taskId: id, output },
+      summary: `Feladat lezárva: ${cur.title} — ${TASK_OUTPUT_LABELS[outputKey]}`, meta: { taskId: id, output: outputText(entry) },
     });
     return ok(next);
   }
@@ -480,7 +484,7 @@ export class DemoRepository implements DataRepository {
     const cur = this.snap.tasks.find((t) => t.id === id);
     if (!cur) return fail({ _form: "A feladat nem található." });
     // A lezárás egyetlen útja a `closeTask` (kötelező Output): ezen a ponton nem kerülhető meg.
-    if (status === "done") return fail({ _form: "A feladat lezárásához Output (eredmény) megadása kötelező." });
+    if (status === "done") return fail({ _form: "A feladat lezárásához Output (eredmény) kiválasztása kötelező." });
     if (cur.status === status) return ok(cur);
     // Újranyitás: az Output-előzmény (`outputs`) megmarad, csak az elvégzett állapot és a lezárás időpontja törlődik.
     const next: Task = { ...cur, status, completedAt: undefined };

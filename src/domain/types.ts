@@ -1,7 +1,7 @@
 import type {
   ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CRM_STATUSES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
   EVIDENCE_STATUSES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_TYPES, PROCESS_STATUS_DEFS, RESTRICTION_KINDS,
-  TASK_STATUSES, TASK_TYPES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
+  TASK_INPUT_OPTIONS, TASK_OUTPUT_OPTIONS, TASK_STATUSES, TASK_TYPES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
 } from "./constants";
 
 export type ContactStatus = (typeof CONTACT_STATUSES)[number];
@@ -17,6 +17,8 @@ export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskType = (typeof TASK_TYPES)[number]["key"];
+export type TaskInputKey = (typeof TASK_INPUT_OPTIONS)[number]["key"];
+export type TaskOutputKey = (typeof TASK_OUTPUT_OPTIONS)[number]["key"];
 export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
 export type RestrictionKind = (typeof RESTRICTION_KINDS)[number];
 export type ContactPurpose = (typeof CONTACT_PURPOSES)[number];
@@ -146,6 +148,9 @@ export interface Activity {
 
 /** Egy feladat-lezárás eredménye. Újranyitás után az előzmény megmarad, az újabb lezárás új bejegyzést fűz hozzá. */
 export interface TaskOutput {
+  /** v0.6: a legördülőből választott Output kulcsa. Hiányzik a régi (szabad szöveges) lezárásokon: ők változatlanul őrzik a `text`-et. */
+  key?: TaskOutputKey;
+  /** Régi lezárásnál a szabad szöveges Output; v0.6-os lezárásnál az „Egyéb” opcionális rövid megjegyzése (egyébként üres). */
   text: string;
   closedAt: string;
   closedBy: string;
@@ -160,8 +165,12 @@ export interface Task {
   title: string;
   /** Feladattípus kulcsa (v0.5.1). Hiányzik a régebbi feladatokon: ők nem kapnak kitalált típust. */
   taskType?: TaskType;
-  /** Input / leírás: mit kell elvégezni, milyen információ alapján dolgozunk. */
+  /** Régi, szabad szöveges Input / leírás (megőrzött adat; a v0.6 felület már nem ír ide). */
   description?: string;
+  /** v0.6: a legördülőből választott Input kulcsa (opcionális). */
+  inputKey?: TaskInputKey;
+  /** v0.6: az „Egyéb” Input opcionális rövid megjegyzése. */
+  inputNote?: string;
   /** Lezárási eredmények (Output) időrendben; a legutolsó az aktuális. Hiányzik a régi, elvégzett feladatokon. */
   outputs?: TaskOutput[];
   assigneeId: string;

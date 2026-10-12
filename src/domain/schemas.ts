@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  CALL_OUTCOMES, CONTACT_STATUSES, TASK_TEXT_MAX, TASK_TYPE_KEYS, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
+  CALL_OUTCOMES, CONTACT_STATUSES, NOTE_OPTION_KEY, TASK_INPUT_KEYS, TASK_NOTE_MAX, TASK_OUTPUT_KEYS, TASK_TEXT_MAX, TASK_TYPE_KEYS, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
   PROCESS_TYPES, RESTRICTION_KINDS, VERIFICATION_SOURCES,
 } from "./constants";
 
@@ -103,6 +103,8 @@ export const manualActivityInput = z
   .strict()
   .refine((v) => v.type === "call" || v.callOutcome === undefined, { path: ["callOutcome"], message: "Híváseredmény csak hívásnál adható meg" });
 
+/** Az „Egyéb” Input/Output rövid, opcionális megjegyzése. */
+const shortNote = z.string().trim().max(TASK_NOTE_MAX, `Legfeljebb ${TASK_NOTE_MAX} karakter adható meg`).optional().transform((v) => (v ? v : undefined));
 const longText = z.string().trim().max(TASK_TEXT_MAX, `Legfeljebb ${TASK_TEXT_MAX} karakter adható meg`);
 
 /**
@@ -117,7 +119,10 @@ export const taskInput = z
     companyContactId: optText,
     taskType: z.enum(TASK_TYPE_KEYS, { message: "A feladat típusának kiválasztása kötelező" }).optional(),
     title: optText,
+    /** Régi, szabad szöveges Input: csak belső/régi útra (seed, tesztek) - a felület a legördülő `inputKey`-t küldi. */
     description: longText.optional().transform((v) => (v ? v : undefined)),
+    inputKey: z.enum(TASK_INPUT_KEYS, { message: "Érvénytelen Input érték" }).optional(),
+    inputNote: shortNote,
     assigneeId: req("Felelős"),
     dueAt: optIsoDate,
     /** Új feladat csak nyitott lehet; a lezárás Output-tal, a `closeTask` műveleten át történik (a „folyamatban” csak régi adat). */
@@ -126,15 +131,21 @@ export const taskInput = z
     recordedBy: z.string().trim().optional(),
   })
   .strict()
-  .refine((v) => v.taskType !== undefined || (v.title ?? "") !== "", { path: ["taskType"], message: "A feladat típusának kiválasztása kötelező" });
+  .refine((v) => v.taskType !== undefined || (v.title ?? "") !== "", { path: ["taskType"], message: "A feladat típusának kiválasztása kötelező" })
+  .refine((v) => v.inputNote === undefined || v.inputKey === NOTE_OPTION_KEY, { path: ["inputNote"], message: "Megjegyzés csak az „Egyéb” Input értékhez adható meg" });
 
-/** Feladat lezárása: az Output (eredmény) kitöltése kötelező; üres vagy csak szóközt tartalmazó nem fogadható el. */
+/**
+ * Feladat lezárása (v0.6): az Output a központi listából választott érték (`outputKey`), kiválasztása kötelező és elegendő.
+ * Rövid megjegyzés (`outputNote`) kizárólag az „Egyéb” értékhez adható. A lezárás nem módosítja az ügyfél státuszát.
+ */
 export const closeTaskInput = z
   .object({
-    output: z.string({ message: "Az Output kitöltése kötelező" }).trim().min(1, "Az Output kitöltése kötelező").max(TASK_TEXT_MAX, `Legfeljebb ${TASK_TEXT_MAX} karakter adható meg`),
+    outputKey: z.enum(TASK_OUTPUT_KEYS, { message: "Az Output kiválasztása kötelező" }),
+    outputNote: shortNote,
     recordedBy: req("Rögzítő"),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.outputNote === undefined || v.outputKey === NOTE_OPTION_KEY, { path: ["outputNote"], message: "Megjegyzés csak az „Egyéb” Output értékhez adható meg" });
 
 export const statusChangeInput = z
   .object({
