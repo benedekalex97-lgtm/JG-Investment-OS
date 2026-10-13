@@ -1,0 +1,122 @@
+name: JG OS - Neon preview pilot admin provisioning
+run-name: "JG preview user / ${{ inputs.operation }}"
+
+# Ez a workflow NEM fut push, pull_request vagy schedule hatására; csak kézi indítással (workflow_dispatch).
+# A workflow_dispatch csak akkor érhető el, ha a fájl az alapértelmezett ágon is létezik (külön, jóváhagyott PR).
+# A jelszó SOHA nem workflow-bemenet (az látszana): a felhasználó egy GitHub repository secretben adja meg
+# (JG_PREVIEW_ADMIN_PASSWORD), amelyet a workflow csak a futás idejére olvas, és nem ír ki.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Pilot felhasználó létrehozása vagy jelszavának cseréje"
+        required: true
+        type: choice
+        default: create-user
+        options:
+          - create-user
+          - set-password
+      email:
+        description: "A pilot felhasználó e-mail-címe"
+        required: true
+        type: string
+      name:
+        description: "Megjelenített név (csak create-user esetén)"
+        required: false
+        type: string
+      confirmation:
+        description: 'Pontosan: PROVISION JG PREVIEW USER'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jg-os-neon-preview-migration
+  cancel-in-progress: false
+
+jobs:
+  provision-user:
+    name: JG Neon preview - ${{ inputs.operation }}
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JG_ENV: preview
+      OPERATION: ${{ inputs.operation }}
+      ADMIN_EMAIL: ${{ inputs.email }}
+      ADMIN_NAME: ${{ inputs.name }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      EXPECTED_HOST: ep-proud-silence-bate28uz.c-8.eu-central-1.aws.neon.tech
+      EXPECTED_DB: jg_os_preview
+      EXPECTED_USER: jg_os_preview_owner
+    steps:
+      - name: Validate request and database target without displaying secrets
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+          JG_USER_PASSWORD: ${{ secrets.JG_PREVIEW_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRMATION" == "PROVISION JG PREVIEW USER" ]] || { echo "::error::Confirmation does not match."; exit 1; }
+          [[ "$OPERATION" == "create-user" || "$OPERATION" == "set-password" ]] || { echo "::error::Unsupported operation."; exit 1; }
+          [[ "$ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || { echo "::error::Invalid e-mail address."; exit 1; }
+          if [[ "$OPERATION" == "create-user" ]]; then
+            [[ -n "$ADMIN_NAME" && ${#ADMIN_NAME} -le 100 ]] || { echo "::error::A name is required for create-user (max 100 characters)."; exit 1; }
+          fi
+          [[ -n "${DATABASE_URL:-}" ]] || { echo "::error::Missing repository secret JG_NEON_PREVIEW_DATABASE_URL."; exit 1; }
+          [[ ${#JG_USER_PASSWORD} -ge 16 ]] || { echo "::error::Missing or too short repository secret JG_PREVIEW_ADMIN_PASSWORD (min. 16 characters)."; exit 1; }
+          node <<'NODE'
+          try {
+            const url = new URL(process.env.DATABASE_URL);
+            const ok = (
+              ["postgres:", "postgresql:"].includes(url.protocol) &&
+              url.hostname === process.env.EXPECTED_HOST &&
+              decodeURIComponent(url.pathname) === "/" + process.env.EXPECTED_DB &&
+              decodeURIComponent(url.username) === process.env.EXPECTED_USER &&
+              (url.port === "" || url.port === "5432") &&
+              url.searchParams.get("sslmode") === "require"
+            );
+            if (!ok) throw Error("not-approved-preview-target");
+            console.log("Verified JG Neon preview host, database, role and TLS requirement.");
+          } catch {
+            console.error("::error::Database connection does not match the approved Neon preview target.");
+            process.exit(1);
+          }
+          NODE
+
+      # Rögzített, már átnézett kód (a DB-titkot kezelő job nem checkoutolhat tetszőleges ref-et).
+      - name: Checkout reviewed JG OS v0.6 source
+        uses: actions/checkout@v4
+        with:
+          ref: 37bd84cb17e5bd0457619b99573e8893900662b6
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install pinned dependencies once
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify schema is present and matches the preview environment
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+        run: npm run db -- status
+
+      - name: Create pilot user
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+          JG_USER_PASSWORD: ${{ secrets.JG_PREVIEW_ADMIN_PASSWORD }}
+        if: ${{ inputs.operation == 'create-user' }}
+        run: npm run db -- user:create "$ADMIN_EMAIL" "$ADMIN_NAME"
+
+      - name: Change pilot user password (existing sessions are invalidated)
+        env:
+          DATABASE_URL: ${{ secrets.JG_NEON_PREVIEW_DATABASE_URL }}
+          JG_USER_PASSWORD: ${{ secrets.JG_PREVIEW_ADMIN_PASSWORD }}
+        if: ${{ inputs.operation == 'set-password' }}
+        run: npm run db -- user:set-password "$ADMIN_EMAIL"
