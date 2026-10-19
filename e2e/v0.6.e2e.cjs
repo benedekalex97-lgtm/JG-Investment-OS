@@ -83,7 +83,6 @@ async function stop(child) {
 const shows = (loc) => loc.first().waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false);
 const dlg = (page) => page.locator("dialog[open]");
 const settle = (page) => page.waitForTimeout(400);
-const pad = (n) => String(n).padStart(2, "0");
 /** A mai nap (Europe/Budapest, az alkalmazás időzónája) eltolva, ÉÉÉÉ-HH-NN alakban. */
 const TZ = "Europe/Budapest";
 const budapestToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
