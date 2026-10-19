@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { DemoRepository, type Result } from "@/data/repository";
+import { TASK_TEXT_MAX } from "@/domain/constants";
 import { emptySnapshot, type Customer, type DataSnapshot } from "@/domain/types";
 import type { AuthUser } from "../auth/service";
 import type { Db, Tx } from "../db/types";
@@ -68,11 +69,14 @@ export const OPS = {
     run: (repo, a, u) => repo.createTask({ ...a.input, assigneeId: u.id, recordedBy: u.id }),
     audit: (_a, v) => ({ action: "task.create", entityType: "task", entityId: v.id, customerId: v.customerId, detail: { taskType: v.taskType ?? null, inputKey: v.inputKey ?? null, crmStatus: v.crmStatus ?? null } }),
   }),
+  // v0.9: Sikeres/Sikertelen + kötelező szabad szöveges Output. A régi (legördülős) `outputKey`/`outputNote` alak már nem fogadható el.
+  // A szabályokat (kötelező, nem üres, hosszkorlát) a tartományi réteg ellenőrzi; itt csak a nyers méretet korlátozzuk.
   "task.close": defineOp({
-    args: z.object({ taskId: id, input: z.object({ outputKey: z.string().max(60).optional(), outputNote: z.string().max(2000).optional() }).strict() }).strict(),
+    args: z.object({ taskId: id, input: z.object({ outcome: z.string().max(20).optional(), output: z.string().max(TASK_TEXT_MAX * 2).optional() }).strict() }).strict(),
     scope: (a) => ({ taskId: a.taskId }),
     run: (repo, a, u) => repo.closeTask(a.taskId, { ...a.input, recordedBy: u.id }),
-    audit: (_a, v) => ({ action: "task.close", entityType: "task", entityId: v.id, customerId: v.customerId, detail: { outputKey: v.outputs?.at(-1)?.key ?? null } }),
+    // Az auditba csak a minősítés és az Output hossza kerül (a szöveg személyes adatot tartalmazhat).
+    audit: (_a, v) => ({ action: "task.close", entityType: "task", entityId: v.id, customerId: v.customerId, detail: { outcome: v.outputs?.at(-1)?.outcome ?? null, outputLength: v.outputs?.at(-1)?.text.length ?? 0 } }),
   }),
   "task.reopen": defineOp({
     args: z.object({ taskId: id }).strict(),
@@ -84,7 +88,10 @@ export const OPS = {
     args: z.object({ taskId: id, dueAt: z.string().max(40).nullable() }).strict(),
     scope: (a) => ({ taskId: a.taskId }),
     run: (repo, a, u) => repo.updateTask(a.taskId, { dueAt: a.dueAt }, u.id),
-    audit: (_a, v) => ({ action: "task.update_due", entityType: "task", entityId: v.id, customerId: v.customerId, detail: { hasDue: v.dueAt !== undefined } }),
+    audit: (_a, v, b) => ({
+      action: "task.update_due", entityType: "task", entityId: v.id, customerId: v.customerId,
+      detail: { hasDue: v.dueAt !== undefined, changed: (b.tasks.find((t) => t.id === v.id)?.dueAt ?? null) !== (v.dueAt ?? null) },
+    }),
   }),
 } as const;
 

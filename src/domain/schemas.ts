@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  CALL_OUTCOMES, CONTACT_STATUSES, NOTE_OPTION_KEY, TASK_INPUT_KEYS, TASK_NOTE_MAX, TASK_OUTPUT_KEYS, TASK_TEXT_MAX, TASK_TYPE_KEYS, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
+  CALL_OUTCOMES, CONTACT_STATUSES, NOTE_OPTION_KEY, TASK_INPUT_KEYS, TASK_NOTE_MAX, TASK_OUTCOMES, TASK_OUTPUT_REQUIRED, TASK_TEXT_MAX, TASK_TYPE_KEYS, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
   PROCESS_TYPES, RESTRICTION_KINDS, VERIFICATION_SOURCES,
 } from "./constants";
 
@@ -135,17 +135,18 @@ export const taskInput = z
   .refine((v) => v.inputNote === undefined || v.inputKey === NOTE_OPTION_KEY, { path: ["inputNote"], message: "Megjegyzés csak az „Egyéb” Input értékhez adható meg" });
 
 /**
- * Feladat lezárása (v0.6): az Output a központi listából választott érték (`outputKey`), kiválasztása kötelező és elegendő.
- * Rövid megjegyzés (`outputNote`) kizárólag az „Egyéb” értékhez adható. A lezárás nem módosítja az ügyfél státuszát.
+ * Feladat lezárása (v0.9): két, egymástól külön tárolt adat - a lezárás minősítése (`outcome`: Sikeres / Sikertelen, a két lezáró
+ * gomb) és a kötelező, szabad szöveges Output (`output`). Üres vagy csak szóközt/sortörést tartalmazó Output nem fogadható el; a szöveg
+ * belseje (sortörések, karakterek) változatlanul tárolódik, csak az elején/végén álló üres karakterek maradnak el. A hosszkorlát a
+ * meglévő szabad szöveges korlát (TASK_TEXT_MAX). A lezárás nem módosítja az ügyfél kapcsolati (Pipeline) státuszát.
  */
 export const closeTaskInput = z
   .object({
-    outputKey: z.enum(TASK_OUTPUT_KEYS, { message: "Az Output kiválasztása kötelező" }),
-    outputNote: shortNote,
+    outcome: z.enum(TASK_OUTCOMES, { message: "Válaszd ki a lezárás eredményét: Sikeres vagy Sikertelen." }),
+    output: z.string({ message: TASK_OUTPUT_REQUIRED }).trim().min(1, TASK_OUTPUT_REQUIRED).max(TASK_TEXT_MAX, `Az Output legfeljebb ${TASK_TEXT_MAX} karakter lehet.`),
     recordedBy: req("Rögzítő"),
   })
-  .strict()
-  .refine((v) => v.outputNote === undefined || v.outputKey === NOTE_OPTION_KEY, { path: ["outputNote"], message: "Megjegyzés csak az „Egyéb” Output értékhez adható meg" });
+  .strict();
 
 export const statusChangeInput = z
   .object({

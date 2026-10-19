@@ -33,6 +33,6 @@ export const tickRepo = (snap: DataSnapshot = seed()) => {
   return new DemoRepository(snap, { clock: () => new Date(NOW.getTime() + 1000 * n++) });
 };
 
-/** Feladat lezárása a kötelező Output-tal (a `setTaskStatus` már nem zárhat le). */
-export const closeIt = (r: DemoRepository, id: string, outputKey = "completed", outputNote?: string) =>
-  val(r.closeTask(id, { outputKey, ...(outputNote ? { outputNote } : {}), recordedBy: U }));
+/** Feladat lezárása (v0.9): Sikeres/Sikertelen minősítés + kötelező szabad szöveges Output (a `setTaskStatus` nem zárhat le). */
+export const closeIt = (r: DemoRepository, id: string, outcome: "success" | "failure" = "success", output = "Elvégezve, az ügyfél tájékoztatva.") =>
+  val(r.closeTask(id, { outcome, output, recordedBy: U }));

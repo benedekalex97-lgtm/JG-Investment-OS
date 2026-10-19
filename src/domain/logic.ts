@@ -1,4 +1,4 @@
-import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, TASK_INPUT_LABELS, TASK_OUTPUT_LABELS } from "./constants";
+import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, TASK_INPUT_LABELS, TASK_OUTCOME_LABELS, TASK_OUTPUT_LABELS } from "./constants";
 import type {
   Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task, TaskOutput,
 } from "./types";
@@ -47,8 +47,11 @@ export const isDone = (t: Task) => t.status === "done";
 /** A feladat aktuális (legutolsó) Output-ja; a régi, Output nélkül elvégzett feladatnál undefined. */
 export const latestOutput = (t: Task) => t.outputs?.[t.outputs.length - 1];
 
+/** A lezárás minősítésének címkéje (Sikeres / Sikertelen); a régi, minősítés nélküli lezárásnál undefined (nincs kitalált érték). */
+export const outcomeLabel = (o?: Pick<TaskOutput, "outcome">): string | undefined => (o?.outcome ? TASK_OUTCOME_LABELS[o.outcome] : undefined);
+
 /**
- * Megjelenítendő Output-szöveg: a választott érték címkéje (+ az „Egyéb” megjegyzése); a régi, szabad szöveges lezárás
+ * Megjelenítendő Output-szöveg: v0.9-től a beírt szabad szöveg; a régi legördülős lezárásnál a választott érték címkéje (+ az „Egyéb” megjegyzése); a régi, szabad szöveges lezárás
  * változatlanul a rögzített szöveg. A listából később kivezetett kulcs magát a kulcsot mutatja (nincs adatvesztés).
  */
 export function outputText(o: Pick<TaskOutput, "key" | "text">): string {
