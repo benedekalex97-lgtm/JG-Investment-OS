@@ -6,7 +6,7 @@ import { CrmStatusBadge, DataGate, RestrictedBadge, TypeBadge } from "@/componen
 import { FilterSelect } from "@/components/ui/form";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
 import { CRM_STATUSES, CRM_STATUS_LABELS, CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
-import { customerName, matchingContacts, nextTask, searchCustomers, statusOf, type CustomerFilter } from "@/domain/logic";
+import { customerMatches, customerName, nextTask, searchCustomers, statusOf, type CustomerFilter } from "@/domain/logic";
 import type { DataSnapshot } from "@/domain/types";
 import { formatDate } from "@/lib/format";
 
@@ -18,7 +18,7 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
     <Card>
       <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-3">
         <label className="block text-xs font-medium text-ink-muted sm:col-span-3">
-          Keresés (név, cégnév, kapcsolati személy)
+          Keresés (név, cégnév, kapcsolati személy, telefonszám, e-mail)
           <input type="search" value={f.query} onChange={(e) => set("query", e.target.value)} className="mt-1 block min-h-11 w-full rounded-md bg-surface px-3 text-sm text-ink ring-1 ring-control" />
         </label>
         <FilterSelect label="Típus" value={f.type} onChange={(e) => set("type", e.target.value as typeof f.type)}>
@@ -42,14 +42,14 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
             </thead>
             <tbody className="divide-y divide-line">
               {rows.map((c) => {
-                const via = c.type === "company" ? matchingContacts(data, c.id, f.query) : [];
+                const why = f.query.trim() ? customerMatches(data, c, f.query).filter((m) => m.field !== "name") : [];
                 const task = nextTask(data, { customerId: c.id });
                 return (
                   <tr key={c.id} className="align-top hover:bg-canvas">
                     <td className="max-w-xs px-4 py-3">
                       <Link href={`/customers/${c.id}`} className="break-words font-medium text-accent hover:underline">{customerName(c)}</Link>
                       {c.restriction ? <p className="mt-1"><RestrictedBadge customer={c} /></p> : null}
-                      {via.length && !customerName(c).toLowerCase().includes(f.query.toLowerCase()) ? <p className="text-xs text-ink-muted">Találat kapcsolati személyre: {via.map((k) => `${k.lastName} ${k.firstName}`.trim()).join(", ")}</p> : null}
+                      {why.length ? <p className="break-all text-xs text-ink-muted">Egyezés — {why.slice(0, 2).map((m) => `${m.label}: ${m.value}`).join(" · ")}</p> : null}
                     </td>
                     <td className="px-4 py-3"><TypeBadge type={c.type} /></td>
                     <td className="px-4 py-3"><CrmStatusBadge status={statusOf(c)} /></td>

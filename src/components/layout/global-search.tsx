@@ -4,26 +4,26 @@ import { useRouter } from "next/navigation";
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useCrmData } from "@/data/store";
 import { CRM_STATUS_LABELS, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
-import { contactName, customerName, matchingContacts, primaryContactOf, searchCustomers, statusOf } from "@/domain/logic";
+import { customerName, primaryContactOf, searchCustomerHits, statusOf } from "@/domain/logic";
 import type { Customer, DataSnapshot } from "@/domain/types";
 import { cn } from "@/lib/cn";
 
 const LIMIT = 8;
 
-interface Hit { customer: Customer; via: string; contact: string }
+interface Hit { customer: Customer; why: string; contact: string }
 
-/** Találatok a meglévő `searchCustomers` logikával (név, cégnév, a cég kapcsolati személye), név szerint rendezve. */
+/**
+ * Találatok a meglévő (v0.9-ben bővített) `searchCustomerHits` logikával: név, cégnév, kapcsolati személy, telefonszám és e-mail
+ * (az ügyfélé és a cég kapcsolattartóié). Ügyfelenként egy találat; ha nem a név egyezik, a találat megmutatja, miért jelent meg.
+ */
 function findHits(data: DataSnapshot, query: string): Hit[] {
-  const q = query.trim();
-  if (!q) return [];
-  return searchCustomers(data, { query: q })
-    .sort((a, b) => customerName(a).localeCompare(customerName(b), "hu"))
-    .map((c) => {
-      const via = c.type === "company" ? matchingContacts(data, c.id, q).map(contactName).join(", ") : "";
-      const primary = c.type === "company" ? primaryContactOf(data, c.id) : undefined;
-      const contact = [c.phone ?? primary?.phone, c.email ?? primary?.email].filter(Boolean).join(" · ");
-      return { customer: c, via, contact };
-    });
+  if (!query.trim()) return [];
+  return searchCustomerHits(data, query).map(({ customer: c, matches }) => {
+    const why = matches.filter((m) => m.field !== "name").slice(0, 2).map((m) => `${m.label}: ${m.value}`).join(" · ");
+    const primary = c.type === "company" ? primaryContactOf(data, c.id) : undefined;
+    const contact = why ? "" : [c.phone ?? primary?.phone, c.email ?? primary?.email].filter(Boolean).join(" · ");
+    return { customer: c, why, contact };
+  });
 }
 
 /**
@@ -91,7 +91,7 @@ export function GlobalSearch({ className, compact = false }: { className?: strin
         aria-expanded={expanded}
         aria-controls={listId}
         aria-activedescendant={expanded && active >= 0 ? optionId(active) : undefined}
-        placeholder={compact ? "Ügyfél keresése" : "Ügyfél keresése (név, cég, kapcsolati személy)"}
+        placeholder={compact ? "Ügyfél keresése" : "Ügyfél keresése (név, cég, telefon, e-mail)"}
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setActive(-1); }}
         onFocus={() => setOpen(true)}
@@ -119,7 +119,7 @@ export function GlobalSearch({ className, compact = false }: { className?: strin
               <span className="block text-[13px] text-ink-muted">
                 {CUSTOMER_TYPE_LABELS[h.customer.type]} · {CRM_STATUS_LABELS[statusOf(h.customer)]}
               </span>
-              {h.via ? <span className="block break-words text-[13px] text-ink-muted">Kapcsolati személy: {h.via}</span> : null}
+              {h.why ? <span className="block break-all text-[13px] text-ink">Egyezés — {h.why}</span> : null}
               {h.contact ? <span className="block break-all text-[13px] text-ink-muted">{h.contact}</span> : null}
             </li>
           ))}
