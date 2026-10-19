@@ -6,6 +6,8 @@ import { emptySnapshot, type Customer, type DataSnapshot } from "@/domain/types"
 import type { AuthUser } from "../auth/service";
 import type { Db, Tx } from "../db/types";
 import { DELETE_CONFIRMATION_WORD, features } from "../features";
+import { findDuplicates, maskRemoved, type DuplicateCandidate } from "@/domain/duplicates";
+import { contactFromRow, customerFromRow, type Row } from "./rows";
 import { loadSnapshot, saveDiff } from "./store";
 
 /**
@@ -24,6 +26,8 @@ interface OpDef<A, R> {
   scope(a: A): Scope;
   /** Tartományi szabályok a zárolt ügyfélszeleten (a különbség mentődik). */
   run?(repo: DemoRepository, a: A, u: AuthUser): Result<R>;
+  /** Előzetes, szerveroldali ellenőrzés a tranzakcióban (pl. duplikáció); nem null eredménynél a művelet nem fut. */
+  precheck?(tx: Tx, a: A): Promise<Result<R> | null>;
   /** Közvetlen, szűk SQL-művelet ugyanabban a tranzakcióban (pl. logikai törlés), ha a tartományi modellben nincs megfelelője. */
   custom?(tx: Tx, a: A, u: AuthUser, now: Date): Promise<Result<R>>;
   audit(a: A, value: R, before: DataSnapshot, after: DataSnapshot): AuditInfo;
@@ -40,11 +44,20 @@ export const OPS = {
     run: (repo, a, u) => repo.createActivity({ customerId: a.customerId, type: "note", summary: a.text, recordedBy: u.id, occurredAt: new Date().toISOString() }),
     audit: (_a, v) => ({ action: "note.create", entityType: "activity", entityId: v.id, customerId: v.customerId }),
   }),
+  // CRM-013: erős egyezés (azonos e-mail / telefonszám) esetén a létrehozáshoz explicit megerősítés kell (`confirmDuplicates`).
   "customer.create": defineOp({
-    args: z.object({ input: record }).strict(),
+    args: z.object({ input: record, confirmDuplicates: z.boolean().optional() }).strict(),
     scope: () => null,
+    precheck: async (tx, a) => {
+      if (a.confirmDuplicates === true) return null;
+      const strong = (await strongDuplicates(tx, a.input)).filter((d) => d.level === "strong");
+      return strong.length ? { ok: false, errors: { _duplicate: "Lehetséges, hogy ez az ügyfél már szerepel az adatbázisban. A létrehozáshoz megerősítés szükséges." }, duplicates: strong } : null;
+    },
     run: (repo, a, u) => repo.createCustomerFromForm({ ...a.input, recordedBy: u.id }),
-    audit: (_a, v) => ({ action: "customer.create", entityType: "customer", entityId: v.customer.id, customerId: v.customer.id, detail: { type: v.customer.type, crmStatus: v.customer.crmStatus } }),
+    audit: (a, v) => ({
+      action: "customer.create", entityType: "customer", entityId: v.customer.id, customerId: v.customer.id,
+      detail: { type: v.customer.type, crmStatus: v.customer.crmStatus, ...(a.confirmDuplicates ? { duplicateConfirmed: true } : {}) },
+    }),
   }),
   "customer.update": defineOp({
     args: z.object({ id, input: record }).strict(),
@@ -115,6 +128,22 @@ export const OPS = {
 export type OpName = keyof typeof OPS;
 export const isOpName = (s: string): s is OpName => Object.hasOwn(OPS, s);
 
+/**
+ * Erős duplikáció-egyezések a szerveroldali állapot alapján (az eltávolított rekordokat is beleértve, de azok adatai nélkül). Az új
+ * ügyfelek létrehozása tranzakciós zárral sorba rendezett, így két egyidejű, azonos adatú felvitel közül a második már látja az elsőt.
+ */
+async function strongDuplicates(tx: Tx, input: Record<string, unknown>): Promise<DuplicateCandidate[]> {
+  await tx.query("select pg_advisory_xact_lock(hashtextextended('jg.customer.create', 0))");
+  const str = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : undefined);
+  const draft = { type: input.type === "company" ? "company" : "individual", name: str("name"), companyName: str("companyName"), contactName: str("contactName"), phone: str("phone"), email: str("email") } as const;
+  if (!draft.phone && !draft.email) return [];
+  const customers = await tx.query<Row>("select * from customers");
+  const contacts = await tx.query<Row>("select * from company_contacts");
+  const removed = new Set(customers.filter((r) => r.deleted_at !== null).map((r) => String(r.id)));
+  return findDuplicates({ customers: customers.map((r) => customerFromRow(r)), contacts: contacts.map(contactFromRow) }, draft)
+    .map((d) => (d.customerId && removed.has(d.customerId) ? maskRemoved(d) : d));
+}
+
 export const newId = (prefix: string) => `${prefix}-${randomBytes(8).toString("hex")}`;
 
 export type OpOutcome =
@@ -152,6 +181,11 @@ export async function executeOp(db: Db, user: AuthUser, req: { requestId: string
       // A logikailag törölt ügyfélen (és feladatain) semmilyen művelet nem hajtható végre - a felület megkerülésével sem.
       const locked = await tx.query<{ deleted_at: unknown }>("select deleted_at from customers where id = $1 for update", [customerId]);
       if (!locked.length || locked[0].deleted_at !== null) return { kind: "result", result: NOT_FOUND, snapshot: await loadSnapshot(tx), replayed: false } as const;
+    }
+
+    if (def.precheck) {
+      const blocked = await def.precheck(tx, args);
+      if (blocked) return { kind: "result", result: blocked, snapshot: await loadSnapshot(tx), replayed: false } as const;
     }
 
     const before = customerId === null ? emptySnapshot() : await loadSnapshot(tx, customerId);

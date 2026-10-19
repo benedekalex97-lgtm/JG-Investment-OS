@@ -1,4 +1,5 @@
 import type { ZodError } from "zod";
+import type { DuplicateCandidate } from "@/domain/duplicates";
 import {
   closeInput, closeTaskInput, companyContactInput, contactStatusInput, crmStatusChangeInput, customerInput, customerUpdateInput, manualActivityInput,
   newCustomerForm, processInput, reopenInput, restrictionInput, statusChangeInput, taskInput,
@@ -13,7 +14,7 @@ import type {
 } from "@/domain/types";
 import { initialStatus, isActive, isCrmMilestone, isMilestone, validateClosure, validateContactStatusChange, validateCrmStatusChange, validateTransition } from "@/domain/workflow";
 
-export type Result<T> = { ok: true; value: T } | { ok: false; errors: Record<string, string> };
+export type Result<T> = { ok: true; value: T } | { ok: false; errors: Record<string, string>; duplicates?: DuplicateCandidate[] };
 const fail = <T>(errors: Record<string, string>): Result<T> => ({ ok: false, errors });
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 

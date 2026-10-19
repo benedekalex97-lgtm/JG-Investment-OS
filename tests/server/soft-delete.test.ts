@@ -31,8 +31,11 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
 
   const snap = async () => ((await (await c.get("/api/crm/snapshot")).json()) as { snapshot: DataSnapshot }).snapshot;
   const raw = (sql: string, p: unknown[] = []) => t.db.system((tx) => tx.query<Record<string, unknown>>(sql, p));
+  let seq = 0;
   const seedCustomer = async (name: string) => {
-    const cust = (await c.op<{ customer: Customer }>("customer.create", { input: { type: "company", companyName: name, contactName: "Teszt Kapcsolattartó", phone: "+36 1 555 0101" } })).body.result.value!.customer;
+    // Egyedi telefonszám ügyfelenként (az azonos szám erős duplikáció-egyezés lenne, CRM-013).
+    const phone = `+36 1 555 ${String(1000 + ++seq)}`;
+    const cust = (await c.op<{ customer: Customer }>("customer.create", { input: { type: "company", companyName: name, contactName: "Teszt Kapcsolattartó", phone } })).body.result.value!.customer;
     const task = (await c.op<Task>("task.create", { input: { customerId: cust.id, taskType: "phone_call", dueAt: new Date().toISOString() } })).body.result.value!;
     await c.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Teszt lezárás" } });
     await c.op("task.reopen", { taskId: task.id });

@@ -69,8 +69,9 @@ export class RemoteRepository {
     return body.result as Result<T>;
   }
 
-  createCustomerFromForm(input: unknown) {
-    return this.call<{ customer: Customer; contact?: CompanyContact }>("customer.create", { input });
+  /** CRM-013: `confirmDuplicates` csak a felhasználó kifejezett döntése után („Mégis új ügyfél létrehozása”). */
+  createCustomerFromForm(input: unknown, opts: { confirmDuplicates?: boolean } = {}) {
+    return this.call<{ customer: Customer; contact?: CompanyContact }>("customer.create", { input, ...(opts.confirmDuplicates ? { confirmDuplicates: true } : {}) });
   }
   updateCustomer(id: string, input: unknown) {
     return this.call<Customer>("customer.update", { id, input });
