@@ -50,7 +50,6 @@ const skip = (name) => { skipped += 1; console.log("SKIPPED", name, "(axe-core n
 
 const STATUSES = ["Kapcsolatfelvételre vár", "Kapcsolatfelvétel", "Kapcsolatépítés", "Online/Személyes tárgyalás", "Számlanyitás", "Tőke elhelyezve", "Elvesztett"];
 const INPUTS = ["Első megkeresés", "Visszahívás", "Időpont-egyeztetés", "Tájékoztatás", "Utánkövetés", "Egyéb"];
-const OUTPUTS = ["Feladat elvégezve", "Nem sikerült elérni", "Kapcsolat létrejött", "Visszahívást kért", "Időpont egyeztetve", "Információ elküldve", "További egyeztetés szükséges", "Nem érdeklődik", "Egyéb"];
 const TYPES = ["Telefonhívás", "E-mail", "Online tárgyalás", "Személyes tárgyalás", "Utánkövetés", "Egyéb"];
 
 // ----------------------------------------------------------------- szerverkezelés
