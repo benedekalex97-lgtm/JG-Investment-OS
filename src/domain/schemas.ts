@@ -51,7 +51,7 @@ export const verificationInput = z
 
 /**
  * v0.5 egyszerű ügyfélűrlap: az üzleti minimum a név (cégnél a cégnév). A telefonszám, az e-mail, a kapcsolati személy,
- * az adatforrás és a szerep mind opcionális. A kapcsolati státusz alapértéke: Kapcsolatfelvételre vár; a „Tőke elhelyezve”
+ * az adatforrás és a szerep mind opcionális. A kapcsolati státusz alapértéke: Feldolgozásra vár (waiting_for_contact); a „Tőke elhelyezve”
  * csak igazolási forrással és a compliance figyelmeztetés tudomásulvételével adható meg.
  */
 const formCommon = {

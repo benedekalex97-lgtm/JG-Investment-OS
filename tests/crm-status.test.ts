@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
 import { statusOf } from "@/domain/logic";
+import { customerHistory } from "@/domain/history";
+import { MIGRATIONS } from "@/server/db/migrate";
 import { emptySnapshot } from "@/domain/types";
 import { U, VERIFY, closeIt, errs, newRepo, seed, val } from "./helpers";
 
@@ -12,10 +14,10 @@ describe("a hét jóváhagyott kapcsolati státusz", () => {
   it("pontosan hét státusz, a jóváhagyott megnevezéssel és sorrendben", () => {
     expect(CRM_STATUSES).toHaveLength(7);
     expect(CRM_STATUSES.map((s) => CRM_STATUS_LABELS[s])).toEqual([
-      "Kapcsolatfelvételre vár", "Kapcsolatfelvétel", "Kapcsolatépítés", "Online/Személyes tárgyalás", "Számlanyitás", "Tőke elhelyezve", "Elvesztett",
+      "Feldolgozásra vár", "Kapcsolatfelvétel", "Kapcsolatépítés", "Online/Személyes tárgyalás", "Számlanyitás", "Tőke elhelyezve", "Elvesztett",
     ]);
   });
-  it("az alapértelmezett státusz a Kapcsolatfelvételre vár", () => {
+  it("az alapértelmezett státusz a Feldolgozásra vár (waiting_for_contact)", () => {
     expect(DEFAULT_CRM_STATUS).toBe("waiting_for_contact");
     expect(statusOf(newCustomer(newRepo(emptySnapshot())))).toBe("waiting_for_contact");
   });
@@ -144,5 +146,28 @@ describe("régi adatok megőrzése", () => {
     expect(after.processes).toEqual(before.processes);
     expect(after.tasks).toEqual(before.tasks);
     expect(after.customers.filter((x) => x.id !== c.id)).toEqual(before.customers.filter((x) => x.id !== c.id));
+  });
+});
+
+describe("CRM-008 — „Feldolgozásra vár” címke", () => {
+  it("S2/S4: csak a címke változott; a belső kulcs, a többi címke, a darabszám és a sorrend azonos", () => {
+    expect(CRM_STATUSES[0]).toBe("waiting_for_contact");
+    expect(CRM_STATUS_LABELS.waiting_for_contact).toBe("Feldolgozásra vár");
+    expect(CRM_STATUS_LABELS.contact).toBe("Kapcsolatfelvétel");
+  });
+  it("S3: régi ügyfél (tárolt kulccsal vagy kulcs nélkül) és régi naplóbejegyzés az új címkével jelenik meg, adatmódosítás nélkül", () => {
+    const r = newRepo(emptySnapshot());
+    const c = newCustomer(r);
+    const legacy = { ...c, crmStatus: undefined };
+    expect(CRM_STATUS_LABELS[statusOf(legacy)]).toBe("Feldolgozásra vár");
+    val(r.changeCrmStatus(c.id, { toStatus: "contact", recordedBy: U }));
+    const act = r.getSnapshot().activities[0];
+    expect(act.meta).toMatchObject({ fromCrmStatus: "waiting_for_contact", toCrmStatus: "contact" });
+    const h = customerHistory(r.getSnapshot(), c.id, String);
+    expect(h[0].details[0]).toEqual({ label: "Korábbi státusz", value: "Feldolgozásra vár" });
+  });
+  it("S5: nincs migráció: az adatbázis CHECK értékkészlete (0001) változatlanul a belső kulcsokat tartalmazza", () => {
+    expect(MIGRATIONS[0].sql).toContain("'waiting_for_contact','contact','relationship','meeting','account_opening','capital_placed','lost'");
+    expect(MIGRATIONS.slice(1).some((m) => /crm_status/.test(m.sql))).toBe(false);
   });
 });

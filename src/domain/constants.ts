@@ -28,7 +28,8 @@ export const RESTRICTION_LABELS = { objection: "Tiltakozás", restriction: "Megk
  */
 export const CRM_STATUSES = ["waiting_for_contact", "contact", "relationship", "meeting", "account_opening", "capital_placed", "lost"] as const;
 export const CRM_STATUS_LABELS = {
-  waiting_for_contact: "Kapcsolatfelvételre vár",
+  // v0.9 (CRM-008): jóváhagyott új megnevezés; a belső kulcs (waiting_for_contact) és az adatbázis-értékek változatlanok.
+  waiting_for_contact: "Feldolgozásra vár",
   contact: "Kapcsolatfelvétel",
   relationship: "Kapcsolatépítés",
   meeting: "Online/Személyes tárgyalás",

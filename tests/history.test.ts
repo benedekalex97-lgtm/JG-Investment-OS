@@ -44,7 +44,7 @@ describe("Előzmények (v0.9) — időrendi lista az aktivitásnaplóból", () =
   });
   it("a kapcsolati státusz változása a korábbi és az új státusszal", () => {
     const { h } = scenario();
-    expect(h[0].details).toEqual([{ label: "Korábbi státusz", value: "Kapcsolatfelvételre vár" }, { label: "Új státusz", value: "Kapcsolatfelvétel" }]);
+    expect(h[0].details).toEqual([{ label: "Korábbi státusz", value: "Feldolgozásra vár" }, { label: "Új státusz", value: "Kapcsolatfelvétel" }]);
   });
   it("D7: a régi (v0.8-ig) naplóbejegyzések változatlanul, kitalált minősítés nélkül jelennek meg", () => {
     const base = emptySnapshot();

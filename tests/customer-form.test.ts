@@ -41,7 +41,7 @@ describe("új ügyfél — egyszerű űrlap, üzleti minimum: a név", () => {
     expect(contactName(contact!)).toBe("Szabó Kata");
     expect(customer.phone).toBe("+36 1 555 0100");
   });
-  it("új ügyfél alapértelmezett státusza: Kapcsolatfelvételre vár, nincs automatikus feladat vagy folyamat", () => {
+  it("új ügyfél alapértelmezett státusza: Feldolgozásra vár, nincs automatikus feladat vagy folyamat", () => {
     const r = newRepo(emptySnapshot());
     const { customer } = val(r.createCustomerFromForm(person));
     expect(customer.crmStatus).toBe("waiting_for_contact");

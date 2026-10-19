@@ -132,7 +132,7 @@ export class DemoRepository implements DataRepository {
 
   /**
    * Új ügyfél az egyszerű űrlapból (v0.5): üzleti minimum a név; minden más opcionális. Az új ügyfél alapértelmezett státusza
-   * Kapcsolatfelvételre vár; más induló státusz naplózott státuszváltásként rögzül (a „Tőke elhelyezve” igazolással).
+   * Feldolgozásra vár; más induló státusz naplózott státuszváltásként rögzül (a „Tőke elhelyezve” igazolással).
    * Mindent vagy semmit: hiba esetén semmi nem jön létre.
    */
   createCustomerFromForm(input: unknown): Result<{ customer: Customer; contact?: CompanyContact }> {

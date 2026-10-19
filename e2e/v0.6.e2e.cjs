@@ -48,7 +48,7 @@ let skipped = 0;
 const log = (name, ok, extra = "") => { results.push({ name, ok: !!ok }); console.log(ok ? "PASS" : "FAIL", name, ok ? "" : extra); };
 const skip = (name) => { skipped += 1; console.log("SKIPPED", name, "(axe-core nem érhető el)"); };
 
-const STATUSES = ["Kapcsolatfelvételre vár", "Kapcsolatfelvétel", "Kapcsolatépítés", "Online/Személyes tárgyalás", "Számlanyitás", "Tőke elhelyezve", "Elvesztett"];
+const STATUSES = ["Feldolgozásra vár", "Kapcsolatfelvétel", "Kapcsolatépítés", "Online/Személyes tárgyalás", "Számlanyitás", "Tőke elhelyezve", "Elvesztett"];
 const INPUTS = ["Első megkeresés", "Visszahívás", "Időpont-egyeztetés", "Tájékoztatás", "Utánkövetés", "Egyéb"];
 const TYPES = ["Telefonhívás", "E-mail", "Online tárgyalás", "Személyes tárgyalás", "Utánkövetés", "Egyéb"];
 
@@ -428,7 +428,7 @@ async function checkPage(page, label, tag) {
       L("a státusz mentése után a pipeline-on egyetlen kártya, a megfelelő oszlopban", await (async () => {
         await pageA.goto(BASE + "/pipeline", { waitUntil: "networkidle" });
         const labels = await pageA.locator("section[aria-label] h3").allTextContents();
-        return JSON.stringify(labels.map((t) => t.trim())) === JSON.stringify(STATUSES) && (await pageA.locator("article:has-text('Minta Kft.')").count()) === 1 && (await col(pageA, "Kapcsolatfelvétel").locator("article:has-text('Minta Kft.')").count()) === 1 && (await col(pageA, "Kapcsolatfelvételre vár").locator("article:has-text('Minta Mária')").count()) === 1;
+        return JSON.stringify(labels.map((t) => t.trim())) === JSON.stringify(STATUSES) && (await pageA.locator("article:has-text('Minta Kft.')").count()) === 1 && (await col(pageA, "Kapcsolatfelvétel").locator("article:has-text('Minta Kft.')").count()) === 1 && (await col(pageA, "Feldolgozásra vár").locator("article:has-text('Minta Mária')").count()) === 1;
       })());
       await checkPage(pageA, "desktop", "pipeline");
       await pageA.goto(BASE + "/", { waitUntil: "networkidle" });
