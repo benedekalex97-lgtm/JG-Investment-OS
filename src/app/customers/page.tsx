@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CrmStatusBadge, DataGate, RestrictedBadge, TypeBadge } from "@/components/common";
 import { FilterSelect } from "@/components/ui/form";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
@@ -65,9 +65,24 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
   );
 }
 
+/** A törlés után ide visszatérve rövid visszajelzés (CRM-006); az URL-ből azonnal eltávolítjuk. */
+function RemovedNotice() {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("eltavolitva") !== "1") return;
+    url.searchParams.delete("eltavolitva");
+    window.history.replaceState(null, "", url.pathname + url.search);
+    const t = setTimeout(() => setShown(true), 0);
+    return () => clearTimeout(t);
+  }, []);
+  return shown ? <p role="status" className="mb-4 rounded-md bg-ok-soft p-3 text-sm text-ok">Az ügyfél eltávolítva az aktív CRM-ből. A kapcsolódó adatok megmaradtak.</p> : null;
+}
+
 export default function CustomersPage() {
   return (
     <>
+      <RemovedNotice />
       <PageHeader title="Ügyfelek" description="Magánszemélyek és cégek. Minden ügyfélnek egy aktuális kapcsolati státusza és státuszhoz tartozó feladatai vannak." actions={<LinkButton href="/customers/new">+ Új ügyfél</LinkButton>} />
       <DataGate>
         {(data) =>

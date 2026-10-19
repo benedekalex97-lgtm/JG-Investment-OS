@@ -5,6 +5,7 @@ import { useState } from "react";
 import { DataGate } from "@/components/common";
 import { TaskRow } from "@/components/tasks";
 import { NewTaskModal } from "@/components/forms";
+import { CustomerDeleteCard } from "@/components/customer-delete";
 import { CustomerHistory } from "@/components/customer-history";
 import { CustomerNotes } from "@/components/customer-notes";
 import { ContactSidebar, CustomerHeader } from "@/components/customer-details";
@@ -62,6 +63,7 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
         {/* v0.9 sorrend: Feladatok, Korábbi státuszok feladatai, Előzmények, Ügyféljegyzetek. */}
         <CustomerHistory data={data} customer={customer} />
         <CustomerNotes data={data} customer={customer} />
+        <CustomerDeleteCard customer={customer} />
       </div>
       <NewTaskModal open={newTask} onClose={() => setNewTask(false)} customerId={customer.id} />
     </div>
@@ -74,7 +76,7 @@ export default function CustomerPage() {
     <DataGate>
       {(data) => {
         const customer = data.customers.find((c) => c.id === id);
-        if (!customer) return <ErrorState title="Az ügyfél nem található" message="Hibás lehet a hivatkozás, vagy az ügyfél nem létezik ebben az adatbázisban." />;
+        if (!customer) return <ErrorState title="Az ügyfél nem található" message="Hibás lehet a hivatkozás, az ügyfél nem létezik ebben az adatbázisban, vagy már nem része az aktív CRM-nek." />;
         return <Profile data={data} customer={customer} />;
       }}
     </DataGate>

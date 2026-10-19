@@ -93,5 +93,9 @@ export class RemoteRepository {
   setTaskDue(taskId: string, dueAt: string | null) {
     return this.call<Task>("task.setDue", { taskId, dueAt });
   }
+  /** CRM-006: logikai (visszaállítható) eltávolítás; a szerver csak bekapcsolt kapcsolóval és a megerősítő szóval hajtja végre. */
+  deleteCustomer(customerId: string, confirmation: string) {
+    return this.call<{ id: string }>("customer.delete", { customerId, confirmation });
+  }
 }
 
