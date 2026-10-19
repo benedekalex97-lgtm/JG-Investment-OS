@@ -32,8 +32,8 @@ for (const p of [process.env.AXE_PATH, () => require.resolve("axe-core/axe.min.j
 
 const ROOT = path.join(__dirname, "..");
 const PORT = Number(process.env.E2E_PORT || 3101);
-const BASE = `http://localhost:${PORT}`;
-const BASE_UNCONFIGURED = `http://localhost:${PORT + 1}`;
+const BASE = `http://127.0.0.1:${PORT}`;
+const BASE_UNCONFIGURED = `http://127.0.0.1:${PORT + 1}`;
 const SHOTS = path.join(__dirname, "shots");
 fs.mkdirSync(SHOTS, { recursive: true });
 const WORK = fs.mkdtempSync(path.join(process.env.E2E_TMP || os.tmpdir(), "jg-e2e-"));
@@ -67,7 +67,7 @@ async function startServer(port, env) {
   child.stderr.on("data", (d) => { out += d; });
   child.exited = new Promise((res) => child.on("exit", res));
   for (let i = 0; i < 120; i++) {
-    try { const r = await fetch(`http://localhost:${port}/api/status`); if (r.status === 200 || r.status === 503) return child; } catch { /* még nem fut */ }
+    try { const r = await fetch(`http://127.0.0.1:${port}/api/status`, { signal: AbortSignal.timeout(2000) }); if (r.status === 200 || r.status === 503) return child; } catch { /* még nem fut */ }
     await new Promise((r) => setTimeout(r, 500));
   }
   child.kill("SIGKILL");
@@ -151,7 +151,7 @@ async function checkPage(page, label, tag) {
 }
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote", "--single-process"] } : {});
   const DESKTOP = { width: 1440, height: 900 }, MOBILE = { width: 390, height: 844 };
   try {
     // ============ 0) Adatbázis nélkül: nincs csendes tartalék ============
@@ -376,6 +376,31 @@ async function checkPage(page, label, tag) {
       const t = await r.innerText();
       L("az első felhasználó látja a másik módosítását, a rögzítő a második felhasználó", t.includes("Információ elküldve") && t.includes("Teszt Pilot Kettő"));
     }
+    // Daily-use notes: saved through the API, visible to the second user after reload.
+    await openCustomer(pageA, "Minta Kft.");
+    await pageA.getByLabel("Új ügyféljegyzet").fill("Pénteken visszahívást kért.\nA kérdéseit előre elküldi.");
+    await pageA.getByRole("button", { name: "Jegyzet mentése" }).click();
+    await pageA.getByRole("status").filter({ hasText: "A jegyzet elmentve." }).waitFor();
+    await pageA.reload({ waitUntil: "networkidle" });
+    log("ügyféljegyzet újratöltés után is megmarad", (await pageA.locator("#jegyzetek").innerText()).includes("Pénteken visszahívást kért."));
+    await pageB.reload({ waitUntil: "networkidle" });
+    log("a második felhasználó látja a jegyzetet és a rögzítőjét", (await pageB.locator("#jegyzetek").innerText()).includes("Teszt Pilot Egy"));
+    await pageA.route("**/api/crm/op", (route) => route.abort("connectionrefused"));
+    await pageA.getByLabel("Új ügyféljegyzet").fill("Megőrzött piszkozat");
+    await pageA.getByRole("button", { name: "Jegyzet mentése" }).click();
+    await pageA.getByRole("alert").filter({ hasText: "A mentés nem sikerült" }).waitFor();
+    log("sikertelen jegyzetmentés után a piszkozat megmarad", (await pageA.getByLabel("Új ügyféljegyzet").inputValue()) === "Megőrzött piszkozat");
+    await pageA.unroute("**/api/crm/op");
+    await pageA.getByRole("button", { name: "Jegyzet mentése" }).click();
+    await pageA.getByRole("status").filter({ hasText: "A jegyzet elmentve." }).waitFor();
+    await pageA.route("**/api/crm/snapshot", (route) => route.abort("connectionrefused"));
+    await pageA.reload({ waitUntil: "networkidle" });
+    await pageA.getByRole("button", { name: "Újrapróbálás" }).waitFor();
+    log("induláskori adathiba nem hagy végtelen betöltésben", await pageA.getByRole("button", { name: "Újrapróbálás" }).isVisible());
+    await pageA.unroute("**/api/crm/snapshot");
+    await pageA.getByRole("button", { name: "Újrapróbálás" }).click();
+    await pageA.getByLabel("Új ügyféljegyzet").waitFor();
+    log("újrapróbálás után visszatér az ügyféladatlap", (await pageA.locator("#jegyzetek").innerText()).includes("Megőrzött piszkozat"));
     await ctxB.close();
 
     // ============ J) Hibakezelés a felületen ============
@@ -539,3 +564,4 @@ async function checkPage(page, label, tag) {
 function L_END(errors) {
   log("nincs kezeletlen böngészőoldali konzolhiba", errors.length === 0, errors.slice(0, 3).join(" | "));
 }
+

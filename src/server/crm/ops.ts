@@ -29,6 +29,12 @@ const changedFields = (b?: Customer, a?: Customer) =>
   b && a ? Object.keys({ ...a, ...b }).filter((k) => k !== "updatedAt" && JSON.stringify((a as never)[k]) !== JSON.stringify((b as never)[k])) : [];
 
 export const OPS = {
+  "note.create": defineOp({
+    args: z.object({ customerId: id, text: z.string().trim().min(1).max(2000) }).strict(),
+    scope: (a) => ({ customerId: a.customerId }),
+    run: (repo, a, u) => repo.createActivity({ customerId: a.customerId, type: "note", summary: a.text, recordedBy: u.id, occurredAt: new Date().toISOString() }),
+    audit: (_a, v) => ({ action: "note.create", entityType: "activity", entityId: v.id, customerId: v.customerId }),
+  }),
   "customer.create": defineOp({
     args: z.object({ input: record }).strict(),
     scope: () => null,
@@ -139,3 +145,4 @@ export async function executeOp(db: Db, user: AuthUser, req: { requestId: string
     return { kind: "result", result, snapshot: await loadSnapshot(tx), replayed: false } as const;
   });
 }
+

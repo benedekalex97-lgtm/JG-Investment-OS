@@ -1,5 +1,5 @@
 import type { Result } from "./repository";
-import type { CompanyContact, Customer, DataSnapshot, Task } from "@/domain/types";
+import type { Activity, CompanyContact, Customer, DataSnapshot, Task } from "@/domain/types";
 
 /**
  * Kliensoldali repository (v0.6): minden írás a szerver API-ján át, az adatbázisba történik - nincs helyi tárolás és nincs csendes
@@ -78,6 +78,9 @@ export class RemoteRepository {
   changeCrmStatus(customerId: string, input: unknown) {
     return this.call<Customer>("customer.changeStatus", { customerId, input });
   }
+  createNote(customerId: string, text: string) {
+    return this.call<Activity>("note.create", { customerId, text });
+  }
   createTask(input: unknown) {
     return this.call<Task>("task.create", { input });
   }
@@ -91,3 +94,4 @@ export class RemoteRepository {
     return this.call<Task>("task.setDue", { taskId, dueAt });
   }
 }
+

@@ -98,12 +98,13 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         setData(null);
         setUser(null);
         setPhase("unauthenticated");
-      } else if (status === 503) {
+      } else {
         setProblem(String(body.state ?? "unreachable"));
-        setPhase("unavailable");
+        setPhase((current) => current === "ready" ? "ready" : "unavailable");
       }
     } catch {
-      /* átmeneti hálózati hiba: a meglévő nézet marad, a következő frissítés újrapróbálja */
+      setProblem("unreachable");
+      setPhase((current) => current === "ready" ? "ready" : "unavailable");
     }
     return false;
   }, []);
@@ -192,7 +193,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: Ctx = {
-    phase, problem, data, repo, user, users, environmentLabel, currentUserId: user?.id ?? "", login, logout, refresh: async () => void (await loadSnapshotFromServer()),
+    phase, problem, data, repo, user, users, environmentLabel, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap,
     legacy: {
       items: legacyItems,
       /** Csak kifejezett felhasználói döntésre hívandó: a régi, csak böngészőben tárolt adat törlése. */
@@ -216,3 +217,4 @@ export function useCrmData(): Ctx {
   if (!ctx) throw new Error("useCrmData csak CrmDataProvideren belül használható");
   return ctx;
 }
+

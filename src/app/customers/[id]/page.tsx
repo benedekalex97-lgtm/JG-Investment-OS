@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ActivityItem, DataGate, TaskRow, useUserName } from "@/components/common";
 import { NewTaskModal } from "@/components/forms";
+import { CustomerNotes } from "@/components/customer-notes";
 import { ContactSidebar, CustomerHeader } from "@/components/customer-details";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorState } from "@/components/ui/primitives";
 import { CLOSURE_LABELS, CRM_STATUS_LABELS, PROCESS_STATUS_LABELS } from "@/domain/constants";
@@ -14,7 +15,7 @@ import type { Customer, DataSnapshot } from "@/domain/types";
 function ArchiveSection({ data, customer }: { data: DataSnapshot; customer: Customer }) {
   const userName = useUserName();
   const processes = data.processes.filter((p) => p.customerId === customer.id);
-  const log = data.activities.filter((a) => a.customerId === customer.id).sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+  const log = data.activities.filter((a) => a.customerId === customer.id && a.type !== "note").sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
   if (!processes.length && !log.length) return null;
   return (
     <Card id="naplo">
@@ -85,6 +86,7 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
           </Card>
         ) : null}
 
+        <CustomerNotes data={data} customer={customer} />
         <ArchiveSection data={data} customer={customer} />
       </div>
       <NewTaskModal open={newTask} onClose={() => setNewTask(false)} customerId={customer.id} statusLabel={CRM_STATUS_LABELS[status]} />
@@ -104,3 +106,4 @@ export default function CustomerPage() {
     </DataGate>
   );
 }
+
