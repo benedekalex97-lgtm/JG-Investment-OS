@@ -3,11 +3,10 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useCrmData } from "@/data/store";
 import {
-  CRM_STATUS_LABELS, NOTE_OPTION_KEY, TASK_INPUT_OPTIONS, TASK_NOTE_MAX, TASK_OUTPUT_OPTIONS, TASK_TYPES, VERIFICATION_COMPLIANCE_WARNING,
+  CRM_STATUS_LABELS, NOTE_OPTION_KEY, TASK_INPUT_OPTIONS, TASK_NOTE_MAX, TASK_TYPES, VERIFICATION_COMPLIANCE_WARNING,
   VERIFICATION_SOURCES, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import { inputText } from "@/domain/logic";
-import type { Customer, Task } from "@/domain/types";
+import type { Customer } from "@/domain/types";
 import { fromDateInputValue } from "@/lib/format";
 import { Modal } from "./ui/modal";
 import { SelectInput, TextArea, TextInput } from "./ui/form";
@@ -135,61 +134,6 @@ function NewTaskForm({ onClose, customerId, statusLabel }: { onClose: () => void
         <TextArea label="Rövid megjegyzés (opcionális)" value={inputNote} error={errors.inputNote} maxLength={TASK_NOTE_MAX} rows={2} onChange={(e) => setInputNote(e.target.value)} hint={counter(inputNote, TASK_NOTE_MAX)} />
       ) : null}
       <TextInput label="Határidő (opcionális)" type="date" value={due} error={errors.dueAt} onChange={(e) => setDue(e.target.value)} />
-    </FormShell>
-  );
-}
-
-// -------------------------------------------------------- Feladat lezárása (modál)
-/**
- * Feladat lezárása (v0.6): az elvégzettként jelölés ezt a modált nyitja; a lezárás csak itt, kiválasztott Output mellett válik
- * véglegessé (egyetlen kiválasztott érték elég). A feladat neve és az Input csak olvasható. A lezárás nem módosítja az ügyfél
- * státuszát. „Mégse” esetén a feladat nyitott marad. Rövid megjegyzés kizárólag az „Egyéb” értékhez adható.
- */
-export function CloseTaskModal({ open, onClose, task }: { open: boolean; onClose: () => void; task: Task }) {
-  return (
-    <Modal open={open} onClose={onClose} title="Feladat lezárása">
-      <CloseTaskForm onClose={onClose} task={task} />
-    </Modal>
-  );
-}
-function CloseTaskForm({ onClose, task }: { onClose: () => void; task: Task }) {
-  const { repo } = useCrmData();
-  const [outputKey, setOutputKey] = useState("");
-  const [outputNote, setOutputNote] = useState("");
-  const [errors, setErrors] = useState<Errors>({});
-  const [busy, setBusy] = useState(false);
-  const lock = useRef(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (lock.current) return;
-    lock.current = true;
-    setBusy(true);
-    const r = await repo.closeTask(task.id, { outputKey, outputNote: outputKey === NOTE_OPTION_KEY && outputNote.trim() ? outputNote : undefined });
-    lock.current = false;
-    setBusy(false);
-    if (!r.ok) return setErrors(r.errors);
-    onClose();
-  };
-  const input = inputText(task);
-  return (
-    <FormShell onSubmit={submit} errors={errors} submitLabel="Feladat lezárása" onCancel={onClose} busy={busy}>
-      <div className="space-y-3 rounded-md bg-canvas p-3 text-sm">
-        <div>
-          <p className="text-xs font-medium text-ink-muted">Feladat</p>
-          <p className="break-words font-medium">{task.title}</p>
-        </div>
-        <div>
-          <p className="text-xs font-medium text-ink-muted">Input</p>
-          <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words">{input || "— nincs megadva —"}</p>
-        </div>
-      </div>
-      <SelectInput label="Output" required value={outputKey} error={errors.outputKey} onChange={(e) => { setOutputKey(e.target.value); setErrors((x) => ({ ...x, outputKey: "", outputNote: "" })); }} autoFocus>
-        <option value="">— válassz —</option>
-        {TASK_OUTPUT_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-      </SelectInput>
-      {outputKey === NOTE_OPTION_KEY ? (
-        <TextArea label="Rövid megjegyzés (opcionális)" value={outputNote} error={errors.outputNote} maxLength={TASK_NOTE_MAX} rows={2} onChange={(e) => setOutputNote(e.target.value)} hint={counter(outputNote, TASK_NOTE_MAX)} />
-      ) : null}
     </FormShell>
   );
 }
