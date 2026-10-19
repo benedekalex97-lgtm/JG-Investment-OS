@@ -31,7 +31,7 @@ function findHits(data: DataSnapshot, query: string): Hit[] {
  * snapshotban keres (nincs külön lekérdezés, így bejelentkezés nélkül nincs adat és nincs javaslat). Combobox-minta: Le/Fel nyíl a
  * találatok között, Enter megnyitja az ügyféladatlapot, Escape bezárja a listát; kattintással is navigálható.
  */
-export function GlobalSearch({ className }: { className?: string }) {
+export function GlobalSearch({ className, compact = false }: { className?: string; compact?: boolean }) {
   const { data, phase } = useCrmData();
   const router = useRouter();
   const id = useId();
@@ -77,7 +77,8 @@ export function GlobalSearch({ className }: { className?: string }) {
   const optionId = (i: number) => `${id}-opt-${i}`;
 
   return (
-    <div className={cn("relative min-w-0", className)}>
+    // Kompakt (mobil/tablet) módban a lista a teljes fejlécsáv szélességében nyílik (a legközelebbi pozicionált szülőhöz igazodik).
+    <div className={cn("min-w-0", !compact && "relative", className)}>
       <label htmlFor={id} className="sr-only">Ügyfél keresése</label>
       <input
         ref={input}
@@ -90,7 +91,7 @@ export function GlobalSearch({ className }: { className?: string }) {
         aria-expanded={expanded}
         aria-controls={listId}
         aria-activedescendant={expanded && active >= 0 ? optionId(active) : undefined}
-        placeholder="Ügyfél keresése (név, cég, kapcsolati személy)"
+        placeholder={compact ? "Ügyfél keresése" : "Ügyfél keresése (név, cég, kapcsolati személy)"}
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setActive(-1); }}
         onFocus={() => setOpen(true)}
@@ -99,7 +100,7 @@ export function GlobalSearch({ className }: { className?: string }) {
         className="block min-h-11 w-full min-w-0 rounded-md bg-surface px-3 text-sm text-ink ring-1 ring-control placeholder:text-ink-subtle focus-visible:outline-2 focus-visible:outline-accent"
       />
       <div
-        className={cn("absolute inset-x-0 top-full z-40 mt-1 max-h-[min(24rem,70vh)] overflow-y-auto rounded-md bg-surface shadow-lg ring-1 ring-line", !expanded && "hidden")}
+        className={cn("absolute top-full z-40 mt-1", compact ? "inset-x-2" : "inset-x-0", "max-h-[min(24rem,70vh)] overflow-y-auto rounded-md bg-surface shadow-lg ring-1 ring-line", !expanded && "hidden")}
       >
         <ul id={listId} role="listbox" aria-label="Ügyféltalálatok" className={cn(!shown.length && "hidden")}>
           {shown.map((h, i) => (

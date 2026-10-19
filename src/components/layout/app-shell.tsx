@@ -77,7 +77,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="min-w-0">
         {/* Mobil fejléc: három elemű navigáció, mindig látható */}
         <div className="sticky top-0 z-30 bg-carbon lg:hidden">
-          <div className="flex min-h-14 items-center px-3"><Brand /></div>
+          {/* Mobilon/tableten a globális kereső a ragadós felső sávban: mindig elérhető, nem takarja ki semmi. */}
+          <div className="relative flex min-h-14 items-center gap-2 px-3 py-1.5">
+            <Brand />
+            {ready ? <GlobalSearch compact className="flex-1" /> : null}
+          </div>
           {ready ? (
             <nav aria-label="Fő navigáció (mobil)" className="border-t border-on-carbon/10 p-2">
               <NavLinks path={path} orientation="horizontal" />
@@ -89,7 +93,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="border-b border-line bg-surface">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-6">
             <p className="text-sm text-ink-muted">{ready ? <>Aktuális oldal: <span className="font-medium text-ink">{current}</span></> : "JG Investment OS"}</p>
-            {ready ? <GlobalSearch className="order-last w-full md:order-none md:w-auto md:max-w-md md:flex-1" /> : null}
+            {ready ? <GlobalSearch className="hidden max-w-md flex-1 lg:block" /> : null}
             <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               {environmentLabel ? <span className="rounded-full bg-warn-soft px-2 py-0.5 font-medium text-warn" data-testid="environment-label">{environmentLabel}</span> : null}
               {ready && user ? (
