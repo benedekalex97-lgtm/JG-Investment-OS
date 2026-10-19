@@ -42,7 +42,7 @@ export function CustomerNotes({ customer, data }: { customer: Customer; data: Da
 
   return (
     <Card id="jegyzetek">
-      <CardHeader title="Jegyzetek" count={notes.length} />
+      <CardHeader title="Ügyféljegyzetek" count={notes.length} />
       <form onSubmit={submit} className="space-y-3 border-b border-line p-4">
         <TextArea label="Új ügyféljegyzet" value={text} onChange={(event) => { setText(event.target.value); setSaved(false); }}
           maxLength={2000} rows={3} required disabled={busy} hint={`${text.length} / 2000 karakter`} />

@@ -2,43 +2,15 @@
 
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { ActivityItem, DataGate, TaskRow, useUserName } from "@/components/common";
+import { DataGate, TaskRow } from "@/components/common";
 import { NewTaskModal } from "@/components/forms";
+import { CustomerHistory } from "@/components/customer-history";
 import { CustomerNotes } from "@/components/customer-notes";
 import { ContactSidebar, CustomerHeader } from "@/components/customer-details";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorState } from "@/components/ui/primitives";
-import { CLOSURE_LABELS, CRM_STATUS_LABELS, PROCESS_STATUS_LABELS } from "@/domain/constants";
+import { CRM_STATUS_LABELS } from "@/domain/constants";
 import { statusOf, tasksByStatus } from "@/domain/logic";
 import type { Customer, DataSnapshot } from "@/domain/types";
-
-/** Régi (v0.2/v0.3) adatok és napló: csak olvasható archívum, a meglévő adat megőrzéséhez. */
-function ArchiveSection({ data, customer }: { data: DataSnapshot; customer: Customer }) {
-  const userName = useUserName();
-  const processes = data.processes.filter((p) => p.customerId === customer.id);
-  const log = data.activities.filter((a) => a.customerId === customer.id && a.type !== "note").sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
-  if (!processes.length && !log.length) return null;
-  return (
-    <Card id="naplo">
-      <details>
-        <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">Napló és korábbi adatok (csak olvasható, {log.length} esemény{processes.length ? `, ${processes.length} régi folyamat` : ""})</summary>
-        <div className="border-t border-line">
-          {processes.length ? (
-            <div className="p-4">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-subtle">Régi folyamatok (archív)</h3>
-              <ul className="space-y-1 text-sm">
-                {processes.map((p) => (
-                  <li key={p.id} className="break-words">{p.title} · {PROCESS_STATUS_LABELS[p.status]} · {CLOSURE_LABELS[p.closure.state]} · {userName(p.ownerId)}</li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[13px] text-ink-muted">A korábbi folyamatok adata megmaradt; a v0.5 felület nem kezeli, és nincs leképezve az új státuszokra.</p>
-            </div>
-          ) : null}
-          {log.length ? <ol className="divide-y divide-line border-t border-line">{log.map((a) => <ActivityItem key={a.id} activity={a} data={data} />)}</ol> : null}
-        </div>
-      </details>
-    </Card>
-  );
-}
 
 function Profile({ data, customer }: { data: DataSnapshot; customer: Customer }) {
   const [newTask, setNewTask] = useState(false);
@@ -86,8 +58,9 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
           </Card>
         ) : null}
 
+        {/* v0.9 sorrend: Feladatok, Korábbi státuszok feladatai, Előzmények, Ügyféljegyzetek. */}
+        <CustomerHistory data={data} customer={customer} />
         <CustomerNotes data={data} customer={customer} />
-        <ArchiveSection data={data} customer={customer} />
       </div>
       <NewTaskModal open={newTask} onClose={() => setNewTask(false)} customerId={customer.id} statusLabel={CRM_STATUS_LABELS[status]} />
     </div>
