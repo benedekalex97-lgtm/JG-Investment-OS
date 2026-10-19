@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Db } from "../db/types";
+import { authMode } from "./mode";
 import { dummyHash, hashPassword, passwordPolicyError, verifyPassword } from "./password";
 
 export interface AuthUser {
@@ -71,8 +72,8 @@ export async function userFromRequest(db: Db, req: Request): Promise<AuthUser | 
   return db.system(async (tx) => {
     const rows = await tx.query<{ id: string; name: string; email: string; last_seen_at: Date }>(
       `select u.id, u.name, u.email, s.last_seen_at from sessions s join users u on u.id = s.user_id
-       where s.token_hash = $1 and u.active and s.expires_at > now() and s.last_seen_at > now() - ($2 || ' milliseconds')::interval`,
-      [hash, String(IDLE_MS)],
+       where s.token_hash = $1 and u.active and s.expires_at > now() and s.last_seen_at > now() - ($2 || ' milliseconds')::interval and ($3::text is null or s.auth_method = $3)`,
+      [hash, String(IDLE_MS), authMode() === "google" ? "google" : null],
     );
     const u = rows[0];
     if (!u) return null;
@@ -122,4 +123,17 @@ export async function setActive(db: Db, emailRaw: string, active: boolean): Prom
 
 export async function listUsers(db: Db): Promise<{ id: string; name: string }[]> {
   return db.system((tx) => tx.query<{ id: string; name: string }>("select id, name from users order by name"));
+}
+
+
+/** Google logins keep the existing server-side session model and customer ownership IDs. */
+export async function createGoogleSession(db: Db, userId: string): Promise<{ token: string; user: AuthUser } | null> {
+  return db.system(async (tx) => {
+    const users = await tx.query<AuthUser>("select id, name, email from users where id = $1 and active for update", [userId]);
+    if (!users[0]) return null;
+    const token = randomBytes(32).toString("base64url");
+    await tx.query("insert into sessions (token_hash,user_id,expires_at,auth_method) values ($1,$2,now() + ($3 || ' milliseconds')::interval,'google')", [sha(token), userId, String(ABSOLUTE_MS)]);
+    await tx.query("update users set last_login_at = now() where id = $1", [userId]);
+    return { token, user: users[0] };
+  });
 }

@@ -8,7 +8,7 @@ import type { JgEnv } from "./config";
  * adatot soha nem ír felül és nem töröl. A munkamenetek és a bejelentkezési kísérletek nem része a mentésnek.
  */
 export const BACKUP_TABLES = [
-  "users", "customers", "customer_restrictions", "company_contacts", "processes", "activities", "tasks", "task_results",
+  "users", "oauth_identities", "customers", "customer_restrictions", "company_contacts", "processes", "activities", "tasks", "task_results",
   "contactability", "audit_events", "request_log",
 ] as const;
 const JSONB_COLUMNS = new Set(["meta", "detail", "response"]);
@@ -24,7 +24,7 @@ export interface Backup {
 }
 
 const orderBy: Record<string, string> = {
-  users: "created_at, id", customers: "created_at, id", customer_restrictions: "customer_id", company_contacts: "created_at, id", processes: "created_at, id",
+  users: "created_at, id", oauth_identities: "issuer, subject", customers: "created_at, id", customer_restrictions: "customer_id", company_contacts: "created_at, id", processes: "created_at, id",
   activities: "occurred_at, id", tasks: "created_at, id", task_results: "task_id, seq", contactability: "id", audit_events: "id", request_log: "created_at, request_id",
 };
 
@@ -74,3 +74,4 @@ export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise
     return counts;
   });
 }
+

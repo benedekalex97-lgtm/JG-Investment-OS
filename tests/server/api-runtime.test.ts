@@ -32,7 +32,7 @@ describe("API reverse proxy mögött (Vercel-szerű: HTTPS a peremen, belül tov
   it("az állapot-végpont működő DB-nél 200 és csak a környezet-címkét adja, a környezet-címke nem szivárog személyes adatot", async () => {
     const r = await makeApi(t.db, "preview")(new Request("https://jg-preview.example/api/status"));
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ state: "ok", environment: "preview", environmentLabel: "ELŐNÉZET (fiktív adat)" });
+    expect(await r.json()).toEqual({ state: "ok", environment: "preview", environmentLabel: "ELŐNÉZET (fiktív adat)", auth: { mode: "password", configured: true } });
   });
 
   it("x-forwarded-proto/host mellett a belépés __Host- előtagú, Secure, HttpOnly, SameSite=Lax sütit ad; az azonos eredetű kérés elfogadott, az idegen elutasított", async () => {

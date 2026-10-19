@@ -37,7 +37,9 @@ describe.each(DRIVERS)("hitelesítés (%s)", (kind) => {
     expect(set).not.toMatch(/Secure/);
     const body = await res.json();
     expect(body.user).toMatchObject({ email: "pilot.egy@example.test" });
-    expect(JSON.stringify(body)).not.toMatch(/password|hash/i);
+    expect(Object.keys(body.user).sort()).toEqual(["email", "id", "name"]);
+    expect(JSON.stringify(body)).not.toContain(PASSWORD_A);
+    expect(JSON.stringify(body)).not.toContain("password_hash");
     const https = await api(new Request("https://jg.example.test/api/auth/login", {
       method: "POST", headers: { "content-type": "application/json", origin: "https://jg.example.test" }, body: JSON.stringify({ email: "pilot.egy@example.test", password: PASSWORD_A }),
     }));

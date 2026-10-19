@@ -31,6 +31,8 @@ interface Ctx {
   user: SessionUser | null;
   users: PublicUser[];
   environmentLabel: string;
+  authMode: "password" | "google";
+  googleConfigured: boolean;
   /** A bejelentkezett felhasználó azonosítója (a naplózott műveletek rögzítője - a szerver állítja be). */
   currentUserId: string;
   login: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -66,6 +68,8 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [users, setUsers] = useState<PublicUser[]>([]);
   const [environmentLabel, setEnvironmentLabel] = useState("");
+  const [authMode, setAuthMode] = useState<"password" | "google">("password");
+  const [googleConfigured, setGoogleConfigured] = useState(false);
   const [legacyItems, setLegacyItems] = useState<LegacyBrowserData[]>([]);
 
   const [repo] = useState(
@@ -115,10 +119,21 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
       if (status === 200) {
         setUser(body.user as SessionUser);
         setEnvironmentLabel(String(body.environmentLabel ?? ""));
+        const auth = body.auth as { mode?: string; configured?: boolean } | undefined;
+        setAuthMode(auth?.mode === "google" ? "google" : "password");
+        setGoogleConfigured(auth?.configured === true);
         await loadSnapshotFromServer();
       } else if (status === 401) {
         const s = await getJson("/api/status");
+        if (s.status !== 200) {
+          setProblem(String(s.body.state ?? "unreachable"));
+          setPhase("unavailable");
+          return;
+        }
         setEnvironmentLabel(String(s.body.environmentLabel ?? ""));
+        const auth = s.body.auth as { mode?: string; configured?: boolean } | undefined;
+        setAuthMode(auth?.mode === "google" ? "google" : "password");
+        setGoogleConfigured(auth?.configured === true);
         setPhase("unauthenticated");
       } else {
         setProblem(String(body.state ?? "unreachable"));
@@ -193,7 +208,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: Ctx = {
-    phase, problem, data, repo, user, users, environmentLabel, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap,
+    phase, problem, data, repo, user, users, environmentLabel, authMode, googleConfigured, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap,
     legacy: {
       items: legacyItems,
       /** Csak kifejezett felhasználói döntésre hívandó: a régi, csak böngészőben tárolt adat törlése. */
