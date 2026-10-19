@@ -5,6 +5,7 @@ import { handleGoogle } from "../auth/google";
 import { clearCookie, clientIp, isSecure, listUsers, login, logout, sessionCookie, userFromRequest, type AuthUser } from "../auth/service";
 import type { Runtime } from "../db";
 import { executeOp, isOpName } from "../crm/ops";
+import { features } from "../features";
 import { loadSnapshot, InvariantError } from "../crm/store";
 
 /**
@@ -93,7 +94,7 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
       const user: AuthUser | null = await userFromRequest(db, req);
       if (!user) return json({ state: "unauthenticated" }, 401);
 
-      if (path === "auth/me") return req.method === "GET" ? json({ state: "ok", user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings() }) : json({ error: "method_not_allowed" }, 405);
+      if (path === "auth/me") return req.method === "GET" ? json({ state: "ok", user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings(), features: features() }) : json({ error: "method_not_allowed" }, 405);
 
       if (path === "crm/snapshot") {
         if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);

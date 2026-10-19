@@ -7,6 +7,7 @@ import { useCrmData } from "@/data/store";
 import { TextInput } from "@/components/ui/form";
 import { Button, LoadingState } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
+import { GlobalSearch } from "./global-search";
 
 export const NAV = [
   { href: "/", label: "Áttekintés" },
@@ -45,7 +46,7 @@ function Brand() {
   return (
     <Link href="/" className="block rounded-md px-3 py-1 text-on-carbon">
       <span className="block text-[15px] font-semibold tracking-tight">JG Investment OS</span>
-      <span className="block text-xs text-on-carbon-muted">v0.8</span>
+      <span className="block text-xs text-on-carbon-muted">v0.9</span>
     </Link>
   );
 }
@@ -76,7 +77,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="min-w-0">
         {/* Mobil fejléc: három elemű navigáció, mindig látható */}
         <div className="sticky top-0 z-30 bg-carbon lg:hidden">
-          <div className="flex min-h-14 items-center px-3"><Brand /></div>
+          {/* Mobilon/tableten a globális kereső a ragadós felső sávban: mindig elérhető, nem takarja ki semmi. */}
+          <div className="relative flex min-h-14 items-center gap-2 px-3 py-1.5">
+            <Brand />
+            {ready ? <GlobalSearch compact className="flex-1" /> : null}
+          </div>
           {ready ? (
             <nav aria-label="Fő navigáció (mobil)" className="border-t border-on-carbon/10 p-2">
               <NavLinks path={path} orientation="horizontal" />
@@ -84,10 +89,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null}
         </div>
 
-        {/* Fejléc: oldaljelző + környezet + felhasználó */}
-        <div className="border-b border-line bg-surface">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-6">
+        {/* Fejléc: oldaljelző + globális ügyfélkereső (csak bejelentkezve) + környezet + felhasználó */}
+        <header className="border-b border-line bg-surface">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-6">
             <p className="text-sm text-ink-muted">{ready ? <>Aktuális oldal: <span className="font-medium text-ink">{current}</span></> : "JG Investment OS"}</p>
+            {ready ? <GlobalSearch className="hidden max-w-md flex-1 lg:block" /> : null}
             <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               {environmentLabel ? <span className="rounded-full bg-warn-soft px-2 py-0.5 font-medium text-warn" data-testid="environment-label">{environmentLabel}</span> : null}
               {ready && user ? (
@@ -100,11 +106,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               ) : null}
             </p>
           </div>
-        </div>
+        </header>
 
         {legacy.items.length ? <LegacyNotice /> : null}
 
-        <main id="main" className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 focus:outline-none sm:px-6">
           <Gate>{children}</Gate>
         </main>
       </div>

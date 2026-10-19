@@ -33,6 +33,8 @@ interface Ctx {
   environmentLabel: string;
   authMode: "password" | "google";
   googleConfigured: boolean;
+  /** Szerveroldali funkciókapcsolók (csak tájékoztató; a szerver minden műveletnél újra ellenőriz). */
+  features: { testCustomerDelete: boolean };
   /** A bejelentkezett felhasználó azonosítója (a naplózott műveletek rögzítője - a szerver állítja be). */
   currentUserId: string;
   login: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -70,6 +72,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
   const [environmentLabel, setEnvironmentLabel] = useState("");
   const [authMode, setAuthMode] = useState<"password" | "google">("password");
   const [googleConfigured, setGoogleConfigured] = useState(false);
+  const [features, setFeatures] = useState({ testCustomerDelete: false });
   const [legacyItems, setLegacyItems] = useState<LegacyBrowserData[]>([]);
 
   const [repo] = useState(
@@ -122,6 +125,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         const auth = body.auth as { mode?: string; configured?: boolean } | undefined;
         setAuthMode(auth?.mode === "google" ? "google" : "password");
         setGoogleConfigured(auth?.configured === true);
+        setFeatures({ testCustomerDelete: (body.features as { testCustomerDelete?: boolean } | undefined)?.testCustomerDelete === true });
         await loadSnapshotFromServer();
       } else if (status === 401) {
         const s = await getJson("/api/status");
@@ -189,12 +193,13 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
       const body = (await res.json()) as { user: SessionUser; environmentLabel?: string };
       setUser(body.user);
       setEnvironmentLabel(body.environmentLabel ?? "");
-      await loadSnapshotFromServer();
+      // A munkamenet adatai (funkciókapcsolók is) és a snapshot ugyanazon az úton töltődnek, mint oldalbetöltéskor.
+      await bootstrap();
       return { ok: true };
     } catch {
       return { ok: false, error: MSG.network };
     }
-  }, [loadSnapshotFromServer]);
+  }, [bootstrap]);
 
   const logout = useCallback(async () => {
     try {
@@ -204,11 +209,12 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     }
     setData(null);
     setUser(null);
+    setFeatures({ testCustomerDelete: false });
     setPhase("unauthenticated");
   }, []);
 
   const value: Ctx = {
-    phase, problem, data, repo, user, users, environmentLabel, authMode, googleConfigured, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap,
+    phase, problem, data, repo, user, users, environmentLabel, authMode, googleConfigured, features, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap,
     legacy: {
       items: legacyItems,
       /** Csak kifejezett felhasználói döntésre hívandó: a régi, csak böngészőben tárolt adat törlése. */

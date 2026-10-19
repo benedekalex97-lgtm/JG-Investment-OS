@@ -1,7 +1,7 @@
 import type {
   ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CRM_STATUSES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
   EVIDENCE_STATUSES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_TYPES, PROCESS_STATUS_DEFS, RESTRICTION_KINDS,
-  TASK_INPUT_OPTIONS, TASK_OUTPUT_OPTIONS, TASK_STATUSES, TASK_TYPES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
+  TASK_INPUT_OPTIONS, TASK_OUTCOMES, TASK_OUTPUT_OPTIONS, TASK_STATUSES, TASK_TYPES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
 } from "./constants";
 
 export type ContactStatus = (typeof CONTACT_STATUSES)[number];
@@ -19,6 +19,8 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskType = (typeof TASK_TYPES)[number]["key"];
 export type TaskInputKey = (typeof TASK_INPUT_OPTIONS)[number]["key"];
 export type TaskOutputKey = (typeof TASK_OUTPUT_OPTIONS)[number]["key"];
+/** v0.9: a feladat lezárásának minősítése (Sikeres / Sikertelen). */
+export type TaskOutcome = (typeof TASK_OUTCOMES)[number];
 export type VerificationSource = (typeof VERIFICATION_SOURCES)[number];
 export type RestrictionKind = (typeof RESTRICTION_KINDS)[number];
 export type ContactPurpose = (typeof CONTACT_PURPOSES)[number];
@@ -125,8 +127,15 @@ export interface ActivityMeta {
   closureReason?: NoResultReason;
   fromContactStatus?: ContactStatus;
   toContactStatus?: ContactStatus;
-  /** Feladat lezárásakor rögzített Output (eredmény). */
+  /** Feladat lezárásakor rögzített Output (eredmény) - az adott lezárási eseményhez kötve. */
   output?: string;
+  /** v0.9: a lezárás minősítése (csak az új lezárásokon; a régieken hiányzik, nem kap kitalált értéket). */
+  taskOutcome?: TaskOutcome;
+  /** v0.9: feladat-módosítás jellege (újranyitás / átidőzítés) a „task_updated” eseményen. */
+  taskChange?: "reopened" | "rescheduled";
+  /** v0.9: átidőzítéskor a korábbi és az új határidő (null = nem volt / törölve). */
+  fromDueAt?: string | null;
+  toDueAt?: string | null;
   fromCrmStatus?: CrmStatus;
   toCrmStatus?: CrmStatus;
   taskId?: string;
@@ -148,9 +157,14 @@ export interface Activity {
 
 /** Egy feladat-lezárás eredménye. Újranyitás után az előzmény megmarad, az újabb lezárás új bejegyzést fűz hozzá. */
 export interface TaskOutput {
-  /** v0.6: a legördülőből választott Output kulcsa. Hiányzik a régi (szabad szöveges) lezárásokon: ők változatlanul őrzik a `text`-et. */
+  /** v0.9: a lezárás minősítése (Sikeres / Sikertelen). Hiányzik a régi (v0.8-ig rögzített) lezárásokon. */
+  outcome?: TaskOutcome;
+  /** v0.6-v0.8: a legördülőből választott Output kulcsa (megőrzött adat; v0.9-től új lezárás nem tölti). */
   key?: TaskOutputKey;
-  /** Régi lezárásnál a szabad szöveges Output; v0.6-os lezárásnál az „Egyéb” opcionális rövid megjegyzése (egyébként üres). */
+  /**
+   * Az Output szövege. v0.9: a munkatárs által kötelezően beírt, szabad szöveg (sortörésekkel). v0.6-v0.8: az „Egyéb” opcionális
+   * megjegyzése (egyébként üres). v0.5 előtt: a régi, szabad szöveges Output.
+   */
   text: string;
   closedAt: string;
   closedBy: string;
@@ -176,7 +190,7 @@ export interface Task {
   assigneeId: string;
   /** Opcionális határidő (v0.5). */
   dueAt?: string;
-  /** Elvégzett = `done`; a v0.5 felület csak pipával kezeli (a régi `in_progress` nyitottnak számít). */
+  /** Lezárt = `done` (v0.9: a Sikeres / Sikertelen gombbal, kötelező Outputtal); a régi `in_progress` nyitottnak számít. */
   status: TaskStatus;
   /** A feladat létrehozásakor az ügyfél aktuális státusza (hiányzik a régi feladatokon: ők nem kapnak kitalált státuszt). */
   crmStatus?: CrmStatus;

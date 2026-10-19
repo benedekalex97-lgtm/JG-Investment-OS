@@ -13,7 +13,7 @@ describe("Pipeline — egyszerű ügyfélstátusz-tábla", () => {
   it("az oszlopok pontosan a hét jóváhagyott státusz, sorrendben", () => {
     expect(crmPipeline(emptySnapshot()).map((c) => c.status)).toEqual([...CRM_STATUSES]);
     expect(crmPipeline(emptySnapshot()).map((c) => c.label)).toEqual([
-      "Kapcsolatfelvételre vár", "Kapcsolatfelvétel", "Kapcsolatépítés", "Online/Személyes tárgyalás", "Számlanyitás", "Tőke elhelyezve", "Elvesztett",
+      "Feldolgozásra vár", "Kapcsolatfelvétel", "Kapcsolatépítés", "Online/Személyes tárgyalás", "Számlanyitás", "Tőke elhelyezve", "Elvesztett",
     ]);
   });
   it("üres CRM-ben minden oszlop üres: nincs fiktív kártya", () => {

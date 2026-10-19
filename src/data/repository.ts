@@ -1,19 +1,20 @@
 import type { ZodError } from "zod";
+import type { DuplicateCandidate } from "@/domain/duplicates";
 import {
   closeInput, closeTaskInput, companyContactInput, contactStatusInput, crmStatusChangeInput, customerInput, customerUpdateInput, manualActivityInput,
   newCustomerForm, processInput, reopenInput, restrictionInput, statusChangeInput, taskInput,
 } from "@/domain/schemas";
 import {
-  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, TASK_OUTPUT_LABELS, DEFAULT_CRM_STATUS, TASK_TYPE_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
+  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, TASK_OUTCOME_LABELS, DEFAULT_CRM_STATUS, TASK_TYPE_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import { buildDisplayName, outputText, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
+import { buildDisplayName, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
 import type {
   Activity, CompanyContact, Contactability, ContactabilityStatus, ContactChannel, ContactPurpose, Customer, CustomerProcess,
-  DataSnapshot, EvidenceStatus, Task, TaskStatus, Verification,
+  DataSnapshot, EvidenceStatus, Task, TaskOutput, TaskStatus, Verification,
 } from "@/domain/types";
 import { initialStatus, isActive, isCrmMilestone, isMilestone, validateClosure, validateContactStatusChange, validateCrmStatusChange, validateTransition } from "@/domain/workflow";
 
-export type Result<T> = { ok: true; value: T } | { ok: false; errors: Record<string, string> };
+export type Result<T> = { ok: true; value: T } | { ok: false; errors: Record<string, string>; duplicates?: DuplicateCandidate[] };
 const fail = <T>(errors: Record<string, string>): Result<T> => ({ ok: false, errors });
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 
@@ -53,7 +54,7 @@ export interface DataRepository {
   reopenProcess(id: string, input: unknown): Result<CustomerProcess>;
   createTask(input: unknown): Result<Task>;
   updateTask(id: string, patch: { dueAt?: string | null; assigneeId?: string; title?: string }, recordedBy: string): Result<Task>;
-  /** Feladat lezárása kötelezően kiválasztott Output-tal (a lezárás egyetlen útja). */
+  /** Feladat lezárása Sikeres/Sikertelen minősítéssel és kötelező, szabad szöveges Outputtal (a lezárás egyetlen útja). */
   closeTask(id: string, input: unknown): Result<Task>;
   /** Státuszváltás a feladaton: csak az újranyitás (open) engedett; a lezáráshoz Output kell (`closeTask`). */
   setTaskStatus(id: string, status: TaskStatus, recordedBy: string): Result<Task>;
@@ -132,7 +133,7 @@ export class DemoRepository implements DataRepository {
 
   /**
    * Új ügyfél az egyszerű űrlapból (v0.5): üzleti minimum a név; minden más opcionális. Az új ügyfél alapértelmezett státusza
-   * Kapcsolatfelvételre vár; más induló státusz naplózott státuszváltásként rögzül (a „Tőke elhelyezve” igazolással).
+   * Feldolgozásra vár; más induló státusz naplózott státuszváltásként rögzül (a „Tőke elhelyezve” igazolással).
    * Mindent vagy semmit: hiba esetén semmi nem jön létre.
    */
   createCustomerFromForm(input: unknown): Result<{ customer: Customer; contact?: CompanyContact }> {
@@ -437,8 +438,10 @@ export class DemoRepository implements DataRepository {
   }
 
   /**
-   * Feladat lezárása: az Output (legördülő kulcs) kötelező és elegendő; nem módosítja az ügyfél státuszát. Újranyitás után az
-   * előzmény megmarad (a régi, szabad szöveges lezárások is), az újabb lezárás új bejegyzést fűz hozzá (nem ír felül).
+   * Feladat lezárása (v0.9): a minősítés (Sikeres / Sikertelen) és a kötelező, szabad szöveges Output külön mezőben, a lezáró
+   * felhasználóval és időponttal tárolódik. Nem módosítja az ügyfél státuszát. Újranyitás után az előzmény megmarad (a régi
+   * legördülős és szabad szöveges lezárások is), az újabb lezárás új bejegyzést fűz hozzá (nem ír felül). A naplóbejegyzés az adott
+   * lezárás Outputját és minősítését őrzi, így minden lezárási esemény külön visszaolvasható.
    */
   closeTask(id: string, input: unknown): Result<Task> {
     const cur = this.snap.tasks.find((t) => t.id === id);
@@ -446,14 +449,14 @@ export class DemoRepository implements DataRepository {
     if (cur.status === "done") return fail({ _form: "A feladat már le van zárva." });
     const parsed = closeTaskInput.safeParse(input);
     if (!parsed.success) return fail(zodErrors(parsed.error));
-    const { outputKey, outputNote, recordedBy } = parsed.data;
+    const { outcome, output, recordedBy } = parsed.data;
     const t = this.now();
-    const entry = { key: outputKey, text: outputNote ?? "", closedAt: t, closedBy: recordedBy };
+    const entry: TaskOutput = { outcome, text: output, closedAt: t, closedBy: recordedBy };
     const next: Task = { ...cur, status: "done", completedAt: t, outputs: [...(cur.outputs ?? []), entry] };
     this.putTask(next);
     this.log({
       customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, recordedBy, type: "task_completed",
-      summary: `Feladat lezárva: ${cur.title} — ${TASK_OUTPUT_LABELS[outputKey]}`, meta: { taskId: id, output: outputText(entry) },
+      summary: `Feladat lezárva — ${TASK_OUTCOME_LABELS[outcome]}: ${cur.title}`, meta: { taskId: id, taskOutcome: outcome, output },
     });
     return ok(next);
   }
@@ -462,21 +465,31 @@ export class DemoRepository implements DataRepository {
     this.commit({ tasks: this.snap.tasks.map((t) => (t.id === next.id ? next : t)) });
   }
 
-  /** Feladat módosítása; `dueAt: null` törli a határidőt (a határidő opcionális). */
+  /**
+   * Feladat módosítása; `dueAt: null` törli a határidőt (a határidő opcionális). A határidő változása (átidőzítés) a feladatot NEM zárja
+   * le és nem nyitja újra; az előzményekben a korábbi és az új határidővel naplózódik. Változás nélküli mentés nem hoz létre bejegyzést.
+   */
   updateTask(id: string, patch: { dueAt?: string | null; assigneeId?: string; title?: string }, recordedBy: string): Result<Task> {
     const cur = this.snap.tasks.find((t) => t.id === id);
     if (!cur) return fail({ _form: "A feladat nem található." });
     if (typeof patch.dueAt === "string" && Number.isNaN(Date.parse(patch.dueAt))) return fail({ dueAt: "Érvénytelen dátum" });
     if (patch.title !== undefined && !patch.title.trim()) return fail({ title: "Feladat címe kötelező" });
-    const { dueAt: nextDue, ...rest } = patch;
+    const { dueAt: rawDue, ...rest } = patch;
+    // Egységes ISO-alak: ugyanaz az időpont más írásmóddal nem számít változásnak.
+    const nextDue = typeof rawDue === "string" ? new Date(rawDue).toISOString() : rawDue;
     const next: Task = { ...cur, ...rest, ...(nextDue === undefined ? {} : { dueAt: nextDue ?? undefined }) };
     this.putTask(next);
     const dueChanged = nextDue !== undefined && (nextDue ?? undefined) !== cur.dueAt;
-    const changes = [dueChanged ? "határidő" : "", patch.assigneeId && patch.assigneeId !== cur.assigneeId ? "felelős" : ""].filter(Boolean);
-    if (changes.length) {
-      this.log({ customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, type: "task_updated", recordedBy,
-        summary: `Feladat módosítva (${changes.join(", ")}): ${cur.title}`, meta: { taskId: id } });
+    const assigneeChanged = Boolean(patch.assigneeId && patch.assigneeId !== cur.assigneeId);
+    const base = { customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, type: "task_updated" as const, recordedBy };
+    if (dueChanged) {
+      this.log({
+        ...base,
+        summary: nextDue ? `Feladat átidőzítve: ${cur.title}` : `Feladat határideje törölve: ${cur.title}`,
+        meta: { taskId: id, taskChange: "rescheduled", fromDueAt: cur.dueAt ?? null, toDueAt: nextDue ?? null },
+      });
     }
+    if (assigneeChanged) this.log({ ...base, summary: `Feladat módosítva (felelős): ${cur.title}`, meta: { taskId: id } });
     return ok(next);
   }
 
@@ -484,13 +497,14 @@ export class DemoRepository implements DataRepository {
     const cur = this.snap.tasks.find((t) => t.id === id);
     if (!cur) return fail({ _form: "A feladat nem található." });
     // A lezárás egyetlen útja a `closeTask` (kötelező Output): ezen a ponton nem kerülhető meg.
-    if (status === "done") return fail({ _form: "A feladat lezárásához Output (eredmény) kiválasztása kötelező." });
+    if (status === "done") return fail({ _form: "A feladat lezárásához a Sikeres vagy Sikertelen gomb és a kötelező Output szükséges." });
     if (cur.status === status) return ok(cur);
     // Újranyitás: az Output-előzmény (`outputs`) megmarad, csak az elvégzett állapot és a lezárás időpontja törlődik.
     const next: Task = { ...cur, status, completedAt: undefined };
     this.putTask(next);
     this.log({
-      customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, recordedBy, meta: { taskId: id },
+      customerId: cur.customerId, processId: cur.processId, companyContactId: cur.companyContactId, recordedBy,
+      meta: cur.status === "done" ? { taskId: id, taskChange: "reopened" } : { taskId: id },
       type: "task_updated",
       summary: cur.status === "done" ? `Feladat újranyitva: ${cur.title}` : `Feladat állapota módosítva: ${cur.title}`,
     });

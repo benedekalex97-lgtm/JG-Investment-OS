@@ -52,10 +52,17 @@ async function insertRows(tx: Tx, table: string, rows: Record<string, unknown>[]
 
 export class RestoreError extends Error {}
 
+/**
+ * Korábbi sémaverziójú mentések, amelyek a jelenlegi sémába változtatás nélkül visszaállíthatók, mert az azóta futott migrációk
+ * kizárólag NULL-ozható oszlopokat adtak hozzá (0003: `task_results.outcome`; 0004: `customers.deleted_at` / `deleted_by`). A régi sorok ezekben az oszlopokban NULL-t kapnak,
+ * kitalált érték nem keletkezik. Nem additív sémaváltozásnál a lista nem bővíthető.
+ */
+export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", LATEST_MIGRATION];
+
 /** Visszaállítás üres adatbázisba, egyetlen tranzakcióban (hiba esetén semmi nem íródik). */
 export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise<Record<string, number>> {
   if (backup.format !== "jg-os-backup" || backup.version !== 1) throw new RestoreError("Ismeretlen mentésformátum.");
-  if (backup.migration !== LATEST_MIGRATION) throw new RestoreError(`A mentés sémaverziója (${backup.migration}) eltér az alkalmazásétól (${LATEST_MIGRATION}).`);
+  if (!RESTORE_COMPATIBLE_MIGRATIONS.includes(backup.migration)) throw new RestoreError(`A mentés sémaverziója (${backup.migration}) eltér az alkalmazásétól (${LATEST_MIGRATION}), és nem tölthető vissza változtatás nélkül.`);
   if (backup.environment !== env) throw new RestoreError(`A mentés környezete (${backup.environment}) nem egyezik a célkörnyezettel (${env}).`);
   for (const t of BACKUP_TABLES) if (!Array.isArray(backup.tables[t])) throw new RestoreError(`Hiányzó tábla a mentésben: ${t}.`);
   return db.system(async (tx) => {

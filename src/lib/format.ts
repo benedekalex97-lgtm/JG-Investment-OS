@@ -1,5 +1,8 @@
-const dateFmt = new Intl.DateTimeFormat("hu-HU", { year: "numeric", month: "2-digit", day: "2-digit" });
-const dateTimeFmt = new Intl.DateTimeFormat("hu-HU", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+import { APP_TIME_ZONE, dayKey, noonIsoOfDay } from "@/domain/time";
+
+// v0.9: minden megjelenített dátum és idő a magyar felhasználói időzónában (Europe/Budapest), a böngésző beállításától függetlenül.
+const dateFmt = new Intl.DateTimeFormat("hu-HU", { timeZone: APP_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+const dateTimeFmt = new Intl.DateTimeFormat("hu-HU", { timeZone: APP_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 export const formatDate = (iso?: string) => (iso ? dateFmt.format(new Date(iso)) : "—");
 export const formatDateTime = (iso?: string) => (iso ? dateTimeFmt.format(new Date(iso)) : "—");
@@ -19,16 +22,11 @@ export function fromInputValue(v: string): string {
 }
 export const nowInputValue = () => toInputValue(new Date().toISOString());
 
-/** ISO → `date` input érték (helyi nap). */
+/** ISO → `date` input érték (a budapesti nap). */
 export function toDateInputValue(iso?: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return iso ? dayKey(iso) : "";
 }
-/** `date` input érték → ISO (a nap déli 12:00-ja helyi időben, így sosem esik át másik napra); üres marad üres. */
+/** `date` input érték → ISO (a nap déli 12:00-ja budapesti idő szerint, így sosem esik át másik napra); üres marad üres. */
 export function fromDateInputValue(v: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
-  if (!m) return "";
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+  return noonIsoOfDay(v);
 }

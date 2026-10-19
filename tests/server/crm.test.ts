@@ -67,11 +67,11 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
     expect((await snap(two)).customers.some((x) => x.id === c.id)).toBe(true);
     const task = await newTask(two, c.id);
     expect(task.assigneeId).toBe(ids.b);
-    const closed = await one.op<Task>("task.close", { taskId: task.id, input: { outputKey: "contact_made" } });
+    const closed = await one.op<Task>("task.close", { taskId: task.id, input: { outcome: "success", output: "Kapcsolat létrejött." } });
     expect(closed.body.result.ok).toBe(true);
     const seen = (await snap(two)).tasks.find((x) => x.id === task.id)!;
     expect(seen.status).toBe("done");
-    expect(seen.outputs![0]).toMatchObject({ key: "contact_made", closedBy: ids.a });
+    expect(seen.outputs![0]).toMatchObject({ outcome: "success", text: "Kapcsolat létrejött.", closedBy: ids.a });
     const audit = await t.db.system((tx) => tx.query<{ user_id: string; action: string }>("select user_id, action from audit_events where customer_id = $1 order by id", [c.id]));
     expect(audit.map((x) => [x.action, x.user_id])).toEqual([["customer.create", ids.a], ["task.create", ids.b], ["task.close", ids.a]]);
   });
@@ -158,32 +158,81 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
     expect(act?.meta?.verification).toMatchObject({ sourceCategory: "provider_notification", simulated: true, recordedBy: ids.a });
   });
 
-  it("feladat: Input legördülő, határidő opcionális; lezárás Output nélkül blokkolt, egy Output elég, ügyfélstátusz nem változik, előzmény megmarad újranyitáskor", async () => {
+  it("feladat (v0.9): Sikeres/Sikertelen + kötelező szöveges Output; ügyfélstátusz nem változik; újranyitás után az előzmény megmarad", async () => {
     const c = await create(one, { type: "individual", name: "Feladat Ferenc" });
     const task = await newTask(one, c.id, { inputKey: "callback", dueAt: "2026-11-02T00:00:00.000Z" });
     expect(task).toMatchObject({ title: "Telefonhívás", inputKey: "callback" });
     expect((await snap(one)).tasks.find((x) => x.id === task.id)!.dueAt).toBe("2026-11-02T00:00:00.000Z");
 
-    const blocked = await one.op("task.close", { taskId: task.id, input: {} });
-    expect(blocked.body.result).toMatchObject({ ok: false, errors: { outputKey: expect.stringMatching(/Output/) } });
-    expect((await snap(one)).tasks.find((x) => x.id === task.id)!.status).toBe("open");
-    const noteWrong = await one.op("task.close", { taskId: task.id, input: { outputKey: "completed", outputNote: "x" } });
-    expect(noteWrong.body.result.ok).toBe(false);
+    // A4/A5/A10: üres, csak whitespace vagy hiányzó Output, hiányzó/ismeretlen minősítés - a szerver elutasítja, a feladat nyitott marad.
+    for (const input of [{}, { outcome: "success" }, { outcome: "success", output: "" }, { outcome: "failure", output: "   \n\t  " }, { output: "Van szöveg" }, { outcome: "kiváló", output: "Van szöveg" }]) {
+      const r = await one.op("task.close", { taskId: task.id, input });
+      expect(r.body.result.ok, JSON.stringify(input)).toBe(false);
+    }
+    const ws = await one.op("task.close", { taskId: task.id, input: { outcome: "success", output: " \n " } });
+    expect(ws.body.result.errors).toMatchObject({ output: "A feladat lezárásához az Output kitöltése kötelező." });
+    const tooLong = await one.op("task.close", { taskId: task.id, input: { outcome: "success", output: "x".repeat(2001) } });
+    expect(tooLong.body.result.errors?.output).toMatch(/2000/);
+    // A régi, legördülős alak (outputKey/outputNote) már nem fogadható el.
+    expect((await one.op("task.close", { taskId: task.id, input: { outputKey: "completed" } })).status).toBe(400);
+    expect((await snap(one)).tasks.find((x) => x.id === task.id)!).toMatchObject({ status: "open" });
+    expect((await snap(one)).tasks.find((x) => x.id === task.id)!.outputs).toBeUndefined();
 
+    // A7 + A8 + B2: sikertelen lezárás, a szöveg sortörésekkel; a státusz változatlan; a második zárás elutasítva.
     const before = statusOf((await snap(one)).customers.find((x) => x.id === c.id)!);
-    expect((await two.op("task.close", { taskId: task.id, input: { outputKey: "not_reached" } })).body.result.ok).toBe(true);
+    const text1 = "Az ügyfelet három próbálkozás után\nsem sikerült elérni.";
+    expect((await two.op("task.close", { taskId: task.id, input: { outcome: "failure", output: `  ${text1}  ` } })).body.result.ok).toBe(true);
     expect(statusOf((await snap(one)).customers.find((x) => x.id === c.id)!)).toBe(before);
-    expect((await one.op("task.close", { taskId: task.id, input: { outputKey: "completed" } })).body.result.ok).toBe(false);
+    expect((await one.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Második" } })).body.result.ok).toBe(false);
 
+    // B4 + B5: újranyitás, majd sikeres lezárás - új eredmény fűződik hozzá, a régi nem íródik felül.
     expect((await one.op("task.reopen", { taskId: task.id })).body.result.ok).toBe(true);
-    expect((await one.op("task.close", { taskId: task.id, input: { outputKey: "other", outputNote: "Levélben válaszolt" } })).body.result.ok).toBe(true);
+    const text2 = "Telefonon egyeztettünk, az ügyfél érdeklődik a\nszolgáltatás iránt. Csütörtökön ismét keresni kell.";
+    expect((await one.op("task.close", { taskId: task.id, input: { outcome: "success", output: text2 } })).body.result.ok).toBe(true);
     const done = (await snap(two)).tasks.find((x) => x.id === task.id)!;
-    expect(done.outputs!.map((o) => [o.key, o.text, o.closedBy])).toEqual([["not_reached", "", ids.b], ["other", "Levélben válaszolt", ids.a]]);
-    const rows = await t.db.system((tx) => tx.query<{ seq: number }>("select seq from task_results where task_id = $1 order by seq", [task.id]));
-    expect(rows.map((r) => Number(r.seq))).toEqual([0, 1]);
+    expect(done.outputs!.map((o) => [o.outcome, o.key, o.text, o.closedBy])).toEqual([["failure", undefined, text1, ids.b], ["success", undefined, text2, ids.a]]);
+    const rows = await t.db.system((tx) => tx.query<{ seq: number; outcome: string; output_text: string }>("select seq, outcome, output_text from task_results where task_id = $1 order by seq", [task.id]));
+    expect(rows.map((r) => [Number(r.seq), r.outcome, r.output_text])).toEqual([[0, "failure", text1], [1, "success", text2]]);
+    // Az előzmények: két külön lezárási esemény a saját Outputjával + egy újranyitás.
+    const acts = (await snap(one)).activities.filter((a) => a.meta?.taskId === task.id);
+    const closes = acts.filter((a) => a.type === "task_completed").map((a) => [a.meta?.taskOutcome, a.meta?.output, a.recordedBy]);
+    expect(closes).toEqual([["success", text2, ids.a], ["failure", text1, ids.b]]);
+    expect(acts.filter((a) => a.meta?.taskChange === "reopened")).toHaveLength(1);
+    expect(statusOf((await snap(one)).customers.find((x) => x.id === c.id)!)).toBe(before);
+    // Audit: csak minősítés és hossz, a szöveg nem.
+    const audit = await t.db.system((tx) => tx.query<{ detail: Record<string, unknown> }>("select detail from audit_events where entity_id = $1 and action = 'task.close' order by id", [task.id]));
+    expect(audit.map((a) => a.detail)).toEqual([{ outcome: "failure", outputLength: text1.length }, { outcome: "success", outputLength: text2.length }]);
 
     expect((await one.op("task.setDue", { taskId: task.id, dueAt: null })).body.result.ok).toBe(true);
     expect((await snap(one)).tasks.find((x) => x.id === task.id)!.dueAt).toBeUndefined();
+  });
+
+  it("átidőzítés (C1-C5): új határidő mentődik, a feladat nyitott marad, az előzmény a korábbi/új határidőt és a munkatársat őrzi", async () => {
+    const c = await create(one, { type: "individual", name: "Átidőzítés Anna" });
+    const task = await newTask(one, c.id, { dueAt: "2026-10-20T10:00:00.000Z" });
+    const r = await two.op<Task>("task.setDue", { taskId: task.id, dueAt: "2026-10-23T10:00:00.000Z" });
+    expect(r.body.result.ok).toBe(true);
+    const cur = (await snap(one)).tasks.find((x) => x.id === task.id)!;
+    expect(cur).toMatchObject({ status: "open", dueAt: "2026-10-23T10:00:00.000Z" });
+    expect(cur.outputs).toBeUndefined();
+    const act = (await snap(one)).activities.filter((a) => a.meta?.taskId === task.id && a.type === "task_updated");
+    expect(act).toHaveLength(1);
+    expect(act[0]).toMatchObject({ recordedBy: ids.b, meta: { taskChange: "rescheduled", fromDueAt: "2026-10-20T10:00:00.000Z", toDueAt: "2026-10-23T10:00:00.000Z" } });
+    // Ugyanarra a dátumra mentés nem hoz létre újabb bejegyzést (D8).
+    expect((await two.op("task.setDue", { taskId: task.id, dueAt: "2026-10-23T10:00:00.000Z" })).body.result.ok).toBe(true);
+    expect((await snap(one)).activities.filter((a) => a.meta?.taskId === task.id && a.type === "task_updated")).toHaveLength(1);
+    // Érvénytelen dátum: hiba, a mentett határidő változatlan.
+    expect((await one.op("task.setDue", { taskId: task.id, dueAt: "nem-datum" })).body.result).toMatchObject({ ok: false, errors: { dueAt: expect.any(String) } });
+    expect((await snap(one)).tasks.find((x) => x.id === task.id)!.dueAt).toBe("2026-10-23T10:00:00.000Z");
+  });
+
+  it("adatbázis-szintű védelem: minősített lezárás üres Outputtal és ismeretlen minősítés a CRM-rétegen kívül sem írható", async () => {
+    const c = await create(one, { type: "individual", name: "Kényszer Kornél" });
+    const task = await newTask(one, c.id);
+    const insert = (outcome: string, text: string) => t.db.asUser(ids.a, (tx) => tx.query("insert into task_results (task_id, seq, outcome, output_text, closed_at, closed_by) values ($1, 0, $2, $3, now(), $4)", [task.id, outcome, text, ids.a]));
+    await expect(insert("success", "  \n ")).rejects.toThrow();
+    await expect(insert("maybe", "Szöveg")).rejects.toThrow();
+    expect((await snap(one)).tasks.find((x) => x.id === task.id)!.outputs).toBeUndefined();
   });
 
   it("idempotencia: ugyanaz a kérés-azonosító nem hoz létre duplikátumot, és ugyanazt az eredményt adja", async () => {
@@ -208,7 +257,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   it("nem létező ügyfél/feladat: kezelt hiba, nincs csonka írás", async () => {
     const before = (await snap(one)).tasks.length;
     expect((await one.op("task.create", { input: { customerId: "nincs", taskType: "email" } })).body.result).toMatchObject({ ok: false });
-    expect((await one.op("task.close", { taskId: "nincs", input: { outputKey: "completed" } })).body.result).toMatchObject({ ok: false });
+    expect((await one.op("task.close", { taskId: "nincs", input: { outcome: "success", output: "x" } })).body.result).toMatchObject({ ok: false });
     expect((await snap(one)).tasks.length).toBe(before);
   });
 
@@ -248,7 +297,7 @@ describe.each(DRIVERS)("tartósság (%s)", (kind) => {
       await c.login("pilot.egy@example.test", PASSWORD_A);
       const cust = (await c.op<{ customer: Customer }>("customer.create", { input: { type: "company", companyName: "Tartós Kft.", contactName: "Szabó Géza", phone: "+36 1 234 5678" } })).body.result.value!.customer;
       const task = (await c.op<Task>("task.create", { input: { customerId: cust.id, taskType: "email", inputKey: "information" } })).body.result.value!;
-      await c.op("task.close", { taskId: task.id, input: { outputKey: "information_sent" } });
+      await c.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Információ elküldve e-mailben." } });
       await c.op("customer.changeStatus", { customerId: cust.id, input: { toStatus: "relationship" } });
       await t.cleanup();
 
@@ -260,7 +309,7 @@ describe.each(DRIVERS)("tartósság (%s)", (kind) => {
       expect(s.customers.map((x) => x.id)).toEqual([cust.id]);
       expect(s.customers[0]).toMatchObject({ companyName: "Tartós Kft.", crmStatus: "relationship", phone: "+36 1 234 5678" });
       expect(s.tasks[0]).toMatchObject({ id: task.id, status: "done", inputKey: "information", crmStatus: "waiting_for_contact" });
-      expect(s.tasks[0].outputs![0]).toMatchObject({ key: "information_sent" });
+      expect(s.tasks[0].outputs![0]).toMatchObject({ outcome: "success", text: "Információ elküldve e-mailben." });
       expect(s.contacts).toHaveLength(1);
       expect(s.activities.length).toBeGreaterThanOrEqual(3);
       await t.cleanup();

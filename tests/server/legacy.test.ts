@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { customerHistory } from "@/domain/history";
 import { inputText, outputText } from "@/domain/logic";
 import { DRIVERS, PASSWORD_A, addPilotUsers, client, makeApi, makeTestDb, type Client, type TestDb } from "./helpers";
 
@@ -25,6 +26,10 @@ describe.each(DRIVERS)("régi adat megőrzése (%s)", (kind) => {
       await tx.query("insert into contactability (id, customer_id, purpose, channel, status, evidence_status) values ('cont-1','cust-1','marketing','email','prohibited','documented_demo')");
       await tx.query("insert into tasks (id, customer_id, title, description, assignee_id, status, created_at, completed_at) values ('task-1','cust-1','Régi szabad szöveges feladat','Régi, szabad szöveges Input',$1,'done',$2,$2)", [userId, T0]);
       await tx.query("insert into task_results (task_id, seq, output_text, closed_at, closed_by) values ('task-1',0,'Régi, szabad szöveges Output',$1,$2)", [T0, userId]);
+      // v0.6-v0.8: legördülős Output-lezárás (kulcs + az „Egyéb” megjegyzése), minősítés nélkül; a naplóbejegyzés a régi formátumú.
+      await tx.query("insert into tasks (id, customer_id, title, task_type, input_key, assignee_id, status, crm_status, created_at, completed_at) values ('task-2','cust-2','Telefonhívás','phone_call','first_contact',$1,'done','contact',$2,$2)", [userId, T0]);
+      await tx.query("insert into task_results (task_id, seq, output_key, output_text, closed_at, closed_by) values ('task-2',0,'not_reached','',$1,$2), ('task-2',1,'other','Levélben válaszolt',$1,$2)", [T0, userId]);
+      await tx.query("insert into activities (id, customer_id, type, occurred_at, summary, recorded_by, meta) values ('act-2','cust-2','task_completed',$1,'Feladat lezárva: Telefonhívás — Nem sikerült elérni',$2,$3::jsonb)", [T0, userId, JSON.stringify({ taskId: "task-2", output: "Nem sikerült elérni" })]);
     });
     c = client(makeApi(t.db));
     await c.login("pilot.egy@example.test", PASSWORD_A);
@@ -51,6 +56,15 @@ describe.each(DRIVERS)("régi adat megőrzése (%s)", (kind) => {
     expect(s.contacts.find((k) => k.id === "kont-1")).toMatchObject({ phone: "+36 1 111 2222", email: "regi@example.test" });
   });
 
+  it("B6: a v0.8-as, legördülős Output-adatok olvashatók; nem kapnak utólag kitalált Sikeres/Sikertelen minősítést", async () => {
+    const s = await snap();
+    const task = s.tasks.find((x) => x.id === "task-2")!;
+    expect(task.outputs!.map((o) => [o.outcome, o.key, outputText(o)])).toEqual([[undefined, "not_reached", "Nem sikerült elérni"], [undefined, "other", "Egyéb — Levélben válaszolt"]]);
+    expect((await raw("select outcome from task_results where task_id = 'task-2' order by seq")).map((r) => r.outcome)).toEqual([null, null]);
+    const h = customerHistory(s, "cust-2", (d) => String(d));
+    expect(h.find((e) => e.id === "act-2")).toMatchObject({ title: "Feladat lezárva", outcome: undefined, details: [{ label: "Feladat", value: "Telefonhívás" }, { label: "Output", value: "Nem sikerült elérni", multiline: true }] });
+  });
+
   it("a cég régi kapcsolattartó-adata látszik és szerkesztés után sem vész el", async () => {
     const r = await c.op("customer.update", { id: "cust-2", input: { type: "company", companyName: "Régi Cég Kft.", contactName: "Régi Béla", phone: "+36 1 111 2222", email: "regi@example.test" } });
     expect(r.body.result.ok).toBe(true);
@@ -71,9 +85,9 @@ describe.each(DRIVERS)("régi adat megőrzése (%s)", (kind) => {
 
   it("a régi feladat újranyitható és újrazárható: a régi Input/Output megmarad, az új lezárás hozzáfűződik", async () => {
     expect((await c.op("task.reopen", { taskId: "task-1" })).body.result.ok).toBe(true);
-    expect((await c.op("task.close", { taskId: "task-1", input: { outputKey: "completed" } })).body.result.ok).toBe(true);
-    const rows = await raw("select seq, output_key, output_text from task_results where task_id = 'task-1' order by seq");
-    expect(rows.map((r) => [Number(r.seq), r.output_key, r.output_text])).toEqual([[0, null, "Régi, szabad szöveges Output"], [1, "completed", ""]]);
+    expect((await c.op("task.close", { taskId: "task-1", input: { outcome: "success", output: "Új, szabad szöveges Output" } })).body.result.ok).toBe(true);
+    const rows = await raw("select seq, outcome, output_key, output_text from task_results where task_id = 'task-1' order by seq");
+    expect(rows.map((r) => [Number(r.seq), r.outcome, r.output_key, r.output_text])).toEqual([[0, null, null, "Régi, szabad szöveges Output"], [1, "success", null, "Új, szabad szöveges Output"]]);
     const task = await raw("select description, task_type, crm_status, input_key from tasks where id = 'task-1'");
     expect(task).toEqual([{ description: "Régi, szabad szöveges Input", task_type: null, crm_status: null, input_key: null }]);
   });
@@ -82,5 +96,6 @@ describe.each(DRIVERS)("régi adat megőrzése (%s)", (kind) => {
     expect(await raw("select status, closure_state, title from processes")).toEqual([{ status: "contact_in_progress", closure_state: "active", title: "Régi folyamat" }]);
     expect(await raw("select status, evidence_status from contactability")).toEqual([{ status: "prohibited", evidence_status: "documented_demo" }]);
     expect(await raw("select summary from activities where id = 'act-1'")).toEqual([{ summary: "Folyamat létrehozva: Régi folyamat" }]);
+    expect(await raw("select summary, meta from activities where id = 'act-2'")).toEqual([{ summary: "Feladat lezárva: Telefonhívás — Nem sikerült elérni", meta: { taskId: "task-2", output: "Nem sikerült elérni" } }]);
   });
 });

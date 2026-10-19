@@ -5,12 +5,14 @@
  * Használat: npm run db -- <parancs>
  *   status | migrate | user:create <email> <név> | user:set-password <email> | user:deactivate <email> | user:activate <email>
  *   backup <fájl> | restore <fájl>
+ *   customer:list-removed | customer:restore <ügyfél-azonosító> <üzemeltető e-mail>   (CRM-006: logikailag eltávolított ügyfél visszaállítása)
  *   runtime-role:provision <szerepkör-név>   (legkisebb jogosultságú futási szerepkör; jelszó: JG_RUNTIME_PASSWORD;
  *       JG_RUNTIME_PASSWORD_MODE=scram (alapértelmezett) | plaintext (Neon: csak tiszta szöveges jelszót fogad el; TLS kötelező))
  * A jelszót a JG_USER_PASSWORD környezeti változó vagy interaktív (rejtett) bekérés adja - parancssori argumentum nem.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { listRemovedCustomers, restoreCustomer } from "../src/server/admin";
 import { exportBackup, restoreBackup, type Backup } from "../src/server/backup";
 import { checkConfig, dbHost, isLocalHost, readConfig, type JgEnv } from "../src/server/config";
 import { checkSchema, LATEST_MIGRATION, migrate } from "../src/server/db/migrate";
@@ -84,6 +86,17 @@ async function main() {
         console.log(`Futási szerepkör kész: ${name}. A DATABASE_URL felhasználóját/jelszavát a futtatási környezetben erre kell cserélni; a migrációs URL külön marad.`);
         break;
       }
+      case "customer:list-removed": {
+        for (const r of await listRemovedCustomers(db)) console.log(`${r.id}\t${r.type}\t${r.deleted_at}\t${r.deleted_by}`);
+        break;
+      }
+      case "customer:restore": {
+        const [customerId, operator] = args;
+        if (!customerId || !operator) throw new Error("Használat: customer:restore <ügyfél-azonosító> <üzemeltető e-mail>");
+        const r = await restoreCustomer(db, customerId, operator);
+        console.log(r.restored ? `Visszaállítva: ${customerId}` : `Nincs ilyen eltávolított ügyfél: ${customerId}`);
+        break;
+      }
       case "backup": {
         const file = args[0];
         if (!file) throw new Error("Használat: backup <fájl>");
@@ -102,7 +115,7 @@ async function main() {
         break;
       }
       default:
-        throw new Error("Ismeretlen parancs. Elérhető: status, migrate, runtime-role:provision, user:create, user:set-password, user:deactivate, user:activate, backup, restore");
+        throw new Error("Ismeretlen parancs. Elérhető: status, migrate, runtime-role:provision, user:create, user:set-password, user:deactivate, user:activate, backup, restore, customer:list-removed, customer:restore");
     }
   } finally {
     await db.close();

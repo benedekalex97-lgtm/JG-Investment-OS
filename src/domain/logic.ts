@@ -1,7 +1,8 @@
-import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, TASK_INPUT_LABELS, TASK_OUTPUT_LABELS } from "./constants";
+import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, RESTRICTION_LABELS, TASK_INPUT_LABELS, TASK_OUTCOME_LABELS, TASK_OUTPUT_LABELS } from "./constants";
 import type {
   Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task, TaskOutput,
 } from "./types";
+import { addDays, dayKey } from "./time";
 import { isActive } from "./workflow";
 
 export function customerName(c: Customer): string {
@@ -47,8 +48,11 @@ export const isDone = (t: Task) => t.status === "done";
 /** A feladat aktuális (legutolsó) Output-ja; a régi, Output nélkül elvégzett feladatnál undefined. */
 export const latestOutput = (t: Task) => t.outputs?.[t.outputs.length - 1];
 
+/** A lezárás minősítésének címkéje (Sikeres / Sikertelen); a régi, minősítés nélküli lezárásnál undefined (nincs kitalált érték). */
+export const outcomeLabel = (o?: Pick<TaskOutput, "outcome">): string | undefined => (o?.outcome ? TASK_OUTCOME_LABELS[o.outcome] : undefined);
+
 /**
- * Megjelenítendő Output-szöveg: a választott érték címkéje (+ az „Egyéb” megjegyzése); a régi, szabad szöveges lezárás
+ * Megjelenítendő Output-szöveg: v0.9-től a beírt szabad szöveg; a régi legördülős lezárásnál a választott érték címkéje (+ az „Egyéb” megjegyzése); a régi, szabad szöveges lezárás
  * változatlanul a rögzített szöveg. A listából később kivezetett kulcs magát a kulcsot mutatja (nincs adatvesztés).
  */
 export function outputText(o: Pick<TaskOutput, "key" | "text">): string {
@@ -80,16 +84,85 @@ export interface CustomerFilter {
 
 const contactMatches = (k: CompanyContact, q: string) => fold(`${k.firstName} ${k.lastName}`).includes(q) || fold(contactName(k)).includes(q);
 
-/** Ügyfélkeresés: név, cégnév ÉS a cég kapcsolati személyének neve alapján is (a céget adja vissza). */
+// ------------------------------------------------------- Normalizálás (CRM-012 / CRM-013 közös)
+/** E-mail összevetéshez: szóközök levágása, kisbetű. */
+export const normalizeEmail = (s: string) => s.trim().toLowerCase();
+
+/**
+ * Telefonszám-kulcs: csak a számjegyek (szóköz, kötőjel, zárójel, perjel, pont és + nélkül). A magyar belföldi „06” és a nemzetközi
+ * „0036” előhívó a „+36”-tal egyenértékű - a „06” csak teljes hosszúságú (10-11 számjegyű) belföldi számnál, hogy rövid vagy más
+ * formátumú számok ne váljanak tévesen azonossá.
+ */
+export function phoneKey(s: string): string {
+  const d = s.replace(/\D/g, "");
+  if (d.startsWith("0036")) return `36${d.slice(4)}`;
+  if (d.startsWith("06") && (d.length === 10 || d.length === 11)) return `36${d.slice(2)}`;
+  return d;
+}
+
+/** Telefonszám-keresésnek számít, ha a kifejezés csak számjegyből és formázó jelből áll, legalább 4 számjeggyel. */
+const phoneQuery = (raw: string): string[] => {
+  if (!/^[\d\s()+/.-]+$/.test(raw)) return [];
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 4) return [];
+  const out = new Set([digits, phoneKey(raw)]);
+  if (digits.startsWith("06")) out.add(`36${digits.slice(2)}`);
+  if (digits.startsWith("0036")) out.add(`36${digits.slice(4)}`);
+  return [...out];
+};
+const phoneHit = (stored: string | undefined, candidates: string[]) => {
+  if (!stored || !candidates.length) return false;
+  const raw = stored.replace(/\D/g, "");
+  const key = phoneKey(stored);
+  return candidates.some((c) => raw.includes(c) || key.includes(c));
+};
+
+export interface SearchMatch { field: "name" | "contact" | "phone" | "email" | "contactPhone" | "contactEmail"; label: string; value: string }
+export interface CustomerHit { customer: Customer; matches: SearchMatch[] }
+
+/**
+ * Egy ügyfél egyezései a keresőkifejezésre (CRM-012): név / cégnév, a cég kapcsolattartójának neve, az ügyfél és a cég kapcsolattartóinak
+ * telefonszáma (formázástól függetlenül) és e-mail-címe (kisbetű-független, részleges is). Üres lista = nincs egyezés.
+ */
+export function customerMatches(snap: DataSnapshot, c: Customer, query: string): SearchMatch[] {
+  const raw = query.trim();
+  const q = fold(raw);
+  if (!q) return [];
+  const phones = phoneQuery(raw);
+  // E-mailre legalább 3 karakteres (vagy @-ot tartalmazó) kifejezés keres, hogy egy-két betű ne adjon zajos találatot.
+  const email = raw.length >= 3 || raw.includes("@") ? normalizeEmail(raw) : "";
+  const emailHit = (v?: string) => Boolean(email && v && normalizeEmail(v).includes(email));
+  const out: SearchMatch[] = [];
+  const name = customerName(c);
+  if (fold(name).includes(q) || (c.type === "individual" && fold(`${c.firstName} ${c.lastName}`).includes(q))) out.push({ field: "name", label: c.type === "company" ? "Cégnév" : "Név", value: name });
+  if (phoneHit(c.phone, phones)) out.push({ field: "phone", label: "Telefonszám", value: c.phone as string });
+  if (emailHit(c.email)) out.push({ field: "email", label: "E-mail", value: c.email as string });
+  if (c.type === "company") {
+    for (const k of snap.contacts.filter((x) => x.companyId === c.id)) {
+      if (contactMatches(k, q)) out.push({ field: "contact", label: "Kapcsolati személy", value: contactName(k) });
+      if (phoneHit(k.phone, phones)) out.push({ field: "contactPhone", label: `Kapcsolattartó telefonszáma (${contactName(k)})`, value: k.phone as string });
+      if (emailHit(k.email)) out.push({ field: "contactEmail", label: `Kapcsolattartó e-mail-címe (${contactName(k)})`, value: k.email as string });
+    }
+  }
+  return out;
+}
+
+/** Globális kereső találatai: ügyfelenként pontosan egy találat, az egyezések okával, név szerint rendezve. */
+export function searchCustomerHits(snap: DataSnapshot, query: string): CustomerHit[] {
+  return snap.customers
+    .map((customer) => ({ customer, matches: customerMatches(snap, customer, query) }))
+    .filter((h) => h.matches.length > 0)
+    .sort((a, b) => customerName(a.customer).localeCompare(customerName(b.customer), "hu"));
+}
+
+/** Ügyfélkeresés (szűrőkkel): név, cégnév, kapcsolati személy, valamint (v0.9) telefonszám és e-mail - az ügyfélé és a cég kapcsolattartóié. */
 export function searchCustomers(snap: DataSnapshot, f: CustomerFilter = {}): Customer[] {
-  const q = fold((f.query ?? "").trim());
+  const query = (f.query ?? "").trim();
   return snap.customers.filter((c) => {
     if (f.type && c.type !== f.type) return false;
     if (f.crmStatus && statusOf(c) !== f.crmStatus) return false;
-    if (!q) return true;
-    if (fold(customerName(c)).includes(q)) return true;
-    if (c.type === "individual" && fold(`${c.firstName} ${c.lastName}`).includes(q)) return true;
-    return c.type === "company" && snap.contacts.some((k) => k.companyId === c.id && contactMatches(k, q));
+    if (!query) return true;
+    return customerMatches(snap, c, query).length > 0;
   });
 }
 
@@ -150,17 +223,45 @@ export function getContactability(
 }
 
 // -------------------------------------------------------------------- Feladatok
-export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-export const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+/** Lejárt: nyitott, a határidő napja (budapesti idő) korábbi a mai napnál. */
+export const isOverdue = (t: Task, now: Date) => isOpenTask(t) && t.dueAt !== undefined && dayKey(t.dueAt) < dayKey(now);
 
-/** Mai feladatok: nyitott, mára esedékes határidejű feladatok (a határidő nélküliek nem). */
+/** Mai feladatok: nyitott, a budapesti mai napra esedékes határidejű feladatok (a határidő nélküliek nem). */
 export function tasksDueToday(snap: DataSnapshot, now: Date): Task[] {
-  const s = startOfDay(now).getTime(), e = endOfDay(now).getTime();
-  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && Date.parse(t.dueAt) >= s && Date.parse(t.dueAt) < e);
+  const today = dayKey(now);
+  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && dayKey(t.dueAt) === today);
 }
 export function overdueTasks(snap: DataSnapshot, now: Date): Task[] {
-  const s = startOfDay(now).getTime();
-  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && Date.parse(t.dueAt) < s);
+  return snap.tasks.filter((t) => isOverdue(t, now));
+}
+
+/** A napi feladatlista (CRM-010) szűrői. */
+export const DAILY_FILTERS = [
+  { key: "overdue", label: "Lejárt" },
+  { key: "today", label: "Ma esedékes" },
+  { key: "next7", label: "Következő 7 nap" },
+  { key: "nodue", label: "Határidő nélkül" },
+] as const;
+export type DailyFilter = (typeof DAILY_FILTERS)[number]["key"];
+
+/**
+ * Napi feladatlista (CRM-010): a nyitott feladatok budapesti nap szerint csoportosítva. `assigneeId` megadásakor csak az adott
+ * munkatárs feladatai (a meglévő `assigneeId` alapján; nincs kitalált hozzárendelés). Lezárt feladat egyik csoportba sem kerül.
+ * Rendezés: lejárt és közelgő - a legkorábbi határidő elöl; mai - határidő szerint; határidő nélkül - felvételi idő, majd azonosító.
+ */
+export function dailyTasks(snap: DataSnapshot, now: Date, assigneeId?: string): Record<DailyFilter, Task[]> {
+  const today = dayKey(now);
+  const week = addDays(today, 7);
+  const open = snap.tasks.filter((t) => isOpenTask(t) && (assigneeId === undefined || t.assigneeId === assigneeId));
+  const byDue = (a: Task, b: Task) => dueTime(a) - dueTime(b) || Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id);
+  const byCreated = (a: Task, b: Task) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id);
+  const key = (t: Task) => dayKey(t.dueAt as string);
+  return {
+    overdue: open.filter((t) => t.dueAt !== undefined && key(t) < today).sort(byDue),
+    today: open.filter((t) => t.dueAt !== undefined && key(t) === today).sort(byDue),
+    next7: open.filter((t) => t.dueAt !== undefined && key(t) > today && key(t) <= week).sort(byDue),
+    nodue: open.filter((t) => t.dueAt === undefined).sort(byCreated),
+  };
 }
 
 const taskOrder = (a: Task, b: Task) =>
@@ -210,4 +311,41 @@ export function crmPipeline(snap: DataSnapshot, f: PipelineFilter = {}): Pipelin
     label: CRM_STATUS_LABELS[status],
     customers: matching.filter((c) => statusOf(c) === status).sort((a, b) => customerName(a).localeCompare(customerName(b), "hu")),
   }));
+}
+
+// ------------------------------------------------------- Gyorsműveletek (CRM-011)
+export interface QuickChannel {
+  /** A megjelenített érték (ügyfél saját adata, cégnél az elsődleges kapcsolattartóé, ha az ügyfélnél nincs). */
+  value?: string;
+  /** Szabványos hivatkozás (tel: / mailto:), csak ha van adat és nincs korlátozás. */
+  href?: string;
+  /** Ha a művelet nem indítható: érthető magyar indok. */
+  blockedReason?: string;
+}
+
+/** tel: hivatkozás: csak a vezető + jel és a számjegyek maradnak (a formázás nem része az URI-nak). */
+export const telHref = (phone: string) => `tel:${phone.trim().startsWith("+") ? "+" : ""}${phone.replace(/\D/g, "")}`;
+/** mailto: hivatkozás: a cím URI-biztosan kódolva (a ?, & és # nem válhat fejléc-paraméterré). */
+export const mailtoHref = (email: string) => `mailto:${encodeURI(email.trim()).replace(/\?/g, "%3F").replace(/&/g, "%26").replace(/#/g, "%23")}`;
+
+/**
+ * A „Hívás” és „E-mail” gyorsművelet állapota. A meglévő szabályokat nem kerüli meg: rögzített tiltakozás/korlátozás mellett kimenő
+ * megkeresés nem indítható, és a csatornára rögzített „Tiltott” megkereshetőség (bármely célra) is blokkol. A hivatkozás csak a külső
+ * alkalmazást nyitja meg; a CRM ebből nem naplóz kapcsolatfelvételt.
+ */
+export function quickActions(snap: DataSnapshot, c: Customer): { call: QuickChannel; email: QuickChannel } {
+  const primary = c.type === "company" ? primaryContactOf(snap, c.id) : undefined;
+  const restriction = c.restriction ? `${RESTRICTION_LABELS[c.restriction.kind]} van rögzítve: kimenő megkeresés nem indítható.` : undefined;
+  const prohibited = (channel: ContactChannel) =>
+    snap.contactability.some((r) => r.channel === channel && r.status === "prohibited" && (r.customerId === c.id || (primary && r.companyContactId === primary.id)));
+  const build = (value: string | undefined, channel: ContactChannel, missing: string, href: (v: string) => string): QuickChannel => {
+    if (!value) return { blockedReason: missing };
+    if (restriction) return { value, blockedReason: restriction };
+    if (prohibited(channel)) return { value, blockedReason: `A(z) ${channel === "phone" ? "telefonos" : "e-mailes"} megkeresés tiltottként van rögzítve.` };
+    return { value, href: href(value) };
+  };
+  return {
+    call: build(c.phone ?? primary?.phone, "phone", "Nincs megadva telefonszám.", telHref),
+    email: build(c.email ?? primary?.email, "email", "Nincs megadva e-mail-cím.", mailtoHref),
+  };
 }

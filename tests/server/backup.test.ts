@@ -17,9 +17,9 @@ describe.each(DRIVERS)("mentés és visszaállítás (%s)", (kind) => {
     await c.login("pilot.egy@example.test", PASSWORD_A);
     const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", companyName: "Mentett Kft.", contactName: "Mentő Márta", phone: "+36 1 999 8888" } })).body.result.value!.customer;
     const task = (await c.op<{ id: string }>("task.create", { input: { customerId: cust.id, taskType: "email", inputKey: "other", inputNote: "Fiktív megjegyzés" } })).body.result.value!;
-    await c.op("task.close", { taskId: task.id, input: { outputKey: "other", outputNote: "Fiktív eredmény" } });
+    await c.op("task.close", { taskId: task.id, input: { outcome: "failure", output: "Fiktív eredmény\nmásodik sor" } });
     await c.op("task.reopen", { taskId: task.id });
-    await c.op("task.close", { taskId: task.id, input: { outputKey: "completed" } });
+    await c.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Fiktív második lezárás" } });
     await c.op("customer.changeStatus", { customerId: cust.id, input: { toStatus: "meeting" } });
     await src.db.system((tx) => tx.query("insert into customer_restrictions (customer_id, kind, note, recorded_at, recorded_by) select $1, 'restriction', 'fiktív korlátozás', now(), id from users limit 1", [cust.id]));
     dst = await makeTestDb(kind);
@@ -45,7 +45,7 @@ describe.each(DRIVERS)("mentés és visszaállítás (%s)", (kind) => {
     const s = ((await (await c.get("/api/crm/snapshot")).json()) as { snapshot: import("@/domain/types").DataSnapshot }).snapshot;
     expect(s.customers[0]).toMatchObject({ companyName: "Mentett Kft.", crmStatus: "meeting" });
     expect(s.customers[0].restriction).toMatchObject({ kind: "restriction", note: "fiktív korlátozás" });
-    expect(s.tasks[0].outputs!.map((o) => [o.key, o.text])).toEqual([["other", "Fiktív eredmény"], ["completed", ""]]);
+    expect(s.tasks[0].outputs!.map((o) => [o.outcome, o.key, o.text])).toEqual([["failure", undefined, "Fiktív eredmény\nmásodik sor"], ["success", undefined, "Fiktív második lezárás"]]);
     expect((await c.op("customer.create", { input: { type: "individual", name: "Visszaállítás utáni" } })).body.result.ok).toBe(true);
     const [{ id }] = await dst.db.system((tx) => tx.query<{ id: string }>("select id::text as id from audit_events order by id desc limit 1"));
     expect(Number(id)).toBeGreaterThan(b.counts.audit_events);
@@ -67,6 +67,18 @@ describe.each(DRIVERS)("mentés és visszaállítás (%s)", (kind) => {
     await expect(restoreBackup(empty.db, broken, "local")).rejects.toThrow();
     const [{ n }] = await empty.db.system((tx) => tx.query<{ n: string }>("select (select count(*) from users) + (select count(*) from customers) as n"));
     expect(Number(n)).toBe(0);
+    await empty.cleanup();
+  });
+
+  it("v0.8-as (0002_google_auth) mentés visszaállítható a v0.9 sémába: a régi lezárások minősítés nélkül (NULL) maradnak", async () => {
+    const b = JSON.parse(JSON.stringify(await exportBackup(src.db, "local")));
+    b.migration = "0002_google_auth";
+    for (const row of b.tables.task_results) { delete row.outcome; row.output_key = "completed"; }
+    const empty = await makeTestDb(kind);
+    await restoreBackup(empty.db, b, "local");
+    const rows = await empty.db.system((tx) => tx.query<{ outcome: string | null; output_key: string }>("select outcome, output_key from task_results order by task_id, seq"));
+    expect(rows).toEqual(b.tables.task_results.map(() => ({ outcome: null, output_key: "completed" })));
+    await expect(restoreBackup(empty.db, { ...b, migration: "0001_init" }, "local")).rejects.toThrow(/sémaverzió/);
     await empty.cleanup();
   });
 

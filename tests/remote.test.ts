@@ -20,16 +20,16 @@ const okBody = (value: unknown) => new Response(JSON.stringify({ result: { ok: t
 describe("kliensoldali repository", () => {
   it("sikeres írás: frissített snapshotot ad át, az eredményt visszaadja; nem küld rögzítőt", async () => {
     const { repo, calls, hooks } = mk([okBody({ id: "t1" })]);
-    const r = await repo.closeTask("t1", { outputKey: "completed" });
+    const r = await repo.closeTask("t1", { outcome: "success", output: "Megbeszéltük." });
     expect(r).toEqual({ ok: true, value: { id: "t1" } });
     expect(hooks.onSnapshot).toHaveBeenCalledTimes(1);
-    expect(calls[0]).toMatchObject({ op: "task.close", args: { taskId: "t1", input: { outputKey: "completed" } } });
+    expect(calls[0]).toMatchObject({ op: "task.close", args: { taskId: "t1", input: { outcome: "success", output: "Megbeszéltük." } } });
     expect(JSON.stringify(calls[0])).not.toMatch(/recordedBy|assigneeId/);
   });
   it("érvényesítési hiba (ok:false) a szervertől változatlanul megérkezik, a kérés-azonosító új lesz", async () => {
-    const bad = new Response(JSON.stringify({ result: { ok: false, errors: { outputKey: "Az Output kiválasztása kötelező" } }, snapshot: emptySnapshot(), replayed: false }), { status: 200 });
+    const bad = new Response(JSON.stringify({ result: { ok: false, errors: { output: "A feladat lezárásához az Output kitöltése kötelező." } }, snapshot: emptySnapshot(), replayed: false }), { status: 200 });
     const { repo, calls } = mk([bad, okBody({})]);
-    expect(await repo.closeTask("t1", {})).toEqual({ ok: false, errors: { outputKey: "Az Output kiválasztása kötelező" } });
+    expect(await repo.closeTask("t1", {})).toEqual({ ok: false, errors: { output: "A feladat lezárásához az Output kitöltése kötelező." } });
     await repo.closeTask("t1", {});
     expect(calls[0].requestId).not.toBe(calls[1].requestId);
   });

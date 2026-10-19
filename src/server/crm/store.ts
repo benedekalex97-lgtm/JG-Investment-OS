@@ -5,21 +5,27 @@ import {
   processFromRow, processToRow, resultToRow, taskFromRow, taskToRow, type Row,
 } from "./rows";
 
-/** A teljes snapshot (customerId nélkül) vagy egyetlen ügyfél szelete. Mindig a hívó (RLS-es) tranzakciójában fut. */
+/** Az aktív (nem logikailag törölt) ügyfelek azonosítói - minden snapshot-lekérdezés ehhez szűr (CRM-006). */
+const ACTIVE = "(select id from customers where deleted_at is null)";
+
+/**
+ * A teljes snapshot (customerId nélkül) vagy egyetlen ügyfél szelete. Mindig a hívó (RLS-es) tranzakciójában fut. A logikailag törölt
+ * ügyfél és minden hozzá tartozó adat kimarad (a táblákban megmarad): az aktív felületek, a kereső és a műveletek nem látják.
+ */
 export async function loadSnapshot(tx: Tx, customerId?: string): Promise<DataSnapshot> {
   const all = customerId === undefined;
   const p: unknown[] = all ? [] : [customerId];
-  const where = (col: string) => (all ? "" : `where ${col} = $1`);
+  const one = (col: string) => (all ? "" : ` and ${col} = $1`);
   // Sorban futtatjuk (egy tranzakció egy kapcsolaton); a szelet kicsi, a teljes snapshot a pilot méretében is gyors.
-  const customers = await tx.query<Row>(`select * from customers ${where("id")} order by created_at desc, id desc`, p);
-  const restrictions = await tx.query<Row>(`select * from customer_restrictions ${where("customer_id")}`, p);
-  const contacts = await tx.query<Row>(`select * from company_contacts ${where("company_id")} order by created_at, id`, p);
-  const processes = await tx.query<Row>(`select * from processes ${where("customer_id")} order by created_at desc, id desc`, p);
-  const activities = await tx.query<Row>(`select * from activities ${where("customer_id")} order by occurred_at desc, id desc`, p);
-  const tasks = await tx.query<Row>(`select * from tasks ${where("customer_id")} order by created_at desc, id desc`, p);
-  const results = await tx.query<Row>(`select * from task_results ${all ? "" : "where task_id in (select id from tasks where customer_id = $1)"} order by task_id, seq`, p);
+  const customers = await tx.query<Row>(`select * from customers where deleted_at is null${one("id")} order by created_at desc, id desc`, p);
+  const restrictions = await tx.query<Row>(`select * from customer_restrictions where customer_id in ${ACTIVE}${one("customer_id")}`, p);
+  const contacts = await tx.query<Row>(`select * from company_contacts where company_id in ${ACTIVE}${one("company_id")} order by created_at, id`, p);
+  const processes = await tx.query<Row>(`select * from processes where customer_id in ${ACTIVE}${one("customer_id")} order by created_at desc, id desc`, p);
+  const activities = await tx.query<Row>(`select * from activities where customer_id in ${ACTIVE}${one("customer_id")} order by occurred_at desc, id desc`, p);
+  const tasks = await tx.query<Row>(`select * from tasks where customer_id in ${ACTIVE}${one("customer_id")} order by created_at desc, id desc`, p);
+  const results = await tx.query<Row>(`select * from task_results where task_id in (select id from tasks where customer_id in ${ACTIVE}${one("customer_id")}) order by task_id, seq`, p);
   const contactability = await tx.query<Row>(
-    `select * from contactability ${all ? "" : "where customer_id = $1 or company_contact_id in (select id from company_contacts where company_id = $1)"} order by id`, p,
+    `select * from contactability where (customer_id in ${ACTIVE}${one("customer_id")}) or company_contact_id in (select id from company_contacts where company_id in ${ACTIVE}${one("company_id")}) order by id`, p,
   );
   const restrictionOf = new Map(restrictions.map((r) => [String(r.customer_id), r]));
   const resultsOf = new Map<string, Row[]>();
