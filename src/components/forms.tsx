@@ -6,7 +6,8 @@ import {
   CRM_STATUS_LABELS, NOTE_OPTION_KEY, TASK_INPUT_OPTIONS, TASK_NOTE_MAX, TASK_TYPES, VERIFICATION_COMPLIANCE_WARNING,
   VERIFICATION_SOURCES, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import type { Customer } from "@/domain/types";
+import { customerName, statusOf } from "@/domain/logic";
+import type { Customer, Task } from "@/domain/types";
 import { fromDateInputValue } from "@/lib/format";
 import { Modal } from "./ui/modal";
 import { SelectInput, TextArea, TextInput } from "./ui/form";
@@ -14,13 +15,13 @@ import { Button } from "./ui/primitives";
 
 type Errors = Record<string, string>;
 
-function FormShell({ onSubmit, errors, children, submitLabel, onCancel, busy = false }: { onSubmit: (e: FormEvent) => void; errors: Errors; children: ReactNode; submitLabel: string; onCancel: () => void; busy?: boolean }) {
+function FormShell({ onSubmit, errors, children, submitLabel, onCancel, cancelLabel = "Mégse", busy = false }: { onSubmit: (e: FormEvent) => void; errors: Errors; children: ReactNode; submitLabel: string; onCancel: () => void; cancelLabel?: string; busy?: boolean }) {
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-4">
       {errors._form ? <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{errors._form}</p> : null}
       {children}
       <div className="flex flex-wrap justify-end gap-2 pt-2">
-        <Button variant="secondary" onClick={onCancel} disabled={busy}>Mégse</Button>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
         <Button type="submit" disabled={busy} aria-busy={busy}>{submitLabel}</Button>
       </div>
     </form>
@@ -89,15 +90,22 @@ const counter = (text: string, max: number) => `${text.length} / ${max} karakter
  * legördülő lista (központi lista: TASK_INPUT_OPTIONS, opcionális), a határidő opcionális. A feladat automatikusan az ügyfél
  * aktuális státuszához kapcsolódik.
  */
-export function NewTaskModal({ open, onClose, customerId, statusLabel }: { open: boolean; onClose: () => void; customerId: string; statusLabel: string }) {
+export function NewTaskModal({ open, onClose, customerId }: { open: boolean; onClose: () => void; customerId: string }) {
   return (
     <Modal open={open} onClose={onClose} title="Új feladat">
-      <NewTaskForm onClose={onClose} customerId={customerId} statusLabel={statusLabel} />
+      <NewTaskForm customerId={customerId} onCancel={onClose} onCreated={onClose} />
     </Modal>
   );
 }
-function NewTaskForm({ onClose, customerId, statusLabel }: { onClose: () => void; customerId: string; statusLabel: string }) {
-  const { repo } = useCrmData();
+
+/**
+ * Az egyetlen feladatfelviteli űrlap (v0.9): az ügyféladatlap „Új feladat” gombja és a lezárás utáni „következő feladat” lépés
+ * (CRM-009) is ezt használja. Az ügyfél és a felelős csak olvasható: az ügyfél a hívó által megadott, a felelőst a szerver a
+ * munkamenetből állítja be (a bejelentkezett munkatárs). Sikertelen mentésnél a beírt adatok és a hibaüzenet megmaradnak.
+ */
+export function NewTaskForm({ customerId, onCancel, onCreated, cancelLabel = "Mégse" }: { customerId: string; onCancel: () => void; onCreated: (task: Task) => void; cancelLabel?: string }) {
+  const { repo, data, user } = useCrmData();
+  const customer = data?.customers.find((c) => c.id === customerId);
   const [taskType, setTaskType] = useState("");
   const [inputKey, setInputKey] = useState("");
   const [inputNote, setInputNote] = useState("");
@@ -110,18 +118,26 @@ function NewTaskForm({ onClose, customerId, statusLabel }: { onClose: () => void
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
-    const r = await repo.createTask({
-      customerId, taskType: taskType || undefined, inputKey: inputKey || undefined,
-      inputNote: inputKey === NOTE_OPTION_KEY && inputNote.trim() ? inputNote : undefined, dueAt: fromDateInputValue(due) || undefined,
-    });
-    lock.current = false;
-    setBusy(false);
-    if (!r.ok) return setErrors(r.errors);
-    onClose();
+    setErrors({});
+    try {
+      const r = await repo.createTask({
+        customerId, taskType: taskType || undefined, inputKey: inputKey || undefined,
+        inputNote: inputKey === NOTE_OPTION_KEY && inputNote.trim() ? inputNote : undefined, dueAt: fromDateInputValue(due) || undefined,
+      });
+      if (!r.ok) return setErrors(r.errors);
+      onCreated(r.value);
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
   };
   return (
-    <FormShell onSubmit={submit} errors={errors} submitLabel="Feladat létrehozása" onCancel={onClose} busy={busy}>
-      <p className="text-[13px] text-ink-muted">Az új feladat a(z) „{statusLabel}” státuszhoz kapcsolódik.</p>
+    <FormShell onSubmit={submit} errors={errors} submitLabel="Feladat létrehozása" onCancel={onCancel} cancelLabel={cancelLabel} busy={busy}>
+      <dl className="grid gap-2 rounded-md bg-canvas p-3 text-sm sm:grid-cols-2">
+        <div className="min-w-0"><dt className="text-xs font-medium text-ink-muted">Ügyfél</dt><dd className="break-words font-medium">{customer ? customerName(customer) : "—"}</dd></div>
+        <div className="min-w-0"><dt className="text-xs font-medium text-ink-muted">Felelős</dt><dd className="break-words">{user?.name ?? "—"} (bejelentkezett munkatárs)</dd></div>
+      </dl>
+      {customer ? <p className="text-[13px] text-ink-muted">Az új feladat a(z) „{CRM_STATUS_LABELS[statusOf(customer)]}” státuszhoz kapcsolódik.</p> : null}
       <SelectInput label="Feladat típusa" required value={taskType} error={errors.taskType} onChange={(e) => setTaskType(e.target.value)} autoFocus>
         <option value="">— válassz —</option>
         {TASK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}

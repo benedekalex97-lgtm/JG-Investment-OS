@@ -110,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {legacy.items.length ? <LegacyNotice /> : null}
 
-        <main id="main" className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+        <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 focus:outline-none sm:px-6">
           <Gate>{children}</Gate>
         </main>
       </div>

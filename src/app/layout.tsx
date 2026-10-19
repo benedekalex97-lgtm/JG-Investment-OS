@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { TaskModalProvider } from "@/components/tasks";
 import { CrmDataProvider } from "@/data/store";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "JG Investment OS — v0.6",
+  title: "JG Investment OS — v0.9",
   description: "Belső CRM pilot. Bejelentkezés szükséges.",
   robots: { index: false, follow: false },
 };
@@ -16,7 +17,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="hu">
       <body className="min-h-screen bg-canvas antialiased">
         <CrmDataProvider>
-          <AppShell>{children}</AppShell>
+          <TaskModalProvider>
+            <AppShell>{children}</AppShell>
+          </TaskModalProvider>
         </CrmDataProvider>
       </body>
     </html>

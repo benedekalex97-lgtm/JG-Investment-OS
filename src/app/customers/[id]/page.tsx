@@ -2,7 +2,8 @@
 
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { DataGate, TaskRow } from "@/components/common";
+import { DataGate } from "@/components/common";
+import { TaskRow } from "@/components/tasks";
 import { NewTaskModal } from "@/components/forms";
 import { CustomerHistory } from "@/components/customer-history";
 import { CustomerNotes } from "@/components/customer-notes";
@@ -62,7 +63,7 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
         <CustomerHistory data={data} customer={customer} />
         <CustomerNotes data={data} customer={customer} />
       </div>
-      <NewTaskModal open={newTask} onClose={() => setNewTask(false)} customerId={customer.id} statusLabel={CRM_STATUS_LABELS[status]} />
+      <NewTaskModal open={newTask} onClose={() => setNewTask(false)} customerId={customer.id} />
     </div>
   );
 }
