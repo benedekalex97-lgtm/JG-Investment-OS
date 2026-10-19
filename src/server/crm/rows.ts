@@ -94,7 +94,11 @@ export const activityToRow = (a: Activity): Row => ({
 export function taskFromRow(r: Row, results: Row[] = []): Task {
   const outputs: TaskOutput[] = [...results]
     .sort((a, b) => Number(a.seq) - Number(b.seq))
-    .map((o) => ({ ...(str(o.output_key) !== undefined ? { key: o.output_key as TaskOutput["key"] } : {}), text: strict(o.output_text), closedAt: iso(o.closed_at), closedBy: strict(o.closed_by) }));
+    .map((o) => ({
+      ...(str(o.outcome) !== undefined ? { outcome: o.outcome as TaskOutput["outcome"] } : {}),
+      ...(str(o.output_key) !== undefined ? { key: o.output_key as TaskOutput["key"] } : {}),
+      text: strict(o.output_text), closedAt: iso(o.closed_at), closedBy: strict(o.closed_by),
+    }));
   return {
     id: strict(r.id), customerId: strict(r.customer_id),
     ...(str(r.process_id) !== undefined ? { processId: str(r.process_id) } : {}),
@@ -120,7 +124,7 @@ export const taskToRow = (t: Task): Row => ({
   completed_at: t.completedAt ?? null,
 });
 export const resultToRow = (taskId: string, seq: number, o: TaskOutput): Row => ({
-  task_id: taskId, seq, output_key: o.key ?? null, output_text: o.text, closed_at: o.closedAt, closed_by: o.closedBy,
+  task_id: taskId, seq, outcome: o.outcome ?? null, output_key: o.key ?? null, output_text: o.text, closed_at: o.closedAt, closed_by: o.closedBy,
 });
 
 export const contactabilityFromRow = (r: Row): Contactability => ({

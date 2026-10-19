@@ -143,7 +143,7 @@ export const TASK_TYPES = [
 ] as const;
 export const TASK_TYPE_KEYS = TASK_TYPES.map((t) => t.key) as unknown as readonly (typeof TASK_TYPES)[number]["key"][];
 export const TASK_TYPE_LABELS = Object.fromEntries(TASK_TYPES.map((t) => [t.key, t.label])) as Record<(typeof TASK_TYPES)[number]["key"], string>;
-/** Karakterhossz-korlát a régi, szabad szöveges Input (leírás) és Output (eredmény) értékekre (megőrzött adat). */
+/** Karakterhossz-korlát a szabad szöveges Input (régi leírás) és Output (v0.9-től a lezárás kötelező szövege) értékekre. */
 export const TASK_TEXT_MAX = 2000;
 /** Rövid megjegyzés korlátja az „Egyéb” Input/Output értékhez (v0.6). */
 export const TASK_NOTE_MAX = 500;
@@ -166,7 +166,10 @@ export const TASK_INPUT_OPTIONS = [
 export const TASK_INPUT_KEYS = TASK_INPUT_OPTIONS.map((o) => o.key) as unknown as readonly (typeof TASK_INPUT_OPTIONS)[number]["key"][];
 export const TASK_INPUT_LABELS = Object.fromEntries(TASK_INPUT_OPTIONS.map((o) => [o.key, o.label])) as Record<(typeof TASK_INPUT_OPTIONS)[number]["key"], string>;
 
-/** Feladat Output-opciók (v0.6): a lezáráskor kötelezően választandó eredmény. Ugyanazok a szabályok, mint az Input-listánál. */
+/**
+ * Feladat Output-opciók (v0.6-v0.8): a régi, legördülős lezárás értékei. v0.9-től új lezárás nem használja (az Output szabad szöveg),
+ * de a lista megmarad, hogy a korábban rögzített kulcsok változatlanul, olvasható címkével jelenjenek meg.
+ */
 export const TASK_OUTPUT_OPTIONS = [
   { key: "completed", label: "Feladat elvégezve" },
   { key: "not_reached", label: "Nem sikerült elérni" },
@@ -182,6 +185,15 @@ export const TASK_OUTPUT_KEYS = TASK_OUTPUT_OPTIONS.map((o) => o.key) as unknown
 export const TASK_OUTPUT_LABELS = Object.fromEntries(TASK_OUTPUT_OPTIONS.map((o) => [o.key, o.label])) as Record<(typeof TASK_OUTPUT_OPTIONS)[number]["key"], string>;
 /** Az „Egyéb” érték technikai kulcsa: csak ennél adható rövid megjegyzés. */
 export const NOTE_OPTION_KEY = "other" as const;
+
+/**
+ * Feladat lezárásának eredménye (v0.9): a két lezáró gomb (Sikeres / Sikertelen). Külön tárolódik a szabad szöveges Outputtól,
+ * és független az ügyfél kapcsolati (Pipeline) státuszától. A régi (v0.6-v0.8) lezárásoknak nincs ilyen minősítése, és utólag sem kapnak.
+ */
+export const TASK_OUTCOMES = ["success", "failure"] as const;
+export const TASK_OUTCOME_LABELS = { success: "Sikeres", failure: "Sikertelen" } as const;
+/** A kötelező, szabad szöveges Output hibaüzenete (kliens és szerver ugyanazt mutatja). */
+export const TASK_OUTPUT_REQUIRED = "A feladat lezárásához az Output kitöltése kötelező.";
 
 export const TASK_STATUSES = ["open", "in_progress", "done"] as const;
 export const TASK_STATUS_LABELS = { open: "Nyitott", in_progress: "Folyamatban", done: "Elvégzett" } as const;

@@ -64,3 +64,34 @@ describe.each(DRIVERS)("migrációfuttató (%s)", (kind) => {
     expect(Number(n)).toBe(1);
   });
 });
+
+/** 0003 (v0.9): a v0.8 sémán (0001+0002) meglévő adat mellett fut; a régi Output-adat változatlan, minősítést nem kap. */
+describe.each(DRIVERS)("0003_task_outcome: v0.8 adatbázis frissítése (%s)", (kind) => {
+  let t: TestDb;
+  beforeAll(async () => {
+    t = await makeTestDb(kind, { migrate: false });
+    await migrate(t.db, { env: "local", migrations: MIGRATIONS.slice(0, 2) });
+  });
+  afterAll(async () => { await t.cleanup(); });
+
+  it("v0.8 adatokkal migrál, a régi sorok megmaradnak, outcome = NULL; új minősített lezárás írható; idempotens", async () => {
+    const T0 = "2026-05-01T08:00:00.000Z";
+    await t.db.system(async (tx) => {
+      await tx.query("insert into users (id, email, name, password_hash) values ('u-1', 'v08@example.test', 'V08', 'x')");
+      await tx.query("insert into customers (id, type, display_name, first_name, last_name, owner_id, created_at, updated_at) values ('c-1','individual','Régi Rita','Rita','Régi','u-1',$1,$1)", [T0]);
+      await tx.query("insert into tasks (id, customer_id, title, assignee_id, status, created_at, completed_at) values ('t-1','c-1','Telefonhívás','u-1','done',$1,$1)", [T0]);
+      await tx.query("insert into task_results (task_id, seq, output_key, output_text, closed_at, closed_by) values ('t-1',0,'not_reached','',$1,'u-1'), ('t-1',1,null,'Régi szabad szöveg',$1,'u-1')", [T0]);
+    });
+    const before = await t.db.system((tx) => tx.query("select task_id, seq, output_key, output_text, closed_at, closed_by from task_results order by seq"));
+    const r = await migrate(t.db, { env: "local" });
+    expect(r.applied).toEqual(["0003_task_outcome"]);
+    expect(await checkSchema(t.db, "local")).toEqual({ ok: true });
+    const after = await t.db.system((tx) => tx.query<Record<string, unknown>>("select task_id, seq, output_key, output_text, closed_at, closed_by, outcome from task_results order by seq"));
+    expect(after.map(({ outcome, ...rest }) => { expect(outcome).toBeNull(); return rest; })).toEqual(before);
+    await t.db.system((tx) => tx.query("insert into task_results (task_id, seq, outcome, output_text, closed_at, closed_by) values ('t-1',2,'success','Új lezárás',now(),'u-1')"));
+    await expect(t.db.system((tx) => tx.query("insert into task_results (task_id, seq, outcome, output_text, closed_at, closed_by) values ('t-1',3,'failure',' ',now(),'u-1')"))).rejects.toThrow();
+    // v0.8 írási minta (outcome nélkül, üres szöveggel) továbbra is elfogadott - a visszaállás (rollback) nem törik el.
+    await t.db.system((tx) => tx.query("insert into task_results (task_id, seq, output_key, output_text, closed_at, closed_by) values ('t-1',3,'completed','',now(),'u-1')"));
+    expect((await migrate(t.db, { env: "local" })).applied).toEqual([]);
+  });
+});
