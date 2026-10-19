@@ -12,6 +12,7 @@ describe.each(DRIVERS)("mentés és visszaállítás (%s)", (kind) => {
   beforeAll(async () => {
     src = await makeTestDb(kind);
     await addPilotUsers(src.db);
+    await src.db.system((tx) => tx.query("insert into oauth_identities (issuer, subject, user_id) select 'https://accounts.google.com', 'fictitious-backup-subject', id from users where email = 'pilot.egy@example.test'"));
     const c = client(makeApi(src.db));
     await c.login("pilot.egy@example.test", PASSWORD_A);
     const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", companyName: "Mentett Kft.", contactName: "Mentő Márta", phone: "+36 1 999 8888" } })).body.result.value!.customer;
@@ -28,7 +29,7 @@ describe.each(DRIVERS)("mentés és visszaállítás (%s)", (kind) => {
   it("a mentés minden táblát tartalmaz; a munkamenetek és belépési kísérletek nem része", async () => {
     const b = await exportBackup(src.db, "local");
     expect(Object.keys(b.tables).sort()).toEqual([...BACKUP_TABLES].sort());
-    expect(b.counts).toMatchObject({ users: 2, customers: 1, company_contacts: 1, tasks: 1, task_results: 2, customer_restrictions: 1 });
+    expect(b.counts).toMatchObject({ users: 2, oauth_identities: 1, customers: 1, company_contacts: 1, tasks: 1, task_results: 2, customer_restrictions: 1 });
     expect(b.counts.audit_events).toBeGreaterThanOrEqual(6);
     expect(JSON.stringify(b)).not.toContain("token_hash");
   });

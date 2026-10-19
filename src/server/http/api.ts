@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { ENV_LABELS } from "../config";
+import { authMode, publicAuthSettings } from "../auth/mode";
+import { handleGoogle } from "../auth/google";
 import { clearCookie, clientIp, isSecure, listUsers, login, logout, sessionCookie, userFromRequest, type AuthUser } from "../auth/service";
 import type { Runtime } from "../db";
 import { executeOp, isOpName } from "../crm/ops";
@@ -61,12 +63,14 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
       // Állapot-végpont (személyes adat nélkül): csak működő adatbázisnál 200, különben 503 - hibás DB esetén a rendszer nem jelentkezik késznek.
       if (path === "status") {
         if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
-        return rt.state === "ok" ? json({ state: "ok", environment: rt.env, environmentLabel: ENV_LABELS[rt.env] }) : json({ state: rt.state }, 503);
+        return rt.state === "ok" ? json({ state: publicAuthSettings().configured ? "ok" : "auth_not_configured", environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings() }, publicAuthSettings().configured ? 200 : 503) : json({ state: rt.state }, 503);
       }
       if (rt.state !== "ok") return json({ state: rt.state }, 503);
       const { db } = rt;
+      if (path === "auth/google" || path === "auth/google/callback") return handleGoogle(req, db);
 
       if (path === "auth/login") {
+        if (authMode() === "google") return json({ error: "google_sign_in_required" }, 403);
         if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
         const bad = csrfProblem(req);
         if (bad) return json({ error: bad }, 403);
@@ -74,7 +78,7 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
         if (!body.success) return json({ error: "bad_request" }, 400);
         const res = await login(db, body.data.email, body.data.password, clientIp(req));
         if (!res.ok) return json({ error: res.status === 429 ? "too_many_attempts" : "invalid_credentials" }, res.status, res.status === 429 ? { "Retry-After": "900" } : {});
-        return json({ state: "ok", user: res.user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env] }, 200, { "Set-Cookie": sessionCookie(res.token, isSecure(req)) });
+        return json({ state: "ok", user: res.user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings() }, 200, { "Set-Cookie": sessionCookie(res.token, isSecure(req)) });
       }
 
       if (path === "auth/logout") {
@@ -89,7 +93,7 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
       const user: AuthUser | null = await userFromRequest(db, req);
       if (!user) return json({ state: "unauthenticated" }, 401);
 
-      if (path === "auth/me") return req.method === "GET" ? json({ state: "ok", user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env] }) : json({ error: "method_not_allowed" }, 405);
+      if (path === "auth/me") return req.method === "GET" ? json({ state: "ok", user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings() }) : json({ error: "method_not_allowed" }, 405);
 
       if (path === "crm/snapshot") {
         if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);

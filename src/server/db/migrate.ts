@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JgEnv } from "../config";
 import { migration0001 } from "./migrations/0001_init";
+import { migration0002 } from "./migrations/0002_google_auth";
 import type { Db } from "./types";
 
 export interface Migration {
@@ -10,7 +11,7 @@ export interface Migration {
 }
 
 /** Verziózott migrációk időrendben. Új migráció csak a lista végére kerülhet; alkalmazott migráció nem módosítható (ellenőrzőösszeg). */
-export const MIGRATIONS: readonly Migration[] = [migration0001];
+export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1].id;
 
 export const checksum = (m: Migration) => createHash("sha256").update(m.sql).digest("hex");
@@ -94,3 +95,4 @@ export async function checkSchema(db: Db, env: JgEnv): Promise<SchemaState> {
     return { ok: true } as const;
   });
 }
+

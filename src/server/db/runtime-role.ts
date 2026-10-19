@@ -103,13 +103,16 @@ export async function provisionRuntimeRole(db: Db, o: RuntimeRoleOptions): Promi
     await tx.exec(`grant update (last_login_at) on users to ${role}`);
     await tx.exec(`grant select, insert, update, delete on sessions to ${role}`);
     await tx.exec(`grant select, insert, delete on login_attempts to ${role}`);
+    await tx.exec(`grant select, insert on oauth_identities to ${role}`);
+    await tx.exec(`grant select, insert, delete on oauth_flows to ${role}`);
     await tx.exec(`grant usage, select on sequence login_attempts_id_seq to ${role}`);
     await tx.exec(`grant select on meta, schema_migrations to ${role}`);
     // A hitelesítési táblák RLS-e alapból "mindent tilt"; a futási szerepkörnek kifejezett szabály kell (csak ezekre a táblákra).
-    for (const t of ["users", "sessions", "login_attempts", "meta"]) {
+    for (const t of ["users", "sessions", "login_attempts", "meta", "oauth_identities", "oauth_flows"]) {
       const policy = ident(`rt_${o.name}`);
       await tx.exec(`drop policy if exists ${policy} on ${t}`);
       await tx.exec(`create policy ${policy} on ${t} for all to ${role} using (true) with check (true)`);
     }
   });
 }
+

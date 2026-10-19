@@ -45,7 +45,7 @@ function Brand() {
   return (
     <Link href="/" className="block rounded-md px-3 py-1 text-on-carbon">
       <span className="block text-[15px] font-semibold tracking-tight">JG Investment OS</span>
-      <span className="block text-xs text-on-carbon-muted">v0.6 · pilot</span>
+      <span className="block text-xs text-on-carbon-muted">v0.8</span>
     </Link>
   );
 }
@@ -69,7 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Brand />
             {ready ? <nav aria-label="Fő navigáció"><NavLinks path={path} orientation="vertical" /></nav> : null}
           </div>
-          <p className="px-3 text-xs leading-relaxed text-on-carbon-muted">Belső pilot. Valós ügyféladat rögzítése csak külön jóváhagyás után, éles környezetben történhet.</p>
+          <p className="px-3 text-xs leading-relaxed text-on-carbon-muted">Belső ügyfélkapcsolati rendszer.</p>
         </div>
       </aside>
 
@@ -123,6 +123,7 @@ function Gate({ children }: { children: ReactNode }) {
 }
 
 const PROBLEMS: Record<string, { title: string; body: string }> = {
+  auth_not_configured: { title: "A Google-belépés beállítása hiányzik", body: "A Google OAuth-kapcsolat még nincs beállítva. Az ügyféladatokhoz nem lehet hozzáférni." },
   not_configured: {
     title: "Tartós infrastruktúra összekötésre vár",
     body: "Nincs adatbázis megadva ehhez a környezethez (DATABASE_URL). A rendszer szándékosan nem tárol adatot böngészőben vagy memóriában. A beállítás lépései: docs/V0.6-PERSISTENCE.md.",
@@ -154,7 +155,7 @@ function InfraBanner() {
 }
 
 function LoginForm() {
-  const { login } = useCrmData();
+  const { login, authMode, googleConfigured } = useCrmData();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -171,6 +172,29 @@ function LoginForm() {
       setPassword("");
     }
   };
+  if (authMode === "google") {
+    const code = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("login_error");
+    const messages: Record<string, string> = {
+      not_allowed: "Ez a Google-fiók nem rendelkezik CRM-hozzáféréssel. Válaszd az engedélyezett munkahelyi fiókodat.",
+      expired: "A bejelentkezés lejárt. Indítsd újra a Google-belépést.",
+      cancelled: "A Google-belépést megszakítottad. Újra próbálkozhatsz.",
+      failed: "A Google-belépés nem sikerült. Próbáld újra.",
+    };
+    return (
+      <div className="mx-auto max-w-sm space-y-5">
+        <div><h1 className="text-2xl font-semibold tracking-tight">Bejelentkezés</h1>
+        <p className="mt-2 text-sm text-ink-muted">Lépj be az engedélyezett Google-fiókoddal a JG Investment CRM-be.</p></div>
+        {code && messages[code] ? <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{messages[code]}</p> : null}
+        {googleConfigured ? (
+          <form action="/api/auth/google" method="get"><button type="submit" className="flex min-h-12 w-full items-center justify-center gap-3 rounded-md border border-line-strong bg-white px-5 py-3 text-sm font-medium text-[#1f1f1f] hover:bg-surface-muted">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65Z"/><path fill="#FBBC05" d="M10.53 28.59A14.41 14.41 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.87 23.87 0 0 0 0 24c0 3.87.93 7.53 2.56 10.78l7.97-6.19Z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.15 1.45-4.92 2.3-8.18 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z"/></svg>
+            Sign in with Google
+          </button></form>
+        ) : <p role="alert" className="rounded-md bg-warn-soft p-3 text-sm text-warn">A Google-belépés beállítása még nincs kész. Az üzemeltetőnek be kell állítania a Google OAuth-kapcsolatot.</p>}
+        <p className="text-xs text-ink-muted">Csak előzetesen engedélyezett fiókkal érhetők el az ügyféladatok.</p>
+      </div>
+    );
+  }
   return (
     <div className="mx-auto max-w-sm">
       <h1 className="text-2xl font-semibold tracking-tight">Bejelentkezés</h1>
