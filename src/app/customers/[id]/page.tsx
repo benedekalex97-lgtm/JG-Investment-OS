@@ -21,7 +21,7 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
   return (
     <div className="space-y-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)] lg:items-start lg:gap-6 lg:space-y-0">
       {/* DOM-sorrend = mobil sorrend: név+státusz, kapcsolati adatok, feladatok. Desktopon a kapcsolati adatok a jobb oldali sávba kerülnek. */}
-      <CustomerHeader customer={customer} className="lg:col-span-2" />
+      <CustomerHeader customer={customer} data={data} onNewTask={() => setNewTask(true)} className="lg:col-span-2" />
       <ContactSidebar data={data} customer={customer} className="lg:sticky lg:top-4 lg:col-start-2 lg:row-start-2" />
       <div className="min-w-0 space-y-6 lg:col-start-1 lg:row-start-2">
 

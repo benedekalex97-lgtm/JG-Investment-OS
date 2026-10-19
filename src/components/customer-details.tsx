@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { RestrictedBadge, TypeBadge } from "@/components/common";
 import { StatusSelect } from "@/components/status-select";
 import { TextInput } from "@/components/ui/form";
 import { Button, Card } from "@/components/ui/primitives";
 import { useCrmData } from "@/data/store";
-import { contactName, customerName, otherContactsOf, primaryContactOf } from "@/domain/logic";
+import { contactName, customerName, otherContactsOf, primaryContactOf, quickActions, type QuickChannel } from "@/domain/logic";
+import { buttonStyles } from "@/components/ui/primitives";
 import type { CompanyContact, Customer, DataSnapshot } from "@/domain/types";
 
 type Errors = Record<string, string>;
@@ -46,7 +47,8 @@ function OtherContacts({ others }: { others: CompanyContact[] }) {
  * Az ügyfél fejléce (v0.6): a név MELLETT a szerkeszthető kapcsolati státusz (mobilon a név alatt). A kapcsolati adatok nem itt,
  * hanem a jobb oldali sávban ({@link ContactSidebar}) jelennek meg. Aktív tiltakozás/korlátozás esetén rövid, csak olvasható jelzés.
  */
-export function CustomerHeader({ customer, className }: { customer: Customer; className?: string }) {
+export function CustomerHeader({ customer, data, onNewTask, className }: { customer: Customer; data: DataSnapshot; onNewTask: () => void; className?: string }) {
+  const q = quickActions(data, customer);
   return (
     <Card id="ugyfel" className={className}>
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
@@ -56,7 +58,26 @@ export function CustomerHeader({ customer, className }: { customer: Customer; cl
         </div>
         <StatusSelect customer={customer} />
       </header>
+      {/* CRM-011: gyorsműveletek. A tel:/mailto: csak a külső alkalmazást nyitja meg; a CRM ebből nem naplóz kapcsolatfelvételt. */}
+      <div role="group" aria-label="Gyorsműveletek" className="flex flex-wrap items-start gap-2 border-t border-line px-4 py-3">
+        <QuickLink label="Hívás" channel={q.call} />
+        <QuickLink label="E-mail" channel={q.email} />
+        <button type="button" onClick={onNewTask} aria-haspopup="dialog" className={buttonStyles("secondary", "sm")}>Új feladat</button>
+      </div>
     </Card>
+  );
+}
+
+function QuickLink({ label, channel }: { label: string; channel: QuickChannel }) {
+  const noteId = useId();
+  if (channel.href) {
+    return <a href={channel.href} className={buttonStyles("secondary", "sm")} aria-label={`${label}: ${channel.value}`} title={channel.value}>{label}</a>;
+  }
+  return (
+    <span className="inline-flex max-w-full flex-col">
+      <button type="button" disabled aria-describedby={noteId} className={buttonStyles("secondary", "sm")}>{label}</button>
+      <span id={noteId} className="mt-0.5 max-w-[16rem] text-xs text-ink-muted">{channel.blockedReason}</span>
+    </span>
   );
 }
 
