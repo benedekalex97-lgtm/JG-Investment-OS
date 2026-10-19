@@ -54,10 +54,10 @@ export class RestoreError extends Error {}
 
 /**
  * Korábbi sémaverziójú mentések, amelyek a jelenlegi sémába változtatás nélkül visszaállíthatók, mert az azóta futott migrációk
- * kizárólag NULL-ozható oszlopokat adtak hozzá (0003: `task_results.outcome`). A régi sorok ezekben az oszlopokban NULL-t kapnak,
+ * kizárólag NULL-ozható oszlopokat adtak hozzá (0003: `task_results.outcome`; 0004: `customers.deleted_at` / `deleted_by`). A régi sorok ezekben az oszlopokban NULL-t kapnak,
  * kitalált érték nem keletkezik. Nem additív sémaváltozásnál a lista nem bővíthető.
  */
-export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", LATEST_MIGRATION];
+export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", LATEST_MIGRATION];
 
 /** Visszaállítás üres adatbázisba, egyetlen tranzakcióban (hiba esetén semmi nem íródik). */
 export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise<Record<string, number>> {

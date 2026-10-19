@@ -84,7 +84,7 @@ describe.each(DRIVERS)("0003_task_outcome: v0.8 adatbázis frissítése (%s)", (
     });
     const before = await t.db.system((tx) => tx.query("select task_id, seq, output_key, output_text, closed_at, closed_by from task_results order by seq"));
     const r = await migrate(t.db, { env: "local" });
-    expect(r.applied).toEqual(["0003_task_outcome"]);
+    expect(r.applied).toEqual(["0003_task_outcome", "0004_test_customer_soft_delete"]);
     expect(await checkSchema(t.db, "local")).toEqual({ ok: true });
     const after = await t.db.system((tx) => tx.query<Record<string, unknown>>("select task_id, seq, output_key, output_text, closed_at, closed_by, outcome from task_results order by seq"));
     expect(after.map(({ outcome, ...rest }) => { expect(outcome).toBeNull(); return rest; })).toEqual(before);
@@ -95,3 +95,30 @@ describe.each(DRIVERS)("0003_task_outcome: v0.8 adatbázis frissítése (%s)", (
     expect((await migrate(t.db, { env: "local" })).applied).toEqual([]);
   });
 });
+
+/** 0004 (v0.9, CRM-006): a 0003-as sémán meglévő adat mellett fut; minden meglévő ügyfél aktív marad; a mezők csak együtt tölthetők. */
+describe.each(DRIVERS)("0004_test_customer_soft_delete (%s)", (kind) => {
+  let t: TestDb;
+  beforeAll(async () => {
+    t = await makeTestDb(kind, { migrate: false });
+    await migrate(t.db, { env: "local", migrations: MIGRATIONS.slice(0, 3) });
+  });
+  afterAll(async () => { await t.cleanup(); });
+
+  it("meglévő ügyfelek változatlanok és aktívak (NULL); a deleted_at/deleted_by csak együtt; nincs fizikai törlés", async () => {
+    const T0 = "2026-05-01T08:00:00.000Z";
+    await t.db.system(async (tx) => {
+      await tx.query("insert into users (id, email, name, password_hash) values ('u-1', 'v09@example.test', 'V09', 'x')");
+      await tx.query("insert into customers (id, type, display_name, first_name, last_name, owner_id, created_at, updated_at) values ('c-1','individual','Régi Rita','Rita','Régi','u-1',$1,$1)", [T0]);
+    });
+    const before = await t.db.system((tx) => tx.query("select * from customers"));
+    expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0004_test_customer_soft_delete"]);
+    const after = await t.db.system((tx) => tx.query<Record<string, unknown>>("select * from customers"));
+    expect(after.map(({ deleted_at, deleted_by, ...rest }) => { expect([deleted_at, deleted_by]).toEqual([null, null]); return rest; })).toEqual(before);
+    await expect(t.db.system((tx) => tx.query("update customers set deleted_at = now() where id = 'c-1'"))).rejects.toThrow();
+    await t.db.system((tx) => tx.query("update customers set deleted_at = now(), deleted_by = 'u-1' where id = 'c-1'"));
+    await t.db.system((tx) => tx.query("update customers set deleted_at = null, deleted_by = null where id = 'c-1'"));
+    expect(lintMigration(MIGRATIONS[3]).destructive).toEqual([]);
+  });
+});
+
