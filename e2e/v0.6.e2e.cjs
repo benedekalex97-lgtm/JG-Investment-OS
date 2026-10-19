@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- CommonJS futtatható szkript, nincs build-lépés */
 /**
- * JG Investment OS v0.6 (tartós adattárolás, bejelentkezés, feladat Input/Output legördülők, jobb oldali kapcsolati adatok) — E2E és
- * akadálymentességi ellenőrzés (Playwright).
+ * JG Investment OS v0.6-v0.9 (tartós adattárolás, bejelentkezés, feladat Input legördülő, jobb oldali kapcsolati adatok; v0.9: Sikeres /
+ * Sikertelen lezárás kötelező szabad szöveges Outputtal, átidőzítés, Előzmények, globális kereső) — E2E és akadálymentességi ellenőrzés
+ * (Playwright). Nézetek: 390 (mobil), 768 (tablet), 1280 és 1440 (desktop).
  *
  * Használat (a repó gyökeréből):
  *   npm run build
@@ -17,6 +18,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawn, spawnSync } = require("child_process");
+const { randomUUID } = require("crypto");
 
 function loadPlaywright() {
   for (const p of ["playwright", process.env.PLAYWRIGHT_PATH, "/opt/node22/lib/node_modules/playwright"].filter(Boolean)) {
@@ -85,7 +87,8 @@ const settle = (page) => page.waitForTimeout(400);
 const pad = (n) => String(n).padStart(2, "0");
 const dateInput = (offsetDays) => { const d = new Date(); d.setDate(d.getDate() + offsetDays); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const statusSelect = (page) => page.getByLabel("Kapcsolati státusz");
-const taskRow = (page, title) => page.locator("li", { has: page.getByRole("checkbox", { name: `Elvégezve: ${title}` }) }).first();
+/** Feladatsor a feladat neve alapján (v0.9: nincs checkbox; a sor a címre/„Részletek”-re kattintva nyílik). */
+const taskRow = (page, title) => page.locator(`li[data-task-id]:has(button[aria-expanded] > span:first-child:text-is("${title}"))`).first();
 const SIDE = 'aside[aria-labelledby="kapcsolati-adatok-cim"]';
 const col = (page, label) => page.locator(`section[aria-label^="${label} ("]`);
 const optionTexts = (loc) => loc.locator("option").allTextContents().then((a) => a.map((t) => t.trim()).filter((t) => !t.startsWith("—")));
@@ -126,16 +129,17 @@ async function addTask(page, typeLabel, opts = {}) {
   await dlg(page).waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
   await settle(page);
 }
-async function closeTask(page, title, output, note) {
-  await taskRow(page, title).getByRole("checkbox").click();
-  await dlg(page).getByLabel(/^Output/).selectOption({ label: output });
-  if (note) await dlg(page).getByLabel(/Rövid megjegyzés/).fill(note);
-  await dlg(page).locator("button[type=submit]").click();
-  await dlg(page).waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
+/** Lezárás (v0.9): a részletekben az Output kitöltése, majd a Sikeres / Sikertelen gomb. */
+async function closeTask(page, title, outcome, output) {
+  const row = taskRow(page, title);
+  await openDetails(row);
+  await row.getByLabel(/^Output/).fill(output);
+  await row.getByRole("button", { name: outcome === "success" ? "Sikeres lezárás" : "Sikertelen lezárás", exact: true }).click();
+  await until(async () => (await row.innerText()).includes("Lezárva —"));
   await settle(page);
 }
 async function openDetails(row) {
-  const btn = row.getByRole("button", { name: "Részletek" });
+  const btn = row.locator("button[aria-expanded]").last();
   if ((await btn.getAttribute("aria-expanded")) !== "true") await btn.click();
 }
 async function checkPage(page, label, tag) {
@@ -187,6 +191,7 @@ async function checkPage(page, label, tag) {
       const L = (n, ok, e) => log(`[desktop] ${n}`, ok, e);
       await pageA.goto(BASE + "/", { waitUntil: "networkidle" });
       L("bejelentkezés nélkül a belépési űrlap látszik, az ügyfél-adat és a navigáció nem", (await pageA.getByRole("heading", { name: "Bejelentkezés" }).isVisible()) && (await pageA.locator('nav[aria-label^="Fő navigáció"]').count()) === 0);
+      L("E9: bejelentkezés nélkül nincs globális kereső és nincs keresési javaslat", (await pageA.getByRole("combobox").count()) === 0 && (await pageA.getByRole("option").count()) === 0);
       await checkPage(pageA, "desktop", "bejelentkezés");
       await pageA.getByLabel("E-mail-cím").fill(EMAIL_A);
       await pageA.getByLabel("Jelszó").fill("hibas-jelszo-12345");
@@ -270,64 +275,152 @@ async function checkPage(page, label, tag) {
       await d.getByLabel(/^Input/).selectOption({ label: "Egyéb" });
       L("az „Egyéb” Inputnál rövid, opcionális megjegyzés mező jelenik meg; más értéknél nem", (await d.getByLabel(/Rövid megjegyzés/).isVisible()) && (await (async () => { await d.getByLabel(/^Input/).selectOption({ label: "Visszahívás" }); return d.getByLabel(/Rövid megjegyzés/).count(); })()) === 0);
       await d.getByRole("button", { name: "Mégse" }).click();
-      L("„Mégse”: nem jön létre feladat", (await pageA.locator("li:has(input[type=checkbox])").count()) === 0);
+      L("„Mégse”: nem jön létre feladat", (await pageA.locator("li[data-task-id]").count()) === 0);
       await addTask(pageA, "Telefonhívás", { input: "Visszahívás", due: dateInput(3) });
       await addTask(pageA, "E-mail");
       await addTask(pageA, "Utánkövetés", { input: "Egyéb", note: "Ajánló szerint" });
-      L("három feladat jött létre az aktuális státusz alatt", (await pageA.locator('#feladatok-lista input[type=checkbox]').count()) === 3);
+      L("három feladat jött létre az aktuális státusz alatt", (await pageA.locator("#feladatok-lista li[data-task-id]").count()) === 3);
       L("a feladat neve a kiválasztott típus neve; az Input a sor második sorában", (await pageA.locator('#feladatok-lista').innerText()).includes("Visszahívás"));
       const row = taskRow(pageA, "Telefonhívás");
       await openDetails(row);
-      L("részletek: Input a legördülő értékéből, határidő, „még nincs lezárva”", (await row.innerText()).includes("Visszahívás") && (await row.innerText()).includes("— még nincs lezárva —"));
+      L("részletek: Input a legördülő értékéből, határidő, üres Output-mező (még nincs lezárva)", (await row.innerText()).includes("Visszahívás") && (await row.locator("textarea").inputValue()) === "");
       await openDetails(taskRow(pageA, "Utánkövetés"));
       L("az „Egyéb” Input megjegyzése megjelenik", (await taskRow(pageA, "Utánkövetés").innerText()).includes("Egyéb — Ajánló szerint"));
 
-      // ============ F) Lezárás ============
-      await taskRow(pageA, "Telefonhívás").getByRole("checkbox").click();
-      const c = dlg(pageA);
-      L("lezáró modál: csak olvasható feladatnév és Input, Output legördülő (kötelező)", (await c.locator("text=Feladat").first().isVisible()) && (await c.locator("p:has-text('Telefonhívás')").count()) === 1 && (await c.locator("p:has-text('Visszahívás')").count()) === 1 && (await c.getByLabel(/^Output/).count()) === 1 && (await c.locator("textarea").count()) === 0);
-      L("az Output legördülő lehetőségei az ideiglenes lista szerint", JSON.stringify(await optionTexts(c.getByLabel(/^Output/))) === JSON.stringify(OUTPUTS));
-      L("a lezáró modál gombja „Feladat lezárása”", (await c.locator("button[type=submit]").innerText()) === "Feladat lezárása");
-      await checkPage(pageA, "desktop", "feladat lezárása modál");
-      await c.locator("button[type=submit]").click();
-      L("Output nélkül a lezárás blokkolt: hibaüzenet, a modál nyitva, a feladat nyitott", (await shows(c.locator("text=Az Output kiválasztása kötelező"))) && (await taskRow(pageA, "Telefonhívás").getByRole("checkbox").isChecked()) === false);
-      await c.getByLabel(/^Output/).selectOption({ label: "Egyéb" });
-      L("az „Egyéb” Outputnál rövid, opcionális megjegyzés mező", await c.getByLabel(/Rövid megjegyzés/).isVisible());
-      await c.getByLabel(/^Output/).selectOption({ label: "Nem sikerült elérni" });
-      L("más Outputnál nincs megjegyzés mező", (await c.getByLabel(/Rövid megjegyzés/).count()) === 0);
-      await c.getByRole("button", { name: "Mégse" }).click();
-      L("„Mégse” után a feladat nyitott marad", (await taskRow(pageA, "Telefonhívás").getByRole("checkbox").isChecked()) === false);
+      // ============ F) v0.9 lezárás: Sikeres / Sikertelen + kötelező, szabad szöveges Output (CRM-001, CRM-002) ============
+      L("A1: nyitott feladat mellett nincs lezárásra szolgáló checkbox", (await pageA.locator("main input[type=checkbox]").count()) === 0 && (await pageA.getByRole("checkbox").count()) === 0);
+      const tr = () => taskRow(pageA, "Telefonhívás");
+      const tid = await tr().getAttribute("data-task-id");
+      if ((await tr().locator("button[aria-expanded]").first().getAttribute("aria-expanded")) === "true") await tr().locator("button[aria-expanded]").first().click();
+      await tr().locator("button[aria-expanded]").first().click();
+      L("A2: a feladatra kattintva megnyílnak a részletek", await shows(tr().getByLabel(/^Output/)));
+      await tr().getByRole("button", { name: /^Bezárás/ }).click();
+      L("A2: a részletek bezárhatók", (await tr().getByLabel(/^Output/).count()) === 0);
+      await tr().getByRole("button", { name: /^Részletek/ }).click();
+      L("A2: a „Részletek” gombbal is megnyílnak", await shows(tr().getByLabel(/^Output/)));
+      const okBtn = () => tr().getByRole("button", { name: "Sikeres lezárás", exact: true });
+      const koBtn = () => tr().getByRole("button", { name: "Sikertelen lezárás", exact: true });
+      const outBox = () => tr().getByLabel(/^Output/);
+      L("A3: a Sikeres és a Sikertelen gomb látható; nincs harmadik, általános lezáró gomb és nincs Output legördülő", (await okBtn().isVisible()) && (await koBtn().isVisible()) && (await okBtn().evaluate((b) => b.firstChild.textContent.trim())) === "Sikeres" && (await koBtn().evaluate((b) => b.firstChild.textContent.trim())) === "Sikertelen" && (await pageA.getByRole("button", { name: /^Feladat lezárása/ }).count()) === 0 && (await tr().locator("select").count()) === 0);
+      L("CRM-002: az Output több soros, címkézett, kötelező szövegmező; a lezáró gombok csoportja címkézett", (await outBox().evaluate((el) => el.tagName)) === "TEXTAREA" && (await outBox().getAttribute("aria-required")) === "true" && (await tr().getByRole("group", { name: "Feladat lezárása" }).count()) === 1);
+      const order = await tr().evaluate((li) => {
+        const y = (el) => (el ? el.getBoundingClientRect().y : -1);
+        const dt = (t) => [...li.querySelectorAll("dt")].find((d) => d.textContent.trim() === t);
+        return { name: y(dt("Feladat")), input: y(dt("Input")), due: y(li.querySelector("input[type=date]")), output: y(li.querySelector("textarea")), buttons: y([...li.querySelectorAll("button")].find((b) => b.textContent.trim() === "Sikeres lezárás")) };
+      });
+      L("a részletek sorrendje: feladat neve, Input, határidő + átidőzítés, Output, Sikeres/Sikertelen", order.name >= 0 && order.name < order.input && order.input < order.due && order.due < order.output && order.output < order.buttons, JSON.stringify(order));
+      await checkPage(pageA, "desktop", "feladat részletei (nyitott)");
+      const apiSnap = async (p = pageA) => (await (await p.request.get(BASE + "/api/crm/snapshot")).json()).snapshot;
+      const apiTask = async (id, p = pageA) => (await apiSnap(p)).tasks.find((t) => t.id === id);
       const before = await statusSelect(pageA).inputValue();
-      await closeTask(pageA, "Telefonhívás", "Nem sikerült elérni");
-      L("egyetlen kiválasztott Output elég a lezáráshoz", await taskRow(pageA, "Telefonhívás").getByRole("checkbox").isChecked());
-      L("a lezárás nem módosítja az ügyfél státuszát", (await statusSelect(pageA).inputValue()) === before);
-      await openDetails(taskRow(pageA, "Telefonhívás"));
-      L("a rögzített Output és a rögzítő látszik", (await taskRow(pageA, "Telefonhívás").innerText()).includes("Nem sikerült elérni") && (await taskRow(pageA, "Telefonhívás").innerText()).includes("Teszt Pilot Egy"));
-      // újranyitás + újabb lezárás: előzmény
-      await taskRow(pageA, "Telefonhívás").getByRole("checkbox").click();
-      await until(async () => !(await taskRow(pageA, "Telefonhívás").getByRole("checkbox").isChecked()));
-      L("a pipa kivétele újranyitja a feladatot", (await taskRow(pageA, "Telefonhívás").getByRole("checkbox").isChecked()) === false);
-      await closeTask(pageA, "Telefonhívás", "Egyéb", "Levélben válaszolt");
-      await openDetails(taskRow(pageA, "Telefonhívás"));
-      const txt = await taskRow(pageA, "Telefonhívás").innerText();
-      L("újrazárás után az aktuális eredmény az új, a korábbi lezárás előzményként megmarad", txt.includes("Egyéb — Levélben válaszolt") && txt.includes("Korábbi lezárások eredménye (1)"));
+      await okBtn().click();
+      L("A4: üres Outputtal a Sikeres gomb nem zár le: magyar hibaüzenet", await shows(tr().locator("text=A feladat lezárásához az Output kitöltése kötelező.")));
+      L("A4: a hiba után a fókusz az Output mezőn", (await pageA.evaluate(() => document.activeElement?.tagName)) === "TEXTAREA");
+      await koBtn().click();
+      L("A4: üres Outputtal a Sikertelen gomb sem zár le", (await shows(tr().locator("text=A feladat lezárásához az Output kitöltése kötelező."))) && (await apiTask(tid)).status === "open");
+      await outBox().fill("   \n\t   \n");
+      await koBtn().click();
+      await okBtn().click();
+      L("A5: csak whitespace Output nem fogadható el", (await shows(tr().locator("text=A feladat lezárásához az Output kitöltése kötelező."))) && (await apiTask(tid)).status === "open" && (await apiTask(tid)).outputs === undefined);
+      const TEXT_FAIL = "Az ügyfelet három próbálkozás után\nsem sikerült elérni.";
+      await outBox().fill(TEXT_FAIL);
+      await pageA.route("**/api/crm/op", (route) => route.abort("connectionrefused"));
+      await koBtn().click();
+      await tr().locator("[role=alert]").filter({ hasText: "A mentés nem sikerült" }).waitFor({ timeout: 8000 }).catch(() => {});
+      L("sikertelen mentés: érthető hibaüzenet, a beírt Output megmarad, a feladat nyitott", (await tr().locator("[role=alert]").filter({ hasText: "A mentés nem sikerült" }).count()) === 1 && (await outBox().inputValue()) === TEXT_FAIL);
+      await pageA.unroute("**/api/crm/op");
+      L("sikertelen mentés után az adatbázisban nincs lezárás", (await apiTask(tid)).status === "open");
+      await koBtn().click();
+      await until(async () => (await tr().innerText()).includes("Lezárva — Sikertelen"));
+      let rowText = await tr().innerText();
+      L("A7: kitöltött Output + Sikertelen: sikertelen lezárás", rowText.includes("Lezárva — Sikertelen") && (await apiTask(tid)).status === "done" && (await apiTask(tid)).outputs.at(-1).outcome === "failure");
+      L("A8: a lezárás nem módosítja az ügyfél státuszát", (await statusSelect(pageA).inputValue()) === before && (await apiSnap()).customers.find((c) => c.companyName === "Minta Kft.").crmStatus === before);
+      L("lezárt feladat: a minősítés, az Output (sortöréssel) és a rögzítő visszaolvasható", rowText.includes("Az ügyfelet három próbálkozás után\nsem sikerült elérni.") && rowText.includes("Rögzítette: Teszt Pilot Egy"), rowText);
+      L("lezárt feladatnál nincs Output-mező és lezáró gomb; az újranyitás elérhető", (await tr().locator("textarea").count()) === 0 && (await okBtn().count()) === 0 && (await tr().getByRole("button", { name: "Feladat újranyitása" }).isVisible()));
+      await checkPage(pageA, "desktop", "feladat részletei (lezárt)");
+      await tr().getByRole("button", { name: "Feladat újranyitása" }).click();
+      await until(async () => (await tr().locator("textarea").count()) === 1);
+      rowText = await tr().innerText();
+      L("újranyitás checkbox nélkül: a feladat nyitott, az előző lezárás eredménye és Outputja megmaradt", (await apiTask(tid)).status === "open" && rowText.includes("Korábbi lezárások (1)") && rowText.includes("sem sikerült elérni."), rowText);
+      const TEXT_OK = "Telefonon egyeztettünk, az ügyfél érdeklődik a\nszolgáltatás iránt. Csütörtökön ismét keresni kell.";
+      await outBox().fill(TEXT_OK);
+      await okBtn().dblclick();
+      await until(async () => (await tr().innerText()).includes("Lezárva — Sikeres"));
+      await settle(pageA);
+      const closed = await apiTask(tid);
+      const closeActs = (await apiSnap()).activities.filter((a) => a.type === "task_completed" && a.meta && a.meta.taskId === tid);
+      L("A6 + B5: kitöltött Output + Sikeres: sikeres lezárás; az új eredmény hozzáfűződött, a régi megmaradt", JSON.stringify(closed.outputs.map((o) => [o.outcome, o.text])) === JSON.stringify([["failure", TEXT_FAIL], ["success", TEXT_OK]]), JSON.stringify(closed.outputs));
+      L("A9: dupla kattintás egyetlen lezárást és egyetlen naplóbejegyzést hoz létre", closed.outputs.length === 2 && closeActs.length === 2);
       await pageA.reload({ waitUntil: "networkidle" });
       await pageA.waitForSelector("#feladatok-lista");
-      await openDetails(taskRow(pageA, "Telefonhívás"));
-      await taskRow(pageA, "Telefonhívás").locator("summary").click();
-      L("az eredmény-előzmény frissítés után is megvan (adatbázisból)", (await taskRow(pageA, "Telefonhívás").innerText()).includes("Nem sikerült elérni"));
-      // határidő módosítás / törlés
-      await taskRow(pageA, "E-mail").getByRole("button", { name: "Részletek" }).click();
-      await taskRow(pageA, "E-mail").getByLabel("Határidő módosítása").fill(dateInput(5));
-      await until(async () => (await taskRow(pageA, "E-mail").innerText()).includes("Határidő:"));
-      L("a határidő utólag megadható és mentődik", (await taskRow(pageA, "E-mail").innerText()).includes("Határidő:"));
+      await openDetails(tr());
+      rowText = await tr().innerText();
+      L("B1/B2: frissítés után az Output és a lezárás minősítése megmarad", rowText.includes("Lezárva — Sikeres") && rowText.includes("szolgáltatás iránt. Csütörtökön ismét keresni kell.") && rowText.includes("Korábbi lezárások (1)") && rowText.includes("Lezárva — Sikertelen"), rowText);
+      // A10: a szerver az érvénytelen lezárási kéréseket is elutasítja (a felület megkerülésével küldve).
+      const emailId = await taskRow(pageA, "E-mail").getAttribute("data-task-id");
+      const rawClose = (input) => pageA.request.post(BASE + "/api/crm/op", { headers: { origin: BASE }, data: { requestId: randomUUID(), op: "task.close", args: { taskId: emailId, input } } });
+      const res = [];
+      for (const input of [{ outcome: "success", output: "" }, { outcome: "failure", output: "  \n  " }, { output: "Szöveg minősítés nélkül" }, { outcome: "kiváló", output: "x" }]) res.push((await (await rawClose(input)).json()).result.ok);
+      const legacyShape = await rawClose({ outputKey: "completed" });
+      L("A10: a szerver elutasítja az üres/whitespace Outputot, a hiányzó/érvénytelen minősítést és a régi legördülős alakot", res.every((x) => x === false) && legacyShape.status() === 400 && (await apiTask(emailId)).status === "open", JSON.stringify(res));
+
+      // ============ C) Átidőzítés (CRM-003) ============
+      const er = () => taskRow(pageA, "E-mail");
+      await openDetails(er());
+      const dueBox = () => er().getByLabel("Határidő", { exact: true });
+      const saveDue = () => er().getByRole("button", { name: "Határidő mentése" });
+      await dueBox().fill(dateInput(5));
+      L("C: a dátum kiválasztása önmagában nem ment; külön „Határidő mentése” gomb van", (await saveDue().isEnabled()) && (await apiTask(emailId)).dueAt === undefined);
+      await saveDue().click();
+      await er().getByRole("status").filter({ hasText: "Az új határidő elmentve." }).waitFor({ timeout: 8000 }).catch(() => {});
+      const iso5 = await pageA.evaluate((v) => { const [y, m, d] = v.split("-").map(Number); return new Date(y, m - 1, d, 12).toISOString(); }, dateInput(5));
+      L("C1: új határidő megadható és mentődik az adatbázisba", (await apiTask(emailId)).dueAt === iso5 && (await er().innerText()).includes("Határidő:"));
+      L("C2: az átidőzítés után a feladat nyitott marad (nem minősül lezárásnak)", (await apiTask(emailId)).status === "open" && (await apiTask(emailId)).outputs === undefined && (await er().locator("textarea").count()) === 1);
+      await pageA.route("**/api/crm/op", (route) => route.abort("connectionrefused"));
+      await dueBox().fill(dateInput(6));
+      await saveDue().click();
+      await er().locator("[role=alert]").filter({ hasText: "A mentés nem sikerült" }).waitFor({ timeout: 8000 }).catch(() => {});
+      L("sikertelen átidőzítés: hibaüzenet, a beírt dátum megmarad, a mentett határidő nem változik", (await er().locator("[role=alert]").filter({ hasText: "A mentés nem sikerült" }).count()) === 1 && (await dueBox().inputValue()) === dateInput(6) && (await apiTask(emailId)).dueAt === iso5);
+      await pageA.unroute("**/api/crm/op");
+      await dueBox().fill(dateInput(0));
+      await saveDue().click();
+      await er().getByRole("status").filter({ hasText: "Az új határidő elmentve." }).waitFor({ timeout: 8000 }).catch(() => {});
+      await pageA.reload({ waitUntil: "networkidle" });
+      await pageA.waitForSelector("#feladatok-lista");
+      const todayLabel = await pageA.evaluate(() => new Intl.DateTimeFormat("hu-HU", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()));
+      L("C5: a módosított dátum újratöltés után is megmarad", (await er().innerText()).includes(`Határidő: ${todayLabel}`), todayLabel);
+      await pageA.goto(BASE + "/", { waitUntil: "networkidle" });
+      L("C3: az Áttekintés „Mai feladatok” listája a módosított határidőt mutatja", (await pageA.locator("#mai-feladatok li[data-task-id]", { hasText: "E-mail" }).filter({ hasText: "Minta Kft." }).count()) === 1);
+      await pageA.goto(BASE + "/pipeline", { waitUntil: "networkidle" });
+      L("C3: a Pipeline-kártya a módosított határidőt mutatja", (await pageA.locator("article", { hasText: "Minta Kft." }).innerText()).includes(`E-mail · ${todayLabel}`));
+      await openCustomer(pageA, "Minta Kft.");
+
+      // ============ D) Előzmények (CRM-004) ============
+      const hist = pageA.locator("#elozmenyek");
+      L("D1: a blokk címe pontosan „Előzmények”; a régi „Napló és korábbi adatok” panel nincs", /^Előzmények\s*\(\d+\)$/.test((await hist.locator("h2").first().innerText()).trim()) && (await pageA.locator("text=Napló és korábbi adatok").count()) === 0);
+      L("D3: nem lenyitható panel, alapból látható", (await hist.isVisible()) && (await hist.locator("details, summary").count()) === 0 && (await hist.locator("ol > li").first().isVisible()));
+      const ys = await pageA.evaluate(() => Object.fromEntries(["#feladatok-lista", "#korabbi-feladatok", "#elozmenyek", "#jegyzetek"].map((s) => [s, document.querySelector(s)?.getBoundingClientRect().y ?? null])));
+      L("D2: sorrend: Feladatok, (Korábbi státuszok feladatai), Előzmények, Ügyféljegyzetek", ys["#feladatok-lista"] < ys["#elozmenyek"] && ys["#elozmenyek"] < ys["#jegyzetek"] && (ys["#korabbi-feladatok"] === null || ys["#korabbi-feladatok"] < ys["#elozmenyek"]), JSON.stringify(ys));
+      const ht = await hist.innerText();
+      L("D4: sikeres lezárás Outputtal", ht.includes("Feladat lezárva — Sikeres") && ht.includes("szolgáltatás iránt. Csütörtökön ismét keresni kell."));
+      L("D5: sikertelen lezárás Outputtal", ht.includes("Feladat lezárva — Sikertelen") && ht.includes("sem sikerült elérni."));
+      L("D6: átidőzítés a korábbi és az új határidővel, a rögzítővel", ht.includes("Feladat átidőzítve") && ht.includes("Korábbi határidő:") && new RegExp(`Új határidő:\\s*${todayLabel.replace(/\./g, "\\.")}`).test(ht) && ht.includes("Rögzítette: Teszt Pilot Egy"));
+      L("újranyitás és feladat-létrehozás is az előzményekben", ht.includes("Feladat újranyitva") && ht.includes("Feladat létrehozva"));
+      const times = await hist.locator("ol > li time").evaluateAll((els) => els.map((e) => Date.parse(e.getAttribute("datetime"))));
+      L("időrendi lista: a legfrissebb esemény elöl", times.length > 3 && times.every((t, i) => i === 0 || times[i - 1] >= t));
+      const titles = await hist.locator("ol > li h3").allTextContents();
+      const count = (t) => titles.filter((x) => x.trim() === t).length;
+      const custId = pageA.url().split("/").pop();
+      const acts = (await apiSnap()).activities.filter((a) => a.customerId === custId && a.type !== "note");
+      L("D8: nincs duplikált esemény: egy-egy lezárási bejegyzés, a lista hossza = a naplózott események száma", count("Feladat lezárva — Sikeres") === 1 && count("Feladat lezárva — Sikertelen") === 1 && count("Feladat átidőzítve") === 2 && titles.length === acts.length, JSON.stringify(titles));
+      await checkPage(pageA, "desktop", "előzmények");
 
       // ============ G) Státuszváltás, korábbi feladatok, pipeline ============
       await statusSelect(pageA).selectOption({ label: "Kapcsolatfelvétel" });
       await until(async () => /— Kapcsolatfelvétel\s*\(/.test(await pageA.locator("#feladatok-lista h2").innerText()));
       L("státuszváltás után az aktuális státusz feladatai üresek, a korábbiak megmaradtak", (await pageA.locator("#feladatok-lista").innerText()).includes("Ennél a státusznál még nincs feladat") && (await pageA.locator("#korabbi-feladatok").innerText()).includes("Telefonhívás"));
       await addTask(pageA, "Online tárgyalás", { input: "Időpont-egyeztetés" });
-      L("az új feladat az új státuszhoz kapcsolódik", (await pageA.locator("#feladatok-lista input[type=checkbox]").count()) === 1);
+      L("az új feladat az új státuszhoz kapcsolódik", (await pageA.locator("#feladatok-lista li[data-task-id]").count()) === 1);
       await statusSelect(pageA).selectOption({ label: "Tőke elhelyezve" });
       L("„Tőke elhelyezve”: igazolási párbeszéd nyílik, a státusz még nem változik", (await dlg(pageA).locator("legend:has-text('Igazolás')").isVisible()) && (await statusSelect(pageA).inputValue()) !== "capital_placed");
       await dlg(pageA).locator("button[type=submit]").click();
@@ -352,9 +445,67 @@ async function checkPage(page, label, tag) {
       L("billentyűzet: a feladat-modál Enterrel megnyílik", await dlg(pageA).isVisible());
       await pageA.keyboard.press("Escape");
       await settle(pageA);
-      L("billentyűzet: az Esc bezárja a modált, nem jön létre feladat", (await dlg(pageA).count()) === 0 && (await pageA.locator("#feladatok-lista input[type=checkbox]").count()) === 0);
+      L("billentyűzet: az Esc bezárja a modált, nem jön létre feladat", (await dlg(pageA).count()) === 0 && (await pageA.locator("#feladatok-lista li[data-task-id]").count()) === 0);
       await statusSelect(pageA).focus();
       L("billentyűzet: a státuszválasztó fókuszálható és címkézett", (await pageA.evaluate(() => document.activeElement?.getAttribute("aria-label"))) === "Kapcsolati státusz");
+
+      // ============ S) Globális kereső a fejlécben (CRM-005) ============
+      const search = (p) => p.getByRole("combobox", { name: "Ügyfél keresése" });
+      // A látható kereső a közös fejlécben van (desktopon a fejlécsávban, mobilon/tableten a ragadós felső sávban), a fő tartalom felett.
+      const inHeader = (p) => p.evaluate(() => {
+        const el = [...document.querySelectorAll('[role="combobox"]')].find((x) => x.getClientRects().length > 0);
+        const main = document.querySelector("main");
+        return !!el && !el.closest("main") && el.getBoundingClientRect().bottom <= main.getBoundingClientRect().top + 1;
+      });
+      for (const [href, label] of [["/", "Áttekintés"], ["/pipeline", "Pipeline"], ["/customers", "Ügyfelek"]]) {
+        await pageA.goto(BASE + href, { waitUntil: "networkidle" });
+        L(`E1: a kereső a közös fejlécben van (${label})`, (await search(pageA).isVisible()) && (await inHeader(pageA)));
+      }
+      await pageA.goto(BASE + "/pipeline", { waitUntil: "networkidle" });
+      L("a Pipeline-ban nincs külön keresőmező; az oszlopok és kártyák változatlanok", (await pageA.locator("main input[type=search]").count()) === 0 && (await pageA.locator("section[aria-label] h3").count()) === 7 && (await pageA.locator("main article").count()) === 2);
+      await search(pageA).fill("minta");
+      const opts = pageA.getByRole("option");
+      await opts.first().waitFor({ timeout: 5000 }).catch(() => {});
+      const optTexts = await opts.allInnerTexts();
+      L("a találatok egyértelműen azonosíthatók (név, típus, státusz, elérhetőség); ékezet- és kisbetű-független", optTexts.length === 2 && optTexts[0].startsWith("Minta Kft.") && optTexts[0].includes("Cég ·") && optTexts[0].includes("+36 20 999 8888") && optTexts[1].startsWith("Minta Mária") && optTexts[1].includes("Magánszemély"), JSON.stringify(optTexts));
+      L("combobox: aria-expanded=true nyitott listánál", (await search(pageA).getAttribute("aria-expanded")) === "true");
+      await checkPage(pageA, "desktop", "globális kereső találatokkal");
+      await search(pageA).press("ArrowDown");
+      await search(pageA).press("ArrowDown");
+      L("E7: a nyilakkal kijelölhető találat (aria-activedescendant)", (await pageA.getByRole("option", { selected: true }).innerText()).startsWith("Minta Mária"));
+      await search(pageA).press("Enter");
+      await pageA.waitForURL("**/customers/cust-*");
+      await pageA.waitForSelector("main h1:has-text('Minta Mária')");
+      L("E3 + E7: Pipeline oldalról, billentyűzettel (Le, Enter) a megfelelő ügyféladatlap nyílik", (await pageA.locator("main h1").innerText()) === "Minta Mária" && (await search(pageA).inputValue()) === "");
+      L("E5: az ügyféladatlapon is elérhető a kereső", (await search(pageA).isVisible()) && (await inHeader(pageA)));
+      await search(pageA).fill("kft");
+      await opts.first().waitFor({ timeout: 5000 }).catch(() => {});
+      await search(pageA).press("Enter");
+      await pageA.waitForSelector("main h1:has-text('Minta Kft.')");
+      L("E5: ügyféladatlapról egyetlen találatra Enterrel átnavigál", (await pageA.locator("main h1").innerText()) === "Minta Kft.");
+      await pageA.goto(BASE + "/", { waitUntil: "networkidle" });
+      await search(pageA).fill("Kovács");
+      await opts.first().waitFor({ timeout: 5000 }).catch(() => {});
+      const viaContact = await opts.first().innerText();
+      L("kapcsolati személyre is keres: a cég jelenik meg, a kapcsolati személy feltüntetve", viaContact.startsWith("Minta Kft.") && viaContact.includes("Kapcsolati személy: Kovács Anna"), viaContact);
+      await opts.first().click();
+      await pageA.waitForSelector("main h1:has-text('Minta Kft.')");
+      L("E2 + E6: az Áttekintésről kattintással a megfelelő ügyféladatlap nyílik", pageA.url().includes("/customers/cust-") && (await pageA.locator("main h1").innerText()) === "Minta Kft.");
+      await pageA.goto(BASE + "/customers", { waitUntil: "networkidle" });
+      await search(pageA).fill("nincs ilyen ügyfél");
+      L("E4: az Ügyfelek oldalon használható; nincs találat: magyar üres állapot", await shows(pageA.locator("header >> text=Nincs a keresésnek megfelelő ügyfél.")));
+      await search(pageA).fill("minta");
+      await opts.first().waitFor({ timeout: 5000 }).catch(() => {});
+      await search(pageA).press("Escape");
+      L("E7: Escape bezárja a találati listát", (await search(pageA).getAttribute("aria-expanded")) === "false" && !(await opts.first().isVisible()));
+      await search(pageA).press("Escape");
+      L("második Escape törli a keresőmezőt", (await search(pageA).inputValue()) === "");
+      await search(pageA).focus();
+      await pageA.keyboard.press("Shift+Tab");
+      L("billentyűzet: a kereső Tab-bal elérhető és elhagyható, látható fókusszal", (await pageA.evaluate(() => document.activeElement?.getAttribute("role"))) !== "combobox");
+      await pageA.keyboard.press("Tab");
+      const focusStyle = await pageA.evaluate(() => { const el = document.activeElement; return el?.getAttribute("role") === "combobox" ? getComputedStyle(el).outlineStyle : "none"; });
+      L("látható fókusz a keresőn", focusStyle !== "none", focusStyle);
     }
 
     // ============ I) Második pilot felhasználó: közös nézet, azonosítható módosító ============
@@ -367,13 +518,13 @@ async function checkPage(page, label, tag) {
       L("két pilot felhasználó: a másik felhasználó ugyanazt az adatot látja", (await pageB.locator("main a:has-text('Minta Mária')").count()) === 1 && (await pageB.locator("main a:has-text('Minta Kft.')").count()) === 1);
       await openCustomer(pageB, "Minta Kft.");
       await addTask(pageB, "Személyes tárgyalás", { input: "Tájékoztatás" });
-      await closeTask(pageB, "Személyes tárgyalás", "Információ elküldve");
+      await closeTask(pageB, "Személyes tárgyalás", "success", "Tájékoztatót küldtem.\nKöszönte, átnézi.");
       await pageA.goto(BASE + "/customers", { waitUntil: "networkidle" });
       await openCustomer(pageA, "Minta Kft.");
       const r = taskRow(pageA, "Személyes tárgyalás");
       await openDetails(r);
       const t = await r.innerText();
-      L("az első felhasználó látja a másik módosítását, a rögzítő a második felhasználó", t.includes("Információ elküldve") && t.includes("Teszt Pilot Kettő"));
+      L("az első felhasználó látja a másik módosítását (minősítés, Output), a rögzítő a második felhasználó", t.includes("Lezárva — Sikeres") && t.includes("Tájékoztatót küldtem.") && t.includes("Teszt Pilot Kettő"));
     }
     // Daily-use notes: saved through the API, visible to the second user after reload.
     await openCustomer(pageA, "Minta Kft.");
@@ -423,7 +574,7 @@ async function checkPage(page, label, tag) {
       await dlg(pageA).locator("button[type=submit]").click();
       await dlg(pageA).waitFor({ state: "detached" });
       await settle(pageA);
-      L("újrapróbálás után a feladat létrejön, és pontosan egy (nincs duplikátum)", (await countTasks()) === baseCount + 1 && (await pageA.locator("#feladatok-lista input[type=checkbox]").count()) === 1);
+      L("újrapróbálás után a feladat létrejön, és pontosan egy (nincs duplikátum)", (await countTasks()) === baseCount + 1 && (await pageA.locator("#feladatok-lista li[data-task-id]").count()) === 1);
       // kettős küldés
       await pageA.click('button:has-text("+ Feladat hozzáadása")');
       await dlg(pageA).getByLabel(/Feladat típusa/).selectOption({ label: "E-mail" });
@@ -483,14 +634,47 @@ async function checkPage(page, label, tag) {
       await m.click('button:has-text("+ Feladat hozzáadása")');
       await checkPage(m, "mobile", "új feladat modál");
       await dlg(m).getByRole("button", { name: "Mégse" }).click();
-      await taskRow(m, "E-mail").getByRole("checkbox").click();
-      await checkPage(m, "mobile", "feladat lezárása modál");
-      await dlg(m).getByRole("button", { name: "Mégse" }).click();
+      await openDetails(taskRow(m, "E-mail"));
+      L("mobil: a feladat részletei (Output, Sikeres/Sikertelen, átidőzítés) használhatók", (await taskRow(m, "E-mail").getByLabel(/^Output/).isVisible()) && (await taskRow(m, "E-mail").getByRole("button", { name: "Sikeres lezárás", exact: true }).isVisible()) && (await taskRow(m, "E-mail").getByRole("button", { name: "Határidő mentése" }).isVisible()));
+      await checkPage(m, "mobile", "feladat részletei");
+      await m.locator("#elozmenyek").scrollIntoViewIfNeeded();
+      await checkPage(m, "mobile", "előzmények");
+      const ms = m.getByRole("combobox", { name: "Ügyfél keresése" });
+      await m.locator("#elozmenyek").scrollIntoViewIfNeeded();
+      const uncovered = await ms.evaluate((el) => { const b = el.getBoundingClientRect(); return b.top >= 0 && document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === el; });
+      L("E8: mobilon a kereső görgetés után is elérhető (ragadós felső sáv), semmi nem takarja", uncovered);
+      await ms.fill("Mária");
+      await m.getByRole("option").first().waitFor({ timeout: 5000 }).catch(() => {});
+      const box = await m.getByRole("option").first().boundingBox();
+      L("E8: mobilon a kereső és a találati lista a képernyőn belül marad", !!box && box.x >= 0 && box.x + box.width <= 390 + 1, JSON.stringify(box));
+      await checkPage(m, "mobile", "globális kereső");
+      await m.getByRole("option").first().click();
+      await m.waitForSelector("main h1:has-text('Minta Mária')");
+      L("E8: mobilon érintéssel/kattintással a megfelelő ügyféladatlap nyílik", (await m.locator("main h1").innerText()) === "Minta Mária");
       await m.goto(BASE + "/pipeline", { waitUntil: "networkidle" });
       await checkPage(m, "mobile", "pipeline");
       await m.goto(BASE + "/customers", { waitUntil: "networkidle" });
       await checkPage(m, "mobile", "ügyféllista");
       await ctxM.close();
+    }
+
+    // ============ L2) Tablet (768) és desktop (1280, 1440) ellenőrzés ============
+    for (const vp of [{ width: 768, height: 1024, label: "tablet-768" }, { width: 1280, height: 800, label: "desktop-1280" }, { width: 1440, height: 900, label: "desktop-1440" }]) {
+      const ctxT = await browser.newContext({ viewport: { width: vp.width, height: vp.height } });
+      const t = await ctxT.newPage();
+      const L = (n, ok, e) => log(`[${vp.label}] ${n}`, ok, e);
+      await login(t, EMAIL_A, PW_A);
+      await checkPage(t, vp.label, "áttekintés");
+      await openCustomer(t, "Minta Kft.");
+      await openDetails(taskRow(t, "E-mail"));
+      L("a feladat részletei, az Előzmények és a kereső látható", (await taskRow(t, "E-mail").getByRole("button", { name: "Sikertelen lezárás", exact: true }).isVisible()) && (await t.locator("#elozmenyek").isVisible()) && (await t.getByRole("combobox", { name: "Ügyfél keresése" }).isVisible()));
+      await checkPage(t, vp.label, "ügyféladatlap feladat részletekkel");
+      await t.getByRole("combobox", { name: "Ügyfél keresése" }).fill("minta");
+      await t.getByRole("option").first().waitFor({ timeout: 5000 }).catch(() => {});
+      await checkPage(t, vp.label, "globális kereső");
+      await t.goto(BASE + "/pipeline", { waitUntil: "networkidle" });
+      await checkPage(t, vp.label, "pipeline");
+      await ctxT.close();
     }
 
     // ============ M) Kijelentkezés ============
@@ -500,6 +684,7 @@ async function checkPage(page, label, tag) {
       await pageA.getByRole("button", { name: "Kijelentkezés" }).click();
       await pageA.getByRole("heading", { name: "Bejelentkezés" }).waitFor();
       L("kijelentkezés: a belépési űrlap látszik, az adat nem", (await pageA.locator("text=Minta Mária").count()) === 0);
+      L("E9: kijelentkezés után nincs kereső", (await pageA.getByRole("combobox").count()) === 0);
       const after = await pageA.request.get(BASE + "/api/crm/snapshot");
       L("kijelentkezés után az API 401-et ad (a munkamenet a szerveren is megszűnt)", after.status() === 401);
       await pageA.goBack().catch(() => {});
@@ -530,6 +715,10 @@ async function checkPage(page, label, tag) {
       const text = await q.locator("#feladatok-lista").innerText();
       const earlier = await q.locator("#korabbi-feladatok").innerText();
       L("újraindítás után a feladatok, Input/Output értékek és státusz-hozzárendelések is megvannak", (earlier + text).includes("Telefonhívás") && (earlier + text).includes("Online tárgyalás") && (await statusSelect(q).inputValue()) === "contact");
+      const hq = await q.locator("#elozmenyek").innerText();
+      L("B3: újraindítás, kijelentkezés és új belépés után a lezárás minősítése és Outputja visszaolvasható", hq.includes("Feladat lezárva — Sikeres") && hq.includes("Csütörtökön ismét keresni kell.") && hq.includes("Feladat lezárva — Sikertelen") && hq.includes("sem sikerült elérni.") && hq.includes("Feladat átidőzítve"));
+      await openDetails(taskRow(q, "Telefonhívás"));
+      L("B3: a lezárt feladat részleteiben is visszaolvasható (minősítés + Output)", (await taskRow(q, "Telefonhívás").innerText()).includes("Lezárva — Sikeres"));
       await openCustomer(q, "Minta Mária");
       L("a korábban rögzített tiltakozás/korlátozás megmaradt: rövid jelzés az adatlapon", await q.locator("main >> text=Megkeresés korlátozva").first().isVisible());
       L("a régi nagy megkereshetőségi panel/mátrix és a hosszú figyelmeztetés nincs a felületen", (await q.locator("text=/Megkeresési információk|Megkereshetőség|Marketing|Tiltott|korlátozás rögzítése/").count()) === 0);
