@@ -2,6 +2,7 @@ import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, TASK_INPUT_LABELS,
 import type {
   Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task, TaskOutput,
 } from "./types";
+import { addDays, dayKey } from "./time";
 import { isActive } from "./workflow";
 
 export function customerName(c: Customer): string {
@@ -153,17 +154,45 @@ export function getContactability(
 }
 
 // -------------------------------------------------------------------- Feladatok
-export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-export const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+/** Lejárt: nyitott, a határidő napja (budapesti idő) korábbi a mai napnál. */
+export const isOverdue = (t: Task, now: Date) => isOpenTask(t) && t.dueAt !== undefined && dayKey(t.dueAt) < dayKey(now);
 
-/** Mai feladatok: nyitott, mára esedékes határidejű feladatok (a határidő nélküliek nem). */
+/** Mai feladatok: nyitott, a budapesti mai napra esedékes határidejű feladatok (a határidő nélküliek nem). */
 export function tasksDueToday(snap: DataSnapshot, now: Date): Task[] {
-  const s = startOfDay(now).getTime(), e = endOfDay(now).getTime();
-  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && Date.parse(t.dueAt) >= s && Date.parse(t.dueAt) < e);
+  const today = dayKey(now);
+  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && dayKey(t.dueAt) === today);
 }
 export function overdueTasks(snap: DataSnapshot, now: Date): Task[] {
-  const s = startOfDay(now).getTime();
-  return snap.tasks.filter((t) => isOpenTask(t) && t.dueAt !== undefined && Date.parse(t.dueAt) < s);
+  return snap.tasks.filter((t) => isOverdue(t, now));
+}
+
+/** A napi feladatlista (CRM-010) szűrői. */
+export const DAILY_FILTERS = [
+  { key: "overdue", label: "Lejárt" },
+  { key: "today", label: "Ma esedékes" },
+  { key: "next7", label: "Következő 7 nap" },
+  { key: "nodue", label: "Határidő nélkül" },
+] as const;
+export type DailyFilter = (typeof DAILY_FILTERS)[number]["key"];
+
+/**
+ * Napi feladatlista (CRM-010): a nyitott feladatok budapesti nap szerint csoportosítva. `assigneeId` megadásakor csak az adott
+ * munkatárs feladatai (a meglévő `assigneeId` alapján; nincs kitalált hozzárendelés). Lezárt feladat egyik csoportba sem kerül.
+ * Rendezés: lejárt és közelgő - a legkorábbi határidő elöl; mai - határidő szerint; határidő nélkül - felvételi idő, majd azonosító.
+ */
+export function dailyTasks(snap: DataSnapshot, now: Date, assigneeId?: string): Record<DailyFilter, Task[]> {
+  const today = dayKey(now);
+  const week = addDays(today, 7);
+  const open = snap.tasks.filter((t) => isOpenTask(t) && (assigneeId === undefined || t.assigneeId === assigneeId));
+  const byDue = (a: Task, b: Task) => dueTime(a) - dueTime(b) || Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id);
+  const byCreated = (a: Task, b: Task) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id.localeCompare(b.id);
+  const key = (t: Task) => dayKey(t.dueAt as string);
+  return {
+    overdue: open.filter((t) => t.dueAt !== undefined && key(t) < today).sort(byDue),
+    today: open.filter((t) => t.dueAt !== undefined && key(t) === today).sort(byDue),
+    next7: open.filter((t) => t.dueAt !== undefined && key(t) > today && key(t) <= week).sort(byDue),
+    nodue: open.filter((t) => t.dueAt === undefined).sort(byCreated),
+  };
 }
 
 const taskOrder = (a: Task, b: Task) =>
