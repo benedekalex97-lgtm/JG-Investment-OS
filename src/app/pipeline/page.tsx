@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { DataGate, RestrictedBadge, TypeBadge } from "@/components/common";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
 import { crmPipeline, customerName, nextTask, type PipelineColumn } from "@/domain/logic";
@@ -46,10 +45,9 @@ function Column({ col, data }: { col: PipelineColumn; data: DataSnapshot }) {
   );
 }
 
+/** v0.9: az ügyfélkeresés a közös fejléc globális keresőjébe került; a pipeline az összes ügyfelet mutatja. */
 function Board({ data }: { data: DataSnapshot }) {
-  const [query, setQuery] = useState("");
-  const columns = crmPipeline(data, { query });
-  const shown = columns.reduce((n, c) => n + c.customers.length, 0);
+  const columns = crmPipeline(data);
   if (data.customers.length === 0) {
     return (
       <Card>
@@ -59,16 +57,7 @@ function Board({ data }: { data: DataSnapshot }) {
   }
   return (
     <div className="space-y-4">
-      <Card>
-        <div className="grid gap-3 p-4 sm:grid-cols-2">
-          <label className="block text-xs font-medium text-ink-muted">
-            Keresés (ügyfél, kapcsolati személy)
-            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} className="mt-1 block min-h-11 w-full rounded-md bg-surface px-3 text-sm text-ink ring-1 ring-control" />
-          </label>
-          <p className="self-end pb-2 text-[13px] text-ink-muted" role="status" aria-live="polite">{shown} ügyfél{query ? ` (összesen ${data.customers.length})` : ""}</p>
-        </div>
-      </Card>
-      {shown === 0 ? <p className="rounded-md bg-surface p-4 text-sm text-ink-muted ring-1 ring-line">Nincs a keresésnek megfelelő ügyfél.</p> : null}
+      <p className="text-[13px] text-ink-muted">{data.customers.length} ügyfél</p>
       <div role="region" aria-label="Pipeline (vízszintesen görgethető)" tabIndex={0} className="-mx-4 overflow-x-auto px-4 pb-3 focus-visible:outline-2 focus-visible:outline-accent sm:-mx-6 sm:px-6">
         <div className="flex w-max snap-x snap-proximity gap-3">{columns.map((c) => <Column key={c.status} col={c} data={data} />)}</div>
       </div>

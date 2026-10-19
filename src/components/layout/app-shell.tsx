@@ -7,6 +7,7 @@ import { useCrmData } from "@/data/store";
 import { TextInput } from "@/components/ui/form";
 import { Button, LoadingState } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
+import { GlobalSearch } from "./global-search";
 
 export const NAV = [
   { href: "/", label: "Áttekintés" },
@@ -45,7 +46,7 @@ function Brand() {
   return (
     <Link href="/" className="block rounded-md px-3 py-1 text-on-carbon">
       <span className="block text-[15px] font-semibold tracking-tight">JG Investment OS</span>
-      <span className="block text-xs text-on-carbon-muted">v0.8</span>
+      <span className="block text-xs text-on-carbon-muted">v0.9</span>
     </Link>
   );
 }
@@ -84,10 +85,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           ) : null}
         </div>
 
-        {/* Fejléc: oldaljelző + környezet + felhasználó */}
-        <div className="border-b border-line bg-surface">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2 sm:px-6">
+        {/* Fejléc: oldaljelző + globális ügyfélkereső (csak bejelentkezve) + környezet + felhasználó */}
+        <header className="border-b border-line bg-surface">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-6">
             <p className="text-sm text-ink-muted">{ready ? <>Aktuális oldal: <span className="font-medium text-ink">{current}</span></> : "JG Investment OS"}</p>
+            {ready ? <GlobalSearch className="order-last w-full md:order-none md:w-auto md:max-w-md md:flex-1" /> : null}
             <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               {environmentLabel ? <span className="rounded-full bg-warn-soft px-2 py-0.5 font-medium text-warn" data-testid="environment-label">{environmentLabel}</span> : null}
               {ready && user ? (
@@ -100,7 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               ) : null}
             </p>
           </div>
-        </div>
+        </header>
 
         {legacy.items.length ? <LegacyNotice /> : null}
 
