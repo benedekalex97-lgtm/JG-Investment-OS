@@ -53,15 +53,14 @@ const TYPES = ["Telefonhívás", "E-mail", "Online tárgyalás", "Személyes tá
 
 // ----------------------------------------------------------------- szerverkezelés
 const baseEnv = { ...process.env, JG_ENV: "local", JG_PGLITE_DIR: DB_DIR, NODE_ENV: "production" };
-const tsx = path.join(ROOT, "node_modules", ".bin", "tsx");
 function cli(args, extraEnv = {}) {
-  const r = spawnSync(tsx, ["scripts/db.ts", ...args], { cwd: ROOT, env: { ...baseEnv, ...extraEnv }, encoding: "utf8" });
+  const r = spawnSync(process.execPath, ["--import", "tsx", "scripts/db.ts", ...args], { cwd: ROOT, env: { ...baseEnv, ...extraEnv }, encoding: "utf8" });
   if (r.status !== 0) throw new Error(`db ${args.join(" ")} sikertelen: ${r.stderr}`);
   return r.stdout;
 }
 let server = null;
 async function startServer(port, env) {
-  const child = spawn(process.execPath, [path.join(ROOT, "node_modules", "next", "dist", "bin", "next"), "start", "-p", String(port)], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [path.join(ROOT, "node_modules", "next", "dist", "bin", "next"), "start", "-p", String(port), "-H", "127.0.0.1"], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
   let out = "";
   child.stdout.on("data", (d) => { out += d; });
   child.stderr.on("data", (d) => { out += d; });
@@ -151,7 +150,7 @@ async function checkPage(page, label, tag) {
 }
 
 (async () => {
-  const browser = await chromium.launch(process.env.CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote", "--single-process"] } : {});
+  const browser = await chromium.launch(process.env.CHROMIUM_EXECUTABLE_PATH ? { executablePath: process.env.CHROMIUM_EXECUTABLE_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-zygote"] } : {});
   const DESKTOP = { width: 1440, height: 900 }, MOBILE = { width: 390, height: 844 };
   try {
     // ============ 0) Adatbázis nélkül: nincs csendes tartalék ============
@@ -242,7 +241,7 @@ async function checkPage(page, label, tag) {
 
       // ============ D) Szerkesztés a sávban ============
       await pageA.locator(`${SIDE} button:has-text("Szerkesztés")`).click();
-      L("a szerkesztő űrlap a sávban nyílik, nincs duplikált szerkesztő (egy mentés gomb)", (await pageA.locator(`${SIDE} button:has-text("Mentés")`).count()) === 1 && (await pageA.locator('main button:has-text("Mentés")').count()) === 1);
+      L("a szerkesztő űrlap a sávban nyílik, nincs duplikált szerkesztő (egy mentés gomb)", (await pageA.locator(`${SIDE} button:has-text("Mentés")`).count()) === 1 && (await pageA.getByRole("button", { name: "Mentés", exact: true }).count()) === 1);
       await pageA.getByLabel(/^Telefonszám/).fill("+36 20 999 8888");
       await pageA.getByLabel(/Beosztás/).fill("ügyvezető");
       await checkPage(pageA, "desktop", "szerkesztés a sávban");
@@ -519,7 +518,7 @@ async function checkPage(page, label, tag) {
       await ctx.close();
       await stop(server);
       L("a szerverfolyamat leállt (szimulált új telepítés / újraindítás)", server.exitCode !== null || server.signalCode !== null);
-      const r = spawnSync(tsx, ["e2e/restriction.ts", DB_DIR, customerId], { cwd: ROOT, env: baseEnv, encoding: "utf8" });
+      const r = spawnSync(process.execPath, ["--import", "tsx", "e2e/restriction.ts", DB_DIR, customerId], { cwd: ROOT, env: baseEnv, encoding: "utf8" });
       L("meglévő (fiktív) tiltakozási adat a CRM felületén kívül rögzítve az adatbázisban", r.status === 0, r.stderr);
       server = await startServer(PORT, baseEnv);
       const ctx2 = await browser.newContext({ viewport: DESKTOP });
