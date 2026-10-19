@@ -134,11 +134,18 @@ const PROBLEMS: Record<string, { title: string; body: string }> = {
   unreachable: { title: "Az adatbázis jelenleg nem érhető el", body: "Próbáld újra egy perc múlva. A korábban mentett adat nem veszett el." },
 };
 function InfraNotice({ problem }: { problem: string | null }) {
+  const { refresh } = useCrmData();
+  const [retrying, setRetrying] = useState(false);
+  const retry = async () => {
+    setRetrying(true);
+    try { await refresh(); } finally { setRetrying(false); }
+  };
   const p = PROBLEMS[problem ?? "unreachable"] ?? PROBLEMS.unreachable;
   return (
     <div role="alert" className="mx-auto max-w-xl rounded-lg bg-warn-soft p-5 text-sm text-ink ring-1 ring-warn/25" data-testid="infra-notice">
       <h1 className="text-lg font-semibold text-warn">{p.title}</h1>
       <p className="mt-2">{p.body}</p>
+      <Button variant="secondary" className="mt-4" onClick={() => void retry()} disabled={retrying} aria-busy={retrying}>Újrapróbálás</Button>
     </div>
   );
 }
@@ -217,3 +224,4 @@ function LegacyNotice() {
     </div>
   );
 }
+

@@ -128,6 +128,25 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
     expect(s.activities.filter((a) => a.customerId === c.id && a.type === "crm_status_change")).toHaveLength(3);
   });
 
+  it("ügyféljegyzet: közös, tartós, idempotens, a rögzítőt a munkamenet adja", async () => {
+    const c = await create(one, { type: "individual", name: "Jegyzet Júlia" });
+    const requestId = randomUUID();
+    const args = { customerId: c.id, text: "  Pénteken visszahívást kért.\nA kérdéseit összegyűjti.  " };
+    const first = await one.op("note.create", args, requestId);
+    expect(first.body.result.ok).toBe(true);
+    expect((await one.op("note.create", args, requestId)).body.replayed).toBe(true);
+    const notes = (await snap(two)).activities.filter((a) => a.customerId === c.id && a.type === "note");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ summary: args.text.trim(), recordedBy: ids.a });
+    expect((await one.op("note.create", { customerId: c.id, text: " " })).status).toBe(400);
+    expect((await one.op("note.create", { customerId: c.id, text: "x".repeat(2001) })).status).toBe(400);
+    expect((await one.op("note.create", { customerId: c.id, text: "Hamis", recordedBy: ids.b })).status).toBe(400);
+    expect((await one.op("note.create", { customerId: "missing", text: "Nincs ügyfél" })).body.result.ok).toBe(false);
+    const audit = await t.db.system((tx) => tx.query("select detail from audit_events where action = 'note.create' and customer_id = $1", [c.id]));
+    expect(audit).toHaveLength(1);
+    expect(JSON.stringify(audit)).not.toContain("Pénteken");
+  });
+
   it("„Tőke elhelyezve” igazolás nélkül nem rögzíthető; igazolással igen (szimulált)", async () => {
     const c = await create(one, { type: "individual", name: "Tőke Tamás" });
     const no = await one.op("customer.changeStatus", { customerId: c.id, input: { toStatus: "capital_placed" } });
