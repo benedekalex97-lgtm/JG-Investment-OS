@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DataTabs, PermissionGate } from "@/components/data/data-nav";
+import { PermissionGate } from "@/components/data/data-nav";
 import { Badge, Card, EmptyState, ErrorState, LoadingState, PageHeader } from "@/components/ui/primitives";
 import { getJson } from "@/data/data-client";
 import { SOURCE_VERIFICATION_LABELS, type SourceVerification } from "@/domain/data-import";
@@ -61,7 +61,6 @@ export default function HistoryPage() {
   return (
     <>
       <PageHeader title="Adatkezelés" description="Az ügyféladat-importok naplója: ki, mikor, milyen forrásból, milyen eredménnyel. A fájl és a sorok tartalma nem kerül tárolásra." />
-      <DataTabs />
       <PermissionGate permission="crm.import.history.read"><History /></PermissionGate>
     </>
   );

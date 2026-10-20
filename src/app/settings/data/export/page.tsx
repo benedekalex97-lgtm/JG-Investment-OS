@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DataTabs, PermissionGate } from "@/components/data/data-nav";
+import { PermissionGate } from "@/components/data/data-nav";
 import { FilterSelect } from "@/components/ui/form";
 import { Button, Card, CardHeader, ErrorState, PageHeader } from "@/components/ui/primitives";
 import { download, postJson } from "@/data/data-client";
@@ -107,7 +107,6 @@ export default function ExportPage() {
   return (
     <>
       <PageHeader title="Adatkezelés" description="Ügyfelek exportálása Excel- vagy CSV-fájlba a meglévő szűrési feltételekkel. Ez nem teljes adatbázismentés." />
-      <DataTabs />
       <PermissionGate permission="crm.customer.export"><ExportForm /></PermissionGate>
     </>
   );

@@ -42,6 +42,8 @@ interface Ctx {
   login: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** v1.1: a snapshot (és vele a CRM-konfiguráció) újratöltése, pl. adminmódosítás után - a nézetek azonnal az új beállítást mutatják. */
+  reloadData: () => Promise<boolean>;
   legacy: { items: LegacyBrowserData[]; discard: () => void };
 }
 const StoreContext = createContext<Ctx | null>(null);
@@ -222,7 +224,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value: Ctx = {
-    phase, problem, data, repo, user, users, environmentLabel, authMode, googleConfigured, features, permissions, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap,
+    phase, problem, data, repo, user, users, environmentLabel, authMode, googleConfigured, features, permissions, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap, reloadData: loadSnapshotFromServer,
     legacy: {
       items: legacyItems,
       /** Csak kifejezett felhasználói döntésre hívandó: a régi, csak böngészőben tárolt adat törlése. */

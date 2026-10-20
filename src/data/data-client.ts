@@ -43,6 +43,15 @@ export async function postJson<T>(path: string, body: unknown): Promise<ApiResul
   }
 }
 
+/** v1.1: módosító adminkérés (PATCH, JSON-törzs, azonos eredet). */
+export async function patchJson<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+  try {
+    return await parse<T>(await fetch(path, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body), credentials: "same-origin", cache: "no-store" }));
+  } catch {
+    return { ok: false, status: 0, message: DATA_MESSAGES.network };
+  }
+}
+
 export async function getJson<T>(path: string): Promise<ApiResult<T>> {
   try {
     return await parse<T>(await fetch(path, { credentials: "same-origin", cache: "no-store" }));

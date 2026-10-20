@@ -269,7 +269,7 @@ export function ImportWizard() {
             </ul>
             <div className="flex flex-wrap gap-2">
               <Link href="/customers" className="inline-flex min-h-11 items-center rounded-md bg-accent px-4 text-sm font-medium text-on-accent hover:bg-accent-hover">Ügyfelek megnyitása</Link>
-              <Link href="/data/history" className="inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium text-ink ring-1 ring-line-strong hover:bg-surface-muted">Importelőzmények</Link>
+              <Link href="/settings/data/history" className="inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium text-ink ring-1 ring-line-strong hover:bg-surface-muted">Importelőzmények</Link>
               <Button variant="ghost" onClick={restart}>Új import</Button>
             </div>
           </div>
