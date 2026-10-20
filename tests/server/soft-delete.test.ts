@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { restoreCustomer } from "@/server/admin";
 import { exportBackup, restoreBackup } from "@/server/backup";
+import { LATEST_MIGRATION } from "@/server/db/migrate";
 import { features } from "@/server/features";
 import type { Customer, DataSnapshot, Task } from "@/domain/types";
 import { DRIVERS, PASSWORD_A, addPilotUsers, client, makeApi, makeTestDb, type Client, type TestDb } from "./helpers";
@@ -122,7 +123,7 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
 
     // D11: a mentés a törölt ügyfelet és teljes történetét tartalmazza; a visszaállítás után is törölt marad.
     const b = JSON.parse(JSON.stringify(await exportBackup(t.db, "local")));
-    expect(b.migration).toBe("0006_crm_import_jobs");
+    expect(b.migration).toBe(LATEST_MIGRATION);
     expect(b.tables.customers.find((x: { id: string }) => x.id === cust.id)).toMatchObject({ deleted_by: userId });
     const dst = await makeTestDb(kind);
     await restoreBackup(dst.db, b, "local");
