@@ -4,6 +4,8 @@ import { migration0001 } from "./migrations/0001_init";
 import { migration0002 } from "./migrations/0002_google_auth";
 import { migration0003 } from "./migrations/0003_task_outcome";
 import { migration0004 } from "./migrations/0004_test_customer_soft_delete";
+import { migration0005 } from "./migrations/0005_crm_data_permissions";
+import { migration0006 } from "./migrations/0006_crm_import_jobs";
 import type { Db } from "./types";
 
 export interface Migration {
@@ -13,7 +15,7 @@ export interface Migration {
 }
 
 /** Verziózott migrációk időrendben. Új migráció csak a lista végére kerülhet; alkalmazott migráció nem módosítható (ellenőrzőösszeg). */
-export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004];
+export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1].id;
 
 export const checksum = (m: Migration) => createHash("sha256").update(m.sql).digest("hex");
