@@ -91,12 +91,12 @@ export async function migrate(db: Db, opts: MigrateOptions): Promise<MigrateResu
 export type SchemaState = { ok: true } | { ok: false; reason: "schema_missing" | "schema_outdated" | "environment_mismatch" };
 
 /** Az alkalmazás indulási ellenőrzése: nem migrál, csak megállapítja, hogy a séma és a környezet megfelel-e. */
-export async function checkSchema(db: Db, env: JgEnv): Promise<SchemaState> {
+export async function checkSchema(db: Db, env: JgEnv, migrations: readonly Migration[] = MIGRATIONS): Promise<SchemaState> {
   return db.system(async (tx) => {
     const t = await tx.query<{ ok: boolean }>("select to_regclass('public.schema_migrations') is not null as ok");
     if (!t[0]?.ok) return { ok: false, reason: "schema_missing" } as const;
     const have = new Set((await tx.query<{ id: string }>("select id from schema_migrations")).map((r) => r.id));
-    if (!MIGRATIONS.every((m) => have.has(m.id))) return { ok: false, reason: "schema_outdated" } as const;
+    if (!migrations.every((m) => have.has(m.id))) return { ok: false, reason: "schema_outdated" } as const;
     const e = await tx.query<{ value: string }>("select value from meta where key = 'environment'");
     if (!e.length || e[0].value !== env) return { ok: false, reason: "environment_mismatch" } as const;
     return { ok: true } as const;
