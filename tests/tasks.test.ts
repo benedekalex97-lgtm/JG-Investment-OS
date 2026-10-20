@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { addDays, dayKey, noonIsoOfDay } from "@/domain/time";
 import { emptySnapshot } from "@/domain/types";
 import { nextTask, overdueTasks, tasksByStatus, tasksDueToday } from "@/domain/logic";
 import { NOW, U, byName, closeIt, errs, newRepo, seed, tickRepo, val } from "./helpers";
@@ -144,8 +145,10 @@ describe("következő nyitott feladat, mai és lejárt feladatok", () => {
     const r = newRepo(emptySnapshot());
     const c = mk(r);
     add(r, c.id, "Határidő nélkül");
-    const today = add(r, c.id, "Mai", { dueAt: new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate(), 15).toISOString() });
-    const old = add(r, c.id, "Lejárt", { dueAt: new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - 2, 15).toISOString() });
+    // Időzóna-független: a határidők a NOW budapesti napjából (az alkalmazás üzleti napja), nem a futtatógép helyi idejéből.
+    const todayKey = dayKey(NOW);
+    const today = add(r, c.id, "Mai", { dueAt: noonIsoOfDay(todayKey) });
+    const old = add(r, c.id, "Lejárt", { dueAt: noonIsoOfDay(addDays(todayKey, -2)) });
     expect(tasksDueToday(r.getSnapshot(), NOW).map((t) => t.id)).toEqual([today.id]);
     expect(overdueTasks(r.getSnapshot(), NOW).map((t) => t.id)).toEqual([old.id]);
     closeIt(r, old.id);
