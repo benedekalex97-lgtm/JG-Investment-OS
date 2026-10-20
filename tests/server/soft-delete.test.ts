@@ -9,7 +9,7 @@ const FLAG = "JG_TEST_CUSTOMER_DELETE_ENABLED";
 
 describe("funkciókapcsoló", () => {
   it("D1: alapértelmezetten kikapcsolva; csak a pontos „true” kapcsolja be", () => {
-    expect(features({})).toEqual({ testCustomerDelete: false });
+    expect(features({})).toEqual({ testCustomerDelete: false, customerImport: false });
     for (const v of ["", "false", "1", "yes", "TRUEISH"]) expect(features({ [FLAG]: v }).testCustomerDelete).toBe(false);
     expect(features({ [FLAG]: "true" }).testCustomerDelete).toBe(true);
     expect(features({ [FLAG]: " TRUE " }).testCustomerDelete).toBe(true);
@@ -49,9 +49,9 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
     const r = await c.op("customer.delete", { customerId: cust.id, confirmation: "TÖRLÉS" });
     expect(r.body.result).toMatchObject({ ok: false, errors: { _form: expect.stringMatching(/nincs engedélyezve/) } });
     expect((await snap()).customers.some((x) => x.id === cust.id)).toBe(true);
-    expect(((await (await c.get("/api/auth/me")).json()) as { features: unknown }).features).toEqual({ testCustomerDelete: false });
+    expect(((await (await c.get("/api/auth/me")).json()) as { features: unknown }).features).toEqual({ testCustomerDelete: false, customerImport: false });
     process.env[FLAG] = "true";
-    expect(((await (await c.get("/api/auth/me")).json()) as { features: unknown }).features).toEqual({ testCustomerDelete: true });
+    expect(((await (await c.get("/api/auth/me")).json()) as { features: unknown }).features).toEqual({ testCustomerDelete: true, customerImport: false });
   });
 
   it("D2: munkamenet nélkül 401, adat nem változik", async () => {
@@ -122,7 +122,7 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
 
     // D11: a mentés a törölt ügyfelet és teljes történetét tartalmazza; a visszaállítás után is törölt marad.
     const b = JSON.parse(JSON.stringify(await exportBackup(t.db, "local")));
-    expect(b.migration).toBe("0004_test_customer_soft_delete");
+    expect(b.migration).toBe("0006_crm_import_jobs");
     expect(b.tables.customers.find((x: { id: string }) => x.id === cust.id)).toMatchObject({ deleted_by: userId });
     const dst = await makeTestDb(kind);
     await restoreBackup(dst.db, b, "local");
