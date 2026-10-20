@@ -6,7 +6,7 @@ run-name: "QA native PostgreSQL ${{ github.sha }}"
 # A konténer jelszava kizárólag ennek a futásnak az eldobható szolgáltatásához tartozik.
 on:
   push:
-    branches: [feat/jg-crm-import-export-v10]
+    branches: [feat/jg-crm-import-export-v10, feat/jg-crm-admin-settings-v11]
   workflow_dispatch:
 
 permissions:
@@ -50,5 +50,7 @@ jobs:
       - run: npm run lint
       - name: Review regressions (F1 two-connection backup snapshot, F2 environment, F3 import limits)
         run: npx vitest run tests/server/backup-snapshot.test.ts tests/server/db-environment.test.ts tests/server/data-import-limits.test.ts --reporter=verbose
+      - name: v1.1 migrations, settings API and backup compatibility
+        run: npx vitest run tests/server/migrate-v11.test.ts tests/server/settings.test.ts tests/server/backup-v11.test.ts --reporter=verbose
       - name: Full test suite on native PostgreSQL
         run: npx vitest run --reporter=verbose
