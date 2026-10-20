@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { DataGate, RestrictedBadge, TypeBadge } from "@/components/common";
-import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
+import { Badge, Card, EmptyState, LinkButton, PageHeader, TONE_DOT } from "@/components/ui/primitives";
 import { crmPipeline, customerName, nextTask, type PipelineColumn } from "@/domain/logic";
 import type { DataSnapshot } from "@/domain/types";
 import { cn } from "@/lib/cn";
@@ -30,10 +30,14 @@ function CustomerCard({ customer, data }: { customer: DataSnapshot["customers"][
 }
 
 function Column({ col, data }: { col: PipelineColumn; data: DataSnapshot }) {
+  const archived = col.def ? !col.def.isActive : true;
   return (
-    <section aria-label={`${col.label} (${col.customers.length})`} className={cn("flex w-[16rem] shrink-0 snap-start flex-col rounded-lg ring-1 ring-line", col.status === "lost" ? "bg-surface-muted/60" : "bg-accent-soft/40")}>
+    <section aria-label={`${col.label}${archived ? " (archivált)" : ""} (${col.customers.length})`} className={cn("flex w-[16rem] shrink-0 snap-start flex-col rounded-lg ring-1 ring-line", col.def?.semantic === "lost" || archived ? "bg-surface-muted/60" : "bg-accent-soft/40")}>
       <header className="flex items-start justify-between gap-2 border-b border-line px-3 py-2">
-        <h3 className="text-[13px] font-semibold leading-tight">{col.label}</h3>
+        <h3 className="flex min-w-0 items-start gap-2 text-[13px] font-semibold leading-tight">
+          <span aria-hidden className={cn("mt-1 size-2.5 shrink-0 rounded-full", TONE_DOT[col.def?.color ?? "neutral"])} />
+          <span className="min-w-0 break-words">{col.label}{archived ? <span className="block text-xs font-normal text-ink-muted">Archivált státusz</span> : null}</span>
+        </h3>
         <Badge tone={col.customers.length ? "accent" : "neutral"} className="shrink-0"><span aria-label={`${col.customers.length} ügyfél`}>{col.customers.length}</span></Badge>
       </header>
       {col.customers.length ? (

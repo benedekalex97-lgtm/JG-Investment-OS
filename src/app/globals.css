@@ -40,6 +40,11 @@
   --color-danger-soft: #f7e0e3;
   --color-info: #2f4f7a;
   --color-info-soft: #e1e9f4;
+  /* v1.1: két további státuszszín a Pipeline-palettához (kontraszt: teal/teal-soft 6.6:1, indigo/indigo-soft 7.4:1). */
+  --color-teal: #0f5c57;
+  --color-teal-soft: #dcefec;
+  --color-indigo: #3b3f8f;
+  --color-indigo-soft: #e5e6f6;
 }
 
 html { background: var(--color-canvas); }

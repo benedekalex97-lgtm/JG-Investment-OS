@@ -3,10 +3,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCrmData } from "@/data/store";
-import { CRM_STATUS_LABELS, RESTRICTION_LABELS } from "@/domain/constants";
+import { RESTRICTION_LABELS } from "@/domain/constants";
+import { findStatus, type CrmConfig } from "@/domain/config";
 import { customerName, statusOf } from "@/domain/logic";
 import type { CrmStatus, Customer, DataSnapshot } from "@/domain/types";
-import { Badge, LoadingState, type Tone } from "./ui/primitives";
+import { Badge, LoadingState } from "./ui/primitives";
 
 /** Betöltési állapot kezelése: amíg nincs snapshot, skeletont mutat. */
 export function DataGate({ children }: { children: (data: DataSnapshot) => ReactNode }) {
@@ -21,10 +22,26 @@ export function useUserName(): (id: string) => string {
   return (id) => users.find((u) => u.id === id)?.name ?? id;
 }
 
-const CRM_TONE: Record<CrmStatus, Tone> = {
-  waiting_for_contact: "neutral", contact: "info", relationship: "info", meeting: "accent", account_opening: "accent", capital_placed: "ok", lost: "danger",
-};
-export const CrmStatusBadge = ({ status }: { status: CrmStatus }) => <Badge tone={CRM_TONE[status]}>{CRM_STATUS_LABELS[status]}</Badge>;
+/** Üres konfiguráció: amíg a szerver konfigurációja nem töltődött be, a felület nem talál ki státuszt/típust. */
+const NO_CONFIG: CrmConfig = { statuses: [], taskTypes: [], taskInputs: [] };
+
+/**
+ * A CRM aktuális konfigurációja (v1.1): a szerver snapshotjával együtt érkezik az adatbázisból, így a kliens ugyanazt használja, mint
+ * a szerver. Az adminmódosítás után a snapshot frissítése (refresh) a nézeteket is frissíti.
+ */
+export function useCrmConfig(): CrmConfig {
+  const { data } = useCrmData();
+  return data?.config ?? NO_CONFIG;
+}
+
+/** Státuszjelvény a katalógus nevével és színével; archivált státusznál jól látható jelzéssel. Ismeretlen kulcs: maga a kulcs. */
+export function CrmStatusBadge({ status, config }: { status: CrmStatus; config: CrmConfig }) {
+  const def = findStatus(config, status);
+  return <Badge tone={def?.color ?? "neutral"}>{def?.label ?? status}{def && !def.isActive ? <span className="ml-1 font-normal">(archivált)</span> : null}</Badge>;
+}
+
+/** Választólista-felirat: archivált elemnél jelzéssel. */
+export const optionLabel = (d: { label: string; isActive: boolean }) => (d.isActive ? d.label : `${d.label} (archivált)`);
 export const TypeBadge = ({ type }: { type: Customer["type"] }) => <Badge tone="accent">{type === "company" ? "Cég" : "Magánszemély"}</Badge>;
 
 /** Rövid, csak olvasható jelzés az aktív tiltakozásról/korlátozásról (nem compliance-panel). */

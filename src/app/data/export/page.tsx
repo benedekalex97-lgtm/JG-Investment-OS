@@ -5,7 +5,9 @@ import { DataTabs, PermissionGate } from "@/components/data/data-nav";
 import { FilterSelect } from "@/components/ui/form";
 import { Button, Card, CardHeader, ErrorState, PageHeader } from "@/components/ui/primitives";
 import { download, postJson } from "@/data/data-client";
-import { CRM_STATUSES, CRM_STATUS_LABELS, CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
+import { CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
+import { ordered } from "@/domain/config";
+import { optionLabel, useCrmConfig } from "@/components/common";
 import { cn } from "@/lib/cn";
 
 /**
@@ -16,6 +18,7 @@ type Filters = { query: string; type: string; crmStatus: string; source: string 
 const clean = (f: Filters) => Object.fromEntries(Object.entries(f).filter(([, v]) => v.trim() !== "")) as Partial<Filters>;
 
 function ExportForm() {
+  const config = useCrmConfig();
   const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
   const [f, setF] = useState<Filters>({ query: "", type: "", crmStatus: "", source: "" });
   const [count, setCount] = useState<number | null>(null);
@@ -71,7 +74,7 @@ function ExportForm() {
           </label>
           <FilterSelect label="Pipeline-státusz" value={f.crmStatus} onChange={set("crmStatus")}>
             <option value="">Összes</option>
-            {CRM_STATUSES.map((s) => <option key={s} value={s}>{CRM_STATUS_LABELS[s]}</option>)}
+            {ordered(config.statuses).map((s) => <option key={s.key} value={s.key}>{optionLabel(s)}</option>)}
           </FilterSelect>
           <FilterSelect label="Ügyféltípus" value={f.type} onChange={set("type")}>
             <option value="">Összes</option>

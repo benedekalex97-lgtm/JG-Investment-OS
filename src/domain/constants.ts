@@ -1,3 +1,5 @@
+import { BUILTIN_CRM_CONFIG } from "./config";
+
 /**
  * Konfigurálható konstansok (v0.2). A megnevezések üzleti review alatt állnak.
  * Minden státusz és mérföldkő DEMÓ-célú, előzetes: nem jogi vagy szolgáltatói igazolás.
@@ -20,28 +22,16 @@ export const VERIFIED_CONTACT_STATUSES = ["existing_verified", "former_verified"
 export const RESTRICTION_KINDS = ["objection", "restriction"] as const;
 export const RESTRICTION_LABELS = { objection: "Tiltakozás", restriction: "Megkeresési korlátozás" } as const;
 
-// ------------------------------------------------------- Egyszerű CRM (v0.5)
+// ------------------------------------------------------- Egyszerű CRM (v0.5) - v1.1-től katalógus
 /**
- * Az ügyfél egyetlen aktuális kapcsolati státusza: pontosan hét, jóváhagyott megnevezés és sorrend.
- * Ne bővítsd és ne nevezd át (üzleti döntés). A státusz közvetlenül az ügyfélhez tartozik; a korábbi
- * CustomerProcess-alapú folyamatstátuszok (lásd lent) a háttérben megmaradnak, de nincs hozzájuk leképezés.
+ * A v1.0-ig kódba égetett hét státusz (kulcs, megnevezés, sorrend) - v1.1-től CSAK a beépített alapkonfiguráció leírása
+ * (`BUILTIN_CRM_CONFIG`, ebből tölti fel a 0008 migráció a katalógust). A futó alkalmazás a státuszokat az adatbázis katalógusából
+ * veszi (`DataSnapshot.config`); ezeket a listákat ne használd megjelenítésre vagy validációra (pl. az import fejlécfelismerése és a
+ * tesztek használják). A kulcsok és az adatbázis-értékek változatlanok.
  */
-export const CRM_STATUSES = ["waiting_for_contact", "contact", "relationship", "meeting", "account_opening", "capital_placed", "lost"] as const;
-export const CRM_STATUS_LABELS = {
-  // v0.9 (CRM-008): jóváhagyott új megnevezés; a belső kulcs (waiting_for_contact) és az adatbázis-értékek változatlanok.
-  waiting_for_contact: "Feldolgozásra vár",
-  contact: "Kapcsolatfelvétel",
-  relationship: "Kapcsolatépítés",
-  meeting: "Online/Személyes tárgyalás",
-  account_opening: "Számlanyitás",
-  capital_placed: "Tőke elhelyezve",
-  lost: "Elvesztett",
-} as const;
+export const CRM_STATUSES: readonly string[] = BUILTIN_CRM_CONFIG.statuses.map((s) => s.key);
+export const CRM_STATUS_LABELS: Readonly<Record<string, string>> = Object.fromEntries(BUILTIN_CRM_CONFIG.statuses.map((s) => [s.key, s.label]));
 export const DEFAULT_CRM_STATUS = "waiting_for_contact" as const;
-/** Kimenő megkeresést jelentő státuszok: megkeresési korlátozás/tiltakozás mellett nem választhatók. */
-export const CRM_OUTREACH_STATUSES = ["contact", "relationship"] as const;
-/** Szolgáltatói mérföldkő: csak igazolási forrás és compliance tudomásulvétel mellett (demóban szimulált). */
-export const CRM_MILESTONE_STATUSES = ["capital_placed"] as const;
 
 // ------------------------------------------------------------------ Folyamat (régi, háttérben megőrzött)
 export const PROCESS_TYPES = ["outbound_outreach", "inbound_inquiry"] as const;
@@ -130,42 +120,23 @@ export const CALL_OUTCOME_LABELS = {
 } as const;
 
 /**
- * Feladattípusok (v0.5.1): a kiválasztott típus neve maga a feladat neve. IDEIGLENES, felülvizsgálandó demó-lista:
- * a végleges feladattípusokat az ügyfél még nem hagyta jóvá. Csak itt kell módosítani (a komponensek innen olvasnak);
- * a már létrehozott feladatok a létrehozáskori nevüket őrzik, ezért a lista változása nem érinti őket.
+ * Feladattípusok (v0.5.1; v1.1-től a `crm_task_types` katalógus). A beépített v1.0 lista a `BUILTIN_CRM_CONFIG`-ban él; a már
+ * létrehozott feladatok a létrehozáskori nevüket őrzik (`Task.title`), ezért a katalógus változása (átnevezés, archiválás) nem érinti őket.
  */
-export const TASK_TYPES = [
-  { key: "phone_call", label: "Telefonhívás" },
-  { key: "email", label: "E-mail" },
-  { key: "online_meeting", label: "Online tárgyalás" },
-  { key: "in_person_meeting", label: "Személyes tárgyalás" },
-  { key: "follow_up", label: "Utánkövetés" },
-  { key: "other", label: "Egyéb" },
-] as const;
-export const TASK_TYPE_KEYS = TASK_TYPES.map((t) => t.key) as unknown as readonly (typeof TASK_TYPES)[number]["key"][];
-export const TASK_TYPE_LABELS = Object.fromEntries(TASK_TYPES.map((t) => [t.key, t.label])) as Record<(typeof TASK_TYPES)[number]["key"], string>;
+export const TASK_TYPES: readonly { key: string; label: string }[] = BUILTIN_CRM_CONFIG.taskTypes.map(({ key, label }) => ({ key, label }));
+export const TASK_TYPE_LABELS: Readonly<Record<string, string>> = Object.fromEntries(TASK_TYPES.map((t) => [t.key, t.label]));
 /** Karakterhossz-korlát a szabad szöveges Input (régi leírás) és Output (v0.9-től a lezárás kötelező szövege) értékekre. */
 export const TASK_TEXT_MAX = 2000;
 /** Rövid megjegyzés korlátja az „Egyéb” Input/Output értékhez (v0.6). */
 export const TASK_NOTE_MAX = 500;
 
 /**
- * Feladat Input-opciók (v0.6): a feladat létrehozásakor választható, legördülő lista. IDEIGLENES, felülvizsgálandó demó-lista:
- * a végleges listát az ügyfél még nem hagyta jóvá. Csak itt kell módosítani. A `key` stabil technikai azonosító (az adatbázisban ez
- * tárolódik, ezért nem változtatható); a `label` szabadon átírható. Az adatbázis nem köti az értékeket kényszerrel, így a lista
- * bővítése nem igényel migrációt; a már rögzített, később kivezetett kulcsok a kulcsként jelennek meg.
- * `allowsNote`: ehhez az értékhez opcionális rövid megjegyzés adható.
+ * Feladat Input-opciók (v0.6; v1.1-től a `crm_task_input_options` katalógus). A `key` stabil technikai azonosító (az adatbázisban ez
+ * tárolódik), a megnevezés az adminfelületen módosítható; a kivezetett kulcsok archiválva a katalógusban maradnak.
+ * `allowsNote`: ehhez az értékhez opcionális rövid megjegyzés adható (a beépített listában csak az „Egyéb”).
  */
-export const TASK_INPUT_OPTIONS = [
-  { key: "first_contact", label: "Első megkeresés" },
-  { key: "callback", label: "Visszahívás" },
-  { key: "scheduling", label: "Időpont-egyeztetés" },
-  { key: "information", label: "Tájékoztatás" },
-  { key: "follow_up", label: "Utánkövetés" },
-  { key: "other", label: "Egyéb", allowsNote: true },
-] as const;
-export const TASK_INPUT_KEYS = TASK_INPUT_OPTIONS.map((o) => o.key) as unknown as readonly (typeof TASK_INPUT_OPTIONS)[number]["key"][];
-export const TASK_INPUT_LABELS = Object.fromEntries(TASK_INPUT_OPTIONS.map((o) => [o.key, o.label])) as Record<(typeof TASK_INPUT_OPTIONS)[number]["key"], string>;
+export const TASK_INPUT_OPTIONS: readonly { key: string; label: string; allowsNote?: boolean }[] = BUILTIN_CRM_CONFIG.taskInputs.map(({ key, label, allowsNote }) => ({ key, label, ...(allowsNote ? { allowsNote } : {}) }));
+export const TASK_INPUT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(TASK_INPUT_OPTIONS.map((o) => [o.key, o.label]));
 
 /**
  * Feladat Output-opciók (v0.6-v0.8): a régi, legördülős lezárás értékei. v0.9-től új lezárás nem használja (az Output szabad szöveg),
@@ -184,7 +155,7 @@ export const TASK_OUTPUT_OPTIONS = [
 ] as const;
 export const TASK_OUTPUT_KEYS = TASK_OUTPUT_OPTIONS.map((o) => o.key) as unknown as readonly (typeof TASK_OUTPUT_OPTIONS)[number]["key"][];
 export const TASK_OUTPUT_LABELS = Object.fromEntries(TASK_OUTPUT_OPTIONS.map((o) => [o.key, o.label])) as Record<(typeof TASK_OUTPUT_OPTIONS)[number]["key"], string>;
-/** Az „Egyéb” érték technikai kulcsa: csak ennél adható rövid megjegyzés. */
+/** Az „Egyéb” érték technikai kulcsa (a beépített listában ez enged rövid megjegyzést; v1.1-től az `allowsNote` dönt). */
 export const NOTE_OPTION_KEY = "other" as const;
 
 /**

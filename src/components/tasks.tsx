@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { createContext, useCallback, useContext, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useCrmData } from "@/data/store";
-import { CRM_STATUS_LABELS, TASK_OUTCOME_LABELS, TASK_OUTPUT_REQUIRED, TASK_TEXT_MAX } from "@/domain/constants";
+import { TASK_OUTCOME_LABELS, TASK_OUTPUT_REQUIRED, TASK_TEXT_MAX } from "@/domain/constants";
+import { statusLabel } from "@/domain/config";
 import { customerName, inputText, isDone, isOverdue, latestOutput, outcomeLabel, outputText } from "@/domain/logic";
 import type { DataSnapshot, Task, TaskOutcome, TaskOutput } from "@/domain/types";
 import { formatDate, formatDateTime, fromDateInputValue, toDateInputValue } from "@/lib/format";
@@ -268,7 +269,7 @@ function TaskDialog({ data, taskId, step, setStep, onClose, openTask }: { data: 
   }
 
   const done = isDone(task);
-  const input = inputText(task);
+  const input = inputText(task, data.config);
   // Korábbi lezárások: lezárt feladatnál az utolsó előttiek, újranyitott (nyitott) feladatnál mind.
   const earlier = done ? (task.outputs ?? []).slice(0, -1) : (task.outputs ?? []);
   return (
@@ -277,7 +278,7 @@ function TaskDialog({ data, taskId, step, setStep, onClose, openTask }: { data: 
         <div className="min-w-0 sm:col-span-2"><dt className={FIELD_LABEL}>Feladat</dt><dd className="break-words text-base font-semibold">{task.title}</dd></div>
         <div className="min-w-0"><dt className={FIELD_LABEL}>Ügyfél</dt><dd className="break-words">{customer ? <Link href={`/customers/${customer.id}`} onClick={onClose} className="font-medium text-accent underline-offset-2 hover:underline">{customerName(customer)}</Link> : "Ismeretlen ügyfél"}</dd></div>
         <div className="min-w-0"><dt className={FIELD_LABEL}>Állapot</dt><dd className="flex flex-wrap items-center gap-2">{done ? <TaskStateBadge task={task} /> : <>Nyitott <TaskStateBadge task={task} /></>}</dd></div>
-        <div className="min-w-0"><dt className={FIELD_LABEL}>Státusz, amelyhez tartozik</dt><dd>{task.crmStatus ? CRM_STATUS_LABELS[task.crmStatus] : "Régi feladat (státusz nélkül)"}</dd></div>
+        <div className="min-w-0"><dt className={FIELD_LABEL}>Státusz, amelyhez tartozik</dt><dd>{task.crmStatus ? statusLabel(data.config, task.crmStatus) : "Régi feladat (státusz nélkül)"}</dd></div>
         <div className="min-w-0"><dt className={FIELD_LABEL}>Határidő</dt><dd>{task.dueAt ? formatDate(task.dueAt) : "Nincs"}</dd></div>
         <div className="min-w-0 sm:col-span-2"><dt className={FIELD_LABEL}>Input</dt><dd className="whitespace-pre-wrap break-words">{input || "— nincs megadva —"}</dd></div>
       </dl>
@@ -307,7 +308,7 @@ function TaskDialog({ data, taskId, step, setStep, onClose, openTask }: { data: 
 export function TaskRow({ task, data, showCustomer = false, showStatus = false }: { task: Task; data: DataSnapshot; showCustomer?: boolean; showStatus?: boolean }) {
   const { openTask } = useTaskModal();
   const done = isDone(task);
-  const input = inputText(task);
+  const input = inputText(task, data.config);
   const open = () => openTask(task.id);
   return (
     <li className="px-4 py-3" data-task-id={task.id}>
@@ -317,7 +318,7 @@ export function TaskRow({ task, data, showCustomer = false, showStatus = false }
           {input ? <span className="block max-w-full truncate text-[13px] text-ink-muted">{input.split("\n")[0]}</span> : null}
         </button>
         <TaskStateBadge task={task} />
-        {showStatus && task.crmStatus ? <Badge>{CRM_STATUS_LABELS[task.crmStatus]}</Badge> : null}
+        {showStatus && task.crmStatus ? <Badge>{statusLabel(data.config, task.crmStatus)}</Badge> : null}
         <button type="button" aria-haspopup="dialog" onClick={open} className="min-h-11 rounded-md px-2 text-[13px] font-medium text-accent underline underline-offset-2">
           Részletek<span className="sr-only">: {task.title}</span>
         </button>

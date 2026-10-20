@@ -1,6 +1,9 @@
 import { CRM_STATUS_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
 import { writeXlsx } from "./files/xlsx";
 
+/** v1.1: a sablon az alapértelmezett státusz AKTUÁLIS (katalógus) nevét írja ki; ennek hiányában a beépített nevet. */
+const BUILTIN_DEFAULT_LABEL = CRM_STATUS_LABELS[DEFAULT_CRM_STATUS];
+
 /**
  * Letölthető importsablon (JG_CRM_Import_Template.xlsx): oszlopnevek (az automatikus felismerés pontosan ezeket ismeri fel),
  * mezőmagyarázatok, kötelezőség és KIZÁRÓLAG fiktív példasorok (example.test domain, 000-s telefonszámok). Valós ügyféladat nincs benne.
@@ -16,7 +19,7 @@ export const TEMPLATE_EXAMPLES = [
   ["Magánszemély", "Próba", "Béla", "", "06 70 000 0004", "", "", "", "", "", "", ""],
 ];
 
-const GUIDE = [
+const guide = (defaultLabel: string) => [
   ["Mező", "Kötelező", "Leírás", "Elfogadott értékek / formátum"],
   ["Ügyféltípus", "Igen (ha az importnál nincs alapértelmezett típus)", "Magánszemély vagy Cég.", "Magánszemély, Cég"],
   ["Vezetéknév", "Magánszemélynél igen", "A magánszemély vezetékneve.", "Szöveg, legfeljebb 200 karakter"],
@@ -31,14 +34,14 @@ const GUIDE = [
   ["Megjegyzés", "Nem (csak magánszemélynél)", "Rövid megjegyzés. Különleges (pl. egészségügyi) adatot ne tartalmazzon.", "Szöveg, legfeljebb 2000 karakter"],
   ["Adatforrás", "Nem", "Soronkénti adatforrás. Ha üres, az importnál megadott adatforrás-megnevezés kerül az ügyfélhez.", "Szöveg, legfeljebb 200 karakter"],
   ["", "", "", ""],
-  ["Fontos", "", `Minden importált ügyfél „${CRM_STATUS_LABELS[DEFAULT_CRM_STATUS]}” státusszal jön létre; a fájlban megadott más státusz nem kerül átvételre.`, ""],
+  ["Fontos", "", `Minden importált ügyfél „${defaultLabel}” státusszal jön létre; a fájlban megadott más státusz nem kerül átvételre.`, ""],
   ["Fontos", "", "Az import nem jelöl ügyfelet megkereshetőnek, nem minősül hozzájárulásnak, és nem módosít meglévő ügyfelet, tiltakozást vagy megkeresési korlátozást.", ""],
   ["Fontos", "", "Képletet tartalmazó cella nem importálható. Makrós (.xlsm) munkafüzet nem tölthető fel.", ""],
 ];
 
-export function importTemplate(now = new Date()): Buffer {
+export function importTemplate(now = new Date(), defaultLabel = BUILTIN_DEFAULT_LABEL): Buffer {
   return writeXlsx([
     { name: "Ügyfelek", rows: [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLES], boldHeader: true, widths: [14, 16, 16, 24, 18, 30, 22, 22, 24, 32, 36, 26] },
-    { name: "Útmutató", rows: GUIDE, boldHeader: true, widths: [28, 34, 80, 34] },
+    { name: "Útmutató", rows: guide(defaultLabel), boldHeader: true, widths: [28, 34, 80, 34] },
   ], now);
 }

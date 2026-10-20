@@ -2,11 +2,13 @@ import type { AuthUser } from "../auth/service";
 import { listUsers } from "../auth/service";
 import type { Db, Tx } from "../db/types";
 import { features } from "../features";
-import { buildExport, describeFilters, exportBody, exportCount, exportFilters } from "../data/export";
+import { buildExport, describeFilters, exportBody, exportCount, ExportFilterError, exportFilters } from "../data/export";
 import { audit, commit, ImportError, inspect, listJobs, preview } from "../data/import";
 import { dataLimits } from "../data/limits";
 import { hasPermission, type DataPermission } from "../data/permissions";
 import { importTemplate } from "../data/template";
+import { loadConfig } from "../crm/store";
+import { defaultStatusKey, statusLabel } from "@/domain/config";
 import { UploadError, uploadMessage } from "../data/upload";
 import { csrfProblem, readBodyLimited } from "./guards";
 
@@ -114,8 +116,8 @@ export async function handleData(req: Request, path: string, db: Db, user: AuthU
   const now = clock();
   try {
     if (path === "data/import/template") {
-      await withPermission(db, user, route.permission, path, async () => undefined);
-      return new Response(new Uint8Array(importTemplate(now)), {
+      const config = await withPermission(db, user, route.permission, path, (tx) => loadConfig(tx));
+      return new Response(new Uint8Array(importTemplate(now, statusLabel(config, defaultStatusKey(config)))), {
         headers: { ...NO_STORE, "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": 'attachment; filename="JG_CRM_Import_Template.xlsx"' },
       });
     }
@@ -187,11 +189,11 @@ export async function handleData(req: Request, path: string, db: Db, user: AuthU
       return new Response(new Uint8Array(file.body), {
         headers: {
           ...NO_STORE, "Content-Type": file.contentType, "Content-Disposition": `attachment; filename="${name}"`, "Content-Length": String(file.body.length),
-          "X-JG-Export-Count": String(file.count), "X-JG-Export-Filter": encodeURIComponent(describeFilters({ ...filters, source: filters.source ? "megadva" : undefined })),
+          "X-JG-Export-Count": String(file.count), "X-JG-Export-Filter": encodeURIComponent(describeFilters({ ...filters, source: filters.source ? "megadva" : undefined }, file.config)),
         },
       });
     } catch (e) {
-      if (e instanceof Denied) throw e;
+      if (e instanceof Denied || e instanceof ExportFilterError) throw e;
       logError(path, e);
       try {
         await db.asUser(user.id, (tx) => audit(tx, user.id, "customer.export", null, { format, filters: auditFilters, ok: false }));
@@ -200,6 +202,7 @@ export async function handleData(req: Request, path: string, db: Db, user: AuthU
     }
   } catch (e) {
     if (e instanceof Denied) return json({ error: "forbidden", message: MSG.forbidden }, 403);
+    if (e instanceof ExportFilterError) return json({ error: "bad_request", message: MSG.bad }, 400);
     if (e instanceof UploadError) return json({ error: e.code, message: e.message }, e.code === "too_large" ? 413 : 400);
     if (e instanceof ImportError) return json({ error: e.code, message: e.message }, e.status);
     logError(path, e);
