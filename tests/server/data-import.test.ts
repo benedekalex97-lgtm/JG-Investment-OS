@@ -80,7 +80,8 @@ describe.each(DRIVERS)("ügyféladat-import (%s)", (kind) => {
     expect(pv.status).toBe(200);
     const body = pv.body as unknown as { jobId: string; summary: Record<string, number>; rows: { rowNo: number; state: string; issues: { code: string }[] }[]; commitAllowed: boolean };
     expect(body.summary).toMatchObject({ total: 4, valid: 1, warning: 2, error: 1, empty: 1, duplicate: 0, importByDefault: 1 });
-    expect(body.rows.map((r) => [r.rowNo, r.state])).toEqual([[2, "W"], [3, "V"], [4, "E"], [5, "X"], [6, "W"]]);
+    expect(body.rows.map((r) => [r.rowNo, r.state])).toEqual([[2, "W"], [3, "V"], [4, "E"], [6, "W"]]);
+    // F3: az üres sor csak az összesítőben szerepel; az eredeti sorszámok megmaradnak.
     expect(body.rows[0].issues.map((i) => i.code)).toContain("status_not_applied");
     expect(body.commitAllowed).toBe(true);
     // V10: az előnézet nem hoz létre ügyfelet.
@@ -91,7 +92,7 @@ describe.each(DRIVERS)("ügyféladat-import (%s)", (kind) => {
 
     const cm = await commitOf(rows, body.jobId, { 2: "import" });
     expect(cm.status).toBe(200);
-    expect(cm.body).toMatchObject({ replayed: false, created: 2, skipped: 2, outcomes: { created: 2, skipped_error: 1, skipped_empty: 1, skipped_user: 1 } });
+    expect(cm.body).toMatchObject({ replayed: false, created: 2, skipped: 2, empty: 1, outcomes: { created: 2, skipped_error: 1, skipped_user: 1 } });
     const snap = await snapshot();
     const ilona = snap.customers.find((c) => c.type === "individual" && c.displayName === "Import Ilona")!;
     expect(ilona).toMatchObject({ crmStatus: "waiting_for_contact", phone: "+36 30 000 0001", email: "ilona@example.test", source: "Fiktív teszt-adatbázis", ownerId: adminId });
@@ -101,7 +102,7 @@ describe.each(DRIVERS)("ügyféladat-import (%s)", (kind) => {
     expect(snap.customers.find((c) => c.type === "individual" && c.displayName === "Elérhetetlen Elemér")).toBeUndefined();
     expect(await count("select count(*) as n from audit_events where action = 'customer.create' and detail->>'via' = 'import' and detail->>'importId' = $1", [body.jobId])).toBe(2);
     expect(await count("select count(*) as n from audit_events where action = 'import.commit' and entity_id = $1", [body.jobId])).toBe(1);
-    expect(await count("select count(*) as n from import_results where job_id = $1", [body.jobId])).toBe(5);
+    expect(await count("select count(*) as n from import_results where job_id = $1", [body.jobId])).toBe(4);
     const [done] = await t.db.system((tx) => tx.query<Record<string, unknown>>("select status, created_count, skipped_count, committed_by from import_jobs where id = $1", [body.jobId]));
     expect(done).toMatchObject({ status: "completed", created_count: 2, skipped_count: 2, committed_by: adminId });
   });
@@ -186,11 +187,11 @@ describe.each(DRIVERS)("ügyféladat-import (%s)", (kind) => {
     expect(mapping).toEqual(["fullName", "phone", "email", "type", "companyName", "contactName", "notes"]);
     const pv = await A.upload("/api/data/import/preview", file, { ...baseOptions(mapping), fileType: "xlsx" });
     const b = pv.body as unknown as { jobId: string; rows: { rowNo: number; state: string; issues: { code: string }[]; display?: { phone?: string } }[] };
-    expect(b.rows.map((r) => [r.rowNo, r.state])).toEqual([[2, "V"], [3, "V"], [4, "E"], [5, "V"], [6, "X"], [7, "V"]]);
+    expect(b.rows.map((r) => [r.rowNo, r.state])).toEqual([[2, "V"], [3, "V"], [4, "E"], [5, "V"], [7, "V"]]);
     expect(b.rows[0].display?.phone).toBe("+36 30 000 0101");
     expect(b.rows[2].issues.map((i) => i.code)).toContain("formula_cell");
     const cm = await A.upload("/api/data/import/commit", file, { jobId: b.jobId, decisions: {} });
-    expect(cm.body).toMatchObject({ created: 4, outcomes: { created: 4, skipped_error: 1, skipped_empty: 1 } });
+    expect(cm.body).toMatchObject({ created: 4, empty: 1, outcomes: { created: 4, skipped_error: 1 } });
     const snap = await snapshot();
     expect(snap.customers.find((c) => c.type === "individual" && c.displayName === "Ékezetes Őrs Űrhajós")).toMatchObject({ email: "ors@example.test", phone: "+36 20 000 0104", notes: "Több soros" });
     // Másik munkalap is választható.

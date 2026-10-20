@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { CSV_ENCODINGS, CsvError, decodeCsv, parseCsv, type CsvEncoding } from "./files/csv";
 import { XlsxError, XlsxWorkbook, type SheetInfo } from "./files/xlsx";
-import type { DataLimits } from "./limits";
+import { maxPhysicalRows, type DataLimits } from "./limits";
 
 /**
  * A feltöltött importfájl értelmezése (CSV / XLSX). A fájl csak a kérés idejére, memóriában létezik: sehol nem tárolódik (sem
@@ -26,8 +26,10 @@ export interface ParsedUpload {
   encoding?: CsvEncoding;
   delimiter?: string;
   headers: string[];
-  /** Adatsorok a fejléc után, eredeti sorszámmal (fejléc sora = headerRowNo). */
+  /** Adatsorok a fejléc után, eredeti sorszámmal (fejléc sora = headerRowNo); a köztes üres sorok is (korlátosan), a záró üresek nem. */
   rows: { rowNo: number; cells: string[] }[];
+  /** A fejléc utáni üres köztes sorok száma (<= maxEmptyRows). */
+  emptyRows: number;
   headerRowNo: number;
   /** Képletes / hibaértékű cellák: `${rowNo}:${col}`. */
   formulaCells: Set<string>;
@@ -44,6 +46,8 @@ const MESSAGES: Record<string, string> = {
   external: "A munkafüzet külső hivatkozást, adatkapcsolatot vagy beágyazott objektumot tartalmaz. Mentsd el csak az értékeket egy új .xlsx fájlba.",
   corrupt: "A fájl sérült vagy nem olvasható.",
   too_many_rows: "A fájl túl sok adatsort tartalmaz.",
+  too_many_physical_rows: "A fájl az üres sorokkal együtt túl sok sort tartalmaz. Töröld a felesleges üres sorokat, vagy bontsd a fájlt kisebb részekre.",
+  too_many_empty_rows: "A fájl túl sok üres sort tartalmaz az adatsorok között. Töröld a felesleges üres sorokat.",
   too_many_columns: "A fájl túl sok oszlopot tartalmaz.",
   cell_too_long: "A fájl túl hosszú cellaértéket tartalmaz.",
   timeout: "A fájl feldolgozása túl sokáig tartott. Bontsd kisebb részekre.",
@@ -69,7 +73,7 @@ export function parseUpload(bytes: Buffer, declared: string, opts: { encoding?: 
   const isZip = bytes.length >= 4 && bytes.readUInt32LE(0) === 0x04034b50;
   if ((fileType === "xlsx") !== isZip) fail("type_mismatch");
   const deadline = now + limits.maxSeconds * 1000;
-  const rl = { maxRows: limits.maxRows, maxColumns: limits.maxColumns, maxCellChars: limits.maxCellChars, deadline };
+  const rl = { maxRows: limits.maxRows, maxColumns: limits.maxColumns, maxCellChars: limits.maxCellChars, deadline, maxPhysicalRows: maxPhysicalRows(limits) };
   let rows: string[][];
   let sheets: SheetInfo[] = [];
   let sheetIndex = 0;
@@ -104,11 +108,19 @@ export function parseUpload(bytes: Buffer, declared: string, opts: { encoding?: 
   // Képlet/hiba a fejlécben: a fejléc csak szöveg lehet.
   for (let c = 0; c < headers.length; c++) if (formula.has(`${headerIdx}:${c}`) || error.has(`${headerIdx}:${c}`)) fail("corrupt");
   const dataRows: ParsedUpload["rows"] = [];
-  for (let i = headerIdx + 1; i < rows.length; i++) dataRows.push({ rowNo: i + 1, cells: rows[i] ?? [] });
+  let emptyRows = headerIdx;
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const cells = rows[i] ?? [];
+    if (!cells.some((v) => v.trim() !== "")) emptyRows++;
+    dataRows.push({ rowNo: i + 1, cells });
+  }
+  // A fejléc előtti és az adatsorok közötti üres sorok együtt sem léphetik túl a keretet (a parser fizikai korlátja mellett).
+  if (emptyRows > limits.maxEmptyRows) fail("too_many_empty_rows");
+  emptyRows -= headerIdx;
   // A jelzők a 0-alapú sorindexről a sorszámra (rowNo) képezve.
   const shift = (s: Set<string>) => new Set([...s].map((k) => { const [r, c] = k.split(":").map(Number); return `${r + 1}:${c}`; }));
   return {
-    fileType, sha256: sha256Hex(bytes), size: bytes.length, sheets, sheetIndex, encoding, delimiter, headers, rows: dataRows, headerRowNo: headerIdx + 1,
+    fileType, sha256: sha256Hex(bytes), size: bytes.length, sheets, sheetIndex, encoding, delimiter, headers, rows: dataRows, emptyRows, headerRowNo: headerIdx + 1,
     formulaCells: shift(formula), errorCells: shift(error),
   };
 }

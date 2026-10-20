@@ -138,6 +138,23 @@ describe("XLSX olvasás", () => {
   });
 });
 
+describe("F3: fizikai sorkorlát a parserekben", () => {
+  it("CSV: az üres sorok nem materializálódnak a következő tartalmas sorig; a kereten túli tartalmas sor hiba", () => {
+    const { rows } = parseCsv("Fej\n\n\nAdat\n\n\n\n", { ...L, maxPhysicalRows: 4 });
+    expect(rows).toEqual([["Fej"], [], [], ["Adat"]]);
+    expect(() => parseCsv("Fej\n\n\n\nAdat\n", { ...L, maxPhysicalRows: 4 })).toThrow("too_many_physical_rows");
+    expect(() => parseCsv("Fej\n" + "\n".repeat(100_000), { ...L, maxPhysicalRows: 4 })).not.toThrow();
+  });
+  it("XLSX: cella nélküli (formázott) sor nem foglal helyet; a képletet tartalmazó sor tartalmasnak számít; a ritkás sor a kereten túl hiba", () => {
+    const sheet = `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Fej</t></is></c></row><row r="3"><c r="A3"><f>1+1</f><v>2</v></c></row><row r="900000" ht="15"/></sheetData></worksheet>`;
+    const { rows, flags } = new XlsxWorkbook(excelLike(sheet), { ...L, maxPhysicalRows: 3 }).read(0);
+    expect(rows).toEqual([["Fej"], [], [""]]);
+    expect(flags.formula.has("2:0")).toBe(true);
+    const far = `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Fej</t></is></c></row><row r="5"><c r="A5" t="inlineStr"><is><t>x</t></is></c></row></sheetData></worksheet>`;
+    expect(() => new XlsxWorkbook(excelLike(far), { ...L, maxPhysicalRows: 4 }).read(0)).toThrow("too_many_physical_rows");
+  });
+});
+
 describe("XLSX írás", () => {
   it("csak szöveges cellák, képlet nincs; visszaolvasva az érték változatlan (a képletszerű szöveg is)", () => {
     const tricky = ["=HYPERLINK(\"http://x\")", "+36 30 000 0000", "-5", "@SUM(A1)", "a & <b> \"c\"", "Több\nsoros"];

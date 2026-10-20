@@ -229,20 +229,32 @@ function createViaCrm(repo: DemoRepository, d: ImportDraft, source: string, user
 
 // ------------------------------------------------------------------------- kiértékelés
 
-interface Evaluated { rows: PreviewRow[]; drafts: Map<number, ImportDraft>; states: RowState[]; summary: PreviewSummary }
+/**
+ * `rows`: a nem üres sorok (az előnézeti válasz); `states`: MINDEN adatsor (üres is, X) besorolási kódja a fájl sorrendjében, `order`:
+ * ugyanígy a sorszámok - a véglegesítés ezek alapján illeszti az előnézet besorolását. Az üres sorok száma a parser kerete miatt korlátos.
+ */
+interface Evaluated { rows: PreviewRow[]; drafts: Map<number, ImportDraft>; states: RowState[]; order: number[]; summary: PreviewSummary }
 
-function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, userId: string): Evaluated {
+/** A kiértékelés (validáció + duplikáció) teljes munkájának időkerete: túllépésnél hiba, nem részleges eredmény. */
+function checkDeadline(deadline: number) {
+  if (Date.now() > deadline) throw new ImportError("timeout", "A fájl feldolgozása túl sokáig tartott. Bontsd kisebb részekre.", 400);
+}
+
+function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, userId: string, deadline: number): Evaluated {
   const mapping: ColumnMapping = upload.headers.map((_h, i) => opts.mapping[i] ?? null);
   const fileIdx = new FileIndex();
   const scratch = () => new DemoRepository(emptySnapshot(), { idGen: newId });
   const rows: PreviewRow[] = [];
   const drafts = new Map<number, ImportDraft>();
   const states: RowState[] = [];
+  const order: number[] = [];
   const s: PreviewSummary = { total: 0, valid: 0, warning: 0, error: 0, duplicate: 0, strong: 0, possible: 0, restricted: 0, empty: 0, importByDefault: 0 };
   for (const { rowNo, cells } of upload.rows) {
+    checkDeadline(deadline);
+    order.push(rowNo);
     const ev = evaluateRow(cells, mapping, opts.defaultType, (col) => ({ formula: upload.formulaCells.has(`${rowNo}:${col}`), error: upload.errorCells.has(`${rowNo}:${col}`) }));
     if (ev.status === "empty") {
-      rows.push({ rowNo, state: "X", issues: [], matches: [], fileMatches: [] });
+      // Üres sor: csak számoljuk (summary.empty); nem kerül az előnézeti válaszba és az import_results táblába.
       states.push("X");
       s.empty++;
       continue;
@@ -286,7 +298,7 @@ function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, user
     if (state === "S" || state === "P" || state === "R") s.duplicate++;
     if (importsByDefault(state)) s.importByDefault++;
   }
-  return { rows, drafts, states, summary: s };
+  return { rows, drafts, states, order, summary: s };
 }
 
 // ------------------------------------------------------------------------- műveletek
@@ -299,7 +311,7 @@ export class ImportError extends Error {
 
 export interface InspectResult {
   fileType: FileType; sha256: string; size: number; sheets: { name: string; hidden: boolean }[]; sheetIndex: number;
-  encoding?: string; delimiter?: string; headers: string[]; samples: string[][]; rowCount: number; suggestedMapping: ColumnMapping;
+  encoding?: string; delimiter?: string; headers: string[]; samples: string[][]; rowCount: number; emptyRows: number; suggestedMapping: ColumnMapping;
 }
 
 /** 1. lépés: a fájl szerkezete (munkalapok, fejléc, minta, javasolt megfeleltetés). Adatbázisba nem ír. */
@@ -308,7 +320,7 @@ export function inspect(bytes: Buffer, fileType: string, opts: { encoding?: stri
   const samples = u.headers.map((_h, col) => u.rows.map((r) => (r.cells[col] ?? "").trim()).filter(Boolean).slice(0, 2).map((v) => v.slice(0, 60)));
   return {
     fileType: u.fileType, sha256: u.sha256, size: u.size, sheets: u.sheets, sheetIndex: u.sheetIndex, encoding: u.encoding, delimiter: u.delimiter,
-    headers: u.headers, samples, rowCount: u.rows.filter((r) => r.cells.some((v) => v.trim() !== "")).length, suggestedMapping: suggestMapping(u.headers),
+    headers: u.headers, samples, rowCount: u.rows.length - u.emptyRows, emptyRows: u.emptyRows, suggestedMapping: suggestMapping(u.headers),
   };
 }
 
@@ -327,12 +339,13 @@ export async function preview(tx: Tx, user: AuthUser, bytes: Buffer, rawOpts: un
   const parsedOpts = importOptions.safeParse(rawOpts);
   if (!parsedOpts.success) throw new ImportError("bad_options", parsedOpts.error.issues[0]?.message ?? "Érvénytelen importbeállítás.");
   const opts = parsedOpts.data;
+  const deadline = Date.now() + limits.maxSeconds * 1000;
   const upload = parseUpload(bytes, opts.fileType, { encoding: opts.encoding, sheetIndex: opts.sheetIndex }, limits);
   if (opts.mapping.length !== upload.headers.length) throw new ImportError("bad_mapping", "Az oszlop-megfeleltetés nem egyezik a fájl oszlopaival.");
   const problems = mappingProblems(opts.mapping, opts.defaultType);
   if (problems.length) throw new ImportError("bad_mapping", problems[0].message);
   const idx = await loadIndex(tx);
-  const ev = evaluate(upload, opts, idx, user.id);
+  const ev = evaluate(upload, opts, idx, user.id, deadline);
   const jobId = newId("imp");
   const expires = new Date(now.getTime() + limits.previewTtlMinutes * 60_000);
   const options = { fileType: opts.fileType, encoding: opts.encoding ?? null, sheetIndex: upload.sheetIndex, mapping: opts.mapping, defaultType: opts.defaultType };
@@ -350,6 +363,8 @@ export async function preview(tx: Tx, user: AuthUser, bytes: Buffer, rawOpts: un
 
 export interface CommitResult {
   jobId: string; replayed: boolean; created: number; skipped: number;
+  /** Üres sorok száma: nem kerülnek az import_results táblába (csak az összesítőbe). */
+  empty: number;
   outcomes: Record<string, number>;
   rows: { rowNo: number; outcome: string; customerId?: string }[];
 }
@@ -357,11 +372,11 @@ export interface CommitResult {
 const OUTCOME_OF: Record<RowState, string> = { X: "skipped_empty", E: "skipped_error", R: "skipped_restricted", V: "skipped_user", W: "skipped_user", P: "skipped_duplicate", S: "skipped_duplicate" };
 
 async function storedCommit(tx: Tx, jobId: string): Promise<CommitResult> {
-  const job = (await tx.query<{ created_count: number; skipped_count: number }>("select created_count, skipped_count from import_jobs where id = $1", [jobId]))[0];
+  const job = (await tx.query<{ created_count: number; skipped_count: number; empty_rows: number }>("select created_count, skipped_count, empty_rows from import_jobs where id = $1", [jobId]))[0];
   const res = await tx.query<{ row_no: number; outcome: string; customer_id: string | null }>("select row_no, outcome, customer_id from import_results where job_id = $1 order by row_no", [jobId]);
   const outcomes: Record<string, number> = {};
   for (const r of res) outcomes[r.outcome] = (outcomes[r.outcome] ?? 0) + 1;
-  return { jobId, replayed: true, created: Number(job?.created_count ?? 0), skipped: Number(job?.skipped_count ?? 0), outcomes, rows: res.map((r) => ({ rowNo: Number(r.row_no), outcome: r.outcome, ...(r.customer_id ? { customerId: r.customer_id } : {}) })) };
+  return { jobId, replayed: true, created: Number(job?.created_count ?? 0), skipped: Number(job?.skipped_count ?? 0), empty: Number(job?.empty_rows ?? 0), outcomes, rows: res.map((r) => ({ rowNo: Number(r.row_no), outcome: r.outcome, ...(r.customer_id ? { customerId: r.customer_id } : {}) })) };
 }
 
 /** Kötegelt beszúrás új sorokra (legfeljebb 500 soronként), a meglévő sor-leképezésekkel; RLS és CHECK-ek érvényesek. */
@@ -392,6 +407,7 @@ export async function commit(tx: Tx, user: AuthUser, bytes: Buffer, rawBody: unk
   if (new Date(String(job.expires_at instanceof Date ? job.expires_at.toISOString() : job.expires_at)).getTime() < now.getTime()) {
     throw new ImportError("expired", "Az előnézet lejárt. Készíts új előnézetet.", 409);
   }
+  const deadline = Date.now() + limits.maxSeconds * 1000;
   const stored = job.options as { fileType: FileType; encoding: string | null; sheetIndex: number; mapping: ColumnMapping; defaultType: "individual" | "company" | null };
   const upload = parseUpload(bytes, stored.fileType, { encoding: stored.encoding ?? undefined, sheetIndex: stored.sheetIndex }, limits);
   if (upload.sha256 !== job.file_sha256 || upload.size !== Number(job.file_size)) throw new ImportError("file_mismatch", "A fájl eltér az előnézetben használttól. Készíts új előnézetet.", 409);
@@ -403,18 +419,22 @@ export async function commit(tx: Tx, user: AuthUser, bytes: Buffer, rawBody: unk
     mapping: stored.mapping, defaultType: stored.defaultType, sourceName: String(job.source_name), purpose: String(job.purpose),
     sourceVerification: job.source_verification as ImportOptions["sourceVerification"], complianceDeclared: job.compliance_declared === true,
   };
-  const ev = evaluate(upload, opts, await loadIndex(tx), user.id);
+  const ev = evaluate(upload, opts, await loadIndex(tx), user.id, deadline);
   const previewStates = String(job.row_states);
+  // Az előnézet besorolása sorszám szerint (a row_states a fájl összes adatsorát - az üreseket is - tartalmazza, sorrendben).
+  if (previewStates.length !== ev.order.length) throw new ImportError("file_mismatch", "A fájl eltér az előnézetben használttól. Készíts új előnézetet.", 409);
+  const beforeOf = new Map(ev.order.map((rowNo, i) => [rowNo, previewStates[i] as RowState]));
   const repo = new DemoRepository(emptySnapshot(), { clock: () => now, idGen: newId });
   const results: { rowNo: number; outcome: string; customerId?: string }[] = [];
-  ev.rows.forEach((row, i) => {
-    const before = (previewStates[i] ?? "E") as RowState;
+  ev.rows.forEach((row) => {
+    checkDeadline(deadline);
+    const before = beforeOf.get(row.rowNo) ?? "E";
     const nowState = row.state;
     const decision: ImportDecision | undefined = decisions[String(row.rowNo)];
     let outcome = OUTCOME_OF[nowState];
     // A felhasználó szándéka: kifejezett „import”, vagy döntés nélkül az előnézetben alapból importálandó (új, érvényes) sor.
     const intended = decision === "import" || (decision === undefined && importsByDefault(before));
-    if (decision === "skip") outcome = nowState === "X" ? "skipped_empty" : "skipped_user";
+    if (decision === "skip") outcome = "skipped_user";
     else if (intended && canImportExplicitly(nowState) && canImportExplicitly(before)) {
       // Csak az előnézetben látott (vagy enyhébb) besorolás menthető; döntés nélkül csak a továbbra is új, érvényes sor.
       const allowed = ROW_STATE_SEVERITY[nowState] <= ROW_STATE_SEVERITY[before] && (decision === "import" || importsByDefault(nowState));
@@ -446,10 +466,10 @@ export async function commit(tx: Tx, user: AuthUser, bytes: Buffer, rawBody: unk
   }
   const outcomes: Record<string, number> = {};
   for (const r of results) outcomes[r.outcome] = (outcomes[r.outcome] ?? 0) + 1;
-  const skipped = results.length - created.length - (outcomes.skipped_empty ?? 0);
+  const skipped = results.length - created.length;
   await tx.query("update import_jobs set status = 'completed', committed_at = $2, committed_by = $3, created_count = $4, skipped_count = $5 where id = $1 and status = 'previewed'", [jobId, now.toISOString(), user.id, created.length, skipped]);
   await audit(tx, user.id, "import.commit", jobId, { created: created.length, skipped, outcomes });
-  return { jobId, replayed: false, created: created.length, skipped, outcomes, rows: results };
+  return { jobId, replayed: false, created: created.length, skipped, empty: ev.summary.empty, outcomes, rows: results };
 }
 
 export async function audit(tx: Tx, userId: string, action: string, entityId: string | null, detail: Record<string, unknown>) {

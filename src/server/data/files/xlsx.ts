@@ -13,7 +13,7 @@ import { writeZip, ZipError, ZipReader } from "./zip";
  * Írás: csak szöveges (inlineStr) cellák - képlet soha; a szöveg így Excelben sem értelmeződik képletként.
  */
 export class XlsxError extends Error {
-  constructor(public readonly code: "not_xlsx" | "macro" | "external" | "corrupt" | "too_large" | "too_many_rows" | "too_many_columns" | "cell_too_long" | "timeout" | "no_sheet") {
+  constructor(public readonly code: "not_xlsx" | "macro" | "external" | "corrupt" | "too_large" | "too_many_rows" | "too_many_physical_rows" | "too_many_columns" | "cell_too_long" | "timeout" | "no_sheet") {
     super(code);
   }
 }
@@ -21,7 +21,8 @@ export class XlsxError extends Error {
 export interface SheetInfo { name: string; hidden: boolean }
 export interface CellFlags { formula: Set<string>; error: Set<string> }
 export interface SheetData { rows: string[][]; flags: CellFlags }
-export interface ReadLimits { maxRows: number; maxColumns: number; maxCellChars: number; deadline: number }
+/** Lásd CsvLimits: `maxPhysicalRows` a munkalap 1. sorától az utolsó tartalmas sorig terjedő sorok felső korlátja (ritkás munkalap ellen). */
+export interface ReadLimits { maxRows: number; maxColumns: number; maxCellChars: number; deadline: number; maxPhysicalRows?: number }
 
 const MAIN_CT = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
 const FORBIDDEN_PREFIXES = ["xl/externalLinks/", "xl/embeddings/", "xl/activeX/", "xl/ctrlProps/"];
@@ -144,7 +145,7 @@ export class XlsxWorkbook {
     return out;
   }
 
-  /** Egy munkalap cellaértékei (szövegként); a teljesen üres sorok a végéről elmaradnak. */
+  /** Egy munkalap cellaértékei (szövegként), eredeti sorindexekkel; csak tartalmas sorok és az azok közötti (korlátos) üres sorhelyek. */
   read(sheetIndex: number): SheetData {
     try {
       return this.readSheet(sheetIndex);
@@ -160,20 +161,22 @@ export class XlsxWorkbook {
     if (xml === undefined) throw new XlsxError("corrupt");
     const shared = this.sharedStrings();
     const { maxRows, maxColumns, maxCellChars, deadline } = this.limits;
+    const maxPhysical = this.limits.maxPhysicalRows ?? Infinity;
     const rows: string[][] = [];
     const flags: CellFlags = { formula: new Set(), error: new Set() };
     let rowIdx = -1, nextRow = 0;
     let row: string[] = [];
     let col = -1, nextCol = 0, type = "", value: string[] = [], inV = false, inIs = false, inT = false, hasFormula = false, skip = 0;
     let nonEmptyRows = 0;
+    // Tartalmas sor: van nem üres, képletes vagy hibaértékű cellája. Üres (pl. csak formázott) sor nem tárolódik; a köztes üres
+    // sorhelyek csak a fizikai sorkorláton belül, egy következő tartalmas sor előtt jönnek létre (ritkás munkalap nem foglal korlátlanul).
     const flush = () => {
-      if (rowIdx < 0) return;
+      if (rowIdx < 0 || row.length === 0) return;
+      nonEmptyRows++;
+      if (nonEmptyRows > maxRows + 1) throw new XlsxError("too_many_rows");
+      if (rowIdx + 1 > maxPhysical) throw new XlsxError("too_many_physical_rows");
       while (rows.length < rowIdx) rows.push([]);
       rows[rowIdx] = row;
-      if (row.some((v) => v !== "")) {
-        nonEmptyRows++;
-        if (nonEmptyRows > maxRows + 1) throw new XlsxError("too_many_rows");
-      }
     };
     for (const ev of xmlEvents(xml, deadline)) {
       if (ev.kind === "open") {
@@ -234,7 +237,6 @@ export class XlsxWorkbook {
         }
       } else if (col >= 0 && skip === 0 && (inV || (inIs && inT))) value.push(ev.text);
     }
-    while (rows.length && !rows[rows.length - 1].some((v) => v !== "")) rows.pop();
     return { rows, flags };
   }
 }

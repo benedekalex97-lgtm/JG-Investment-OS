@@ -31,7 +31,6 @@ const FILTERS: { key: string; label: string; match: (s: RowState) => boolean }[]
   { key: "dup", label: "Egyezés", match: (s) => s === "P" || s === "S" || s === "R" },
   { key: "err", label: "Hibás", match: (s) => s === "E" },
   { key: "warn", label: "Figyelmeztetés", match: (s) => s === "W" },
-  { key: "empty", label: "Üres", match: (s) => s === "X" },
 ];
 const PAGE = 50;
 const OUTCOME_LABELS: Record<string, string> = {
@@ -176,7 +175,7 @@ export function ImportWizard() {
                 </SelectInput>
               ) : null}
               <p role="status" aria-live="polite" className="text-sm text-ink-muted">
-                {busy ? "A fájl ellenőrzése folyamatban…" : info ? `Kiválasztva: ${info.fileType.toUpperCase()} · ${fmtBytes(info.size)} · ${info.rowCount} adatsor · ${info.headers.length} oszlop${info.delimiter ? ` · elválasztó: ${info.delimiter === "\t" ? "tabulátor" : info.delimiter}` : ""}` : ""}
+                {busy ? "A fájl ellenőrzése folyamatban…" : info ? `Kiválasztva: ${info.fileType.toUpperCase()} · ${fmtBytes(info.size)} · ${info.rowCount} adatsor${info.emptyRows ? ` (+ ${info.emptyRows} üres sor, kimarad)` : ""} · ${info.headers.length} oszlop${info.delimiter ? ` · elválasztó: ${info.delimiter === "\t" ? "tabulátor" : info.delimiter}` : ""}` : ""}
               </p>
             </div>
           </Card>
@@ -266,6 +265,7 @@ export function ImportWizard() {
             </dl>
             <ul className="space-y-1 text-sm text-ink">
               {Object.entries(result.outcomes).map(([k, v]) => <li key={k}>{OUTCOME_LABELS[k] ?? k}: <span className="font-semibold">{v}</span></li>)}
+              {result.empty ? <li>Üres sor (kimaradt): <span className="font-semibold">{result.empty}</span></li> : null}
             </ul>
             <div className="flex flex-wrap gap-2">
               <Link href="/customers" className="inline-flex min-h-11 items-center rounded-md bg-accent px-4 text-sm font-medium text-on-accent hover:bg-accent-hover">Ügyfelek megnyitása</Link>

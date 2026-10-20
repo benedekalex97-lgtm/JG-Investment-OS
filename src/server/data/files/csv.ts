@@ -6,14 +6,18 @@
  * Elválasztó: pontosvessző, vessző vagy tabulátor - az első sor alapján felismerve (idézőjelen kívül számolva).
  */
 export class CsvError extends Error {
-  constructor(public readonly code: "bad_encoding" | "binary" | "unterminated_quote" | "too_many_rows" | "too_many_columns" | "cell_too_long" | "timeout") {
+  constructor(public readonly code: "bad_encoding" | "binary" | "unterminated_quote" | "too_many_rows" | "too_many_physical_rows" | "too_many_columns" | "cell_too_long" | "timeout") {
     super(code);
   }
 }
 
 export type CsvEncoding = "utf-8" | "windows-1250";
 export const CSV_ENCODINGS: readonly CsvEncoding[] = ["utf-8", "windows-1250"];
-export interface CsvLimits { maxRows: number; maxColumns: number; maxCellChars: number; deadline: number }
+/**
+ * `maxRows`: nem üres sorok (a fejléccel együtt legfeljebb maxRows + 1). `maxPhysicalRows`: a fájl 1. sorától az utolsó nem üres sorig
+ * terjedő FIZIKAI sorok száma (üres köztes sorokkal együtt) - a feldolgozási munka strukturális felső korlátja.
+ */
+export interface CsvLimits { maxRows: number; maxColumns: number; maxCellChars: number; deadline: number; maxPhysicalRows?: number }
 
 export function decodeCsv(bytes: Uint8Array, encoding: CsvEncoding): string {
   if (bytes.includes(0)) throw new CsvError("binary");
@@ -42,7 +46,10 @@ export function detectDelimiter(text: string): ";" | "," | "\t" {
   return best[1] > 0 ? best[0] : ";";
 }
 
-/** Sorok mezőkre bontva. A teljesen üres sorok a fájl végéről elmaradnak. */
+/**
+ * Sorok mezőkre bontva, az eredeti sorindexek megtartásával. A teljesen üres sorok a fájl végéről elmaradnak. Az üres sorok csak akkor
+ * kerülnek a tömbbe, ha utánuk még nem üres sor következik, és a fizikai sorkorláton belül vannak (a túllépés hiba, nem csendes csonkolás).
+ */
 export function parseCsv(text: string, limits: CsvLimits, delimiter = detectDelimiter(text)): { rows: string[][]; delimiter: string } {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -50,6 +57,8 @@ export function parseCsv(text: string, limits: CsvLimits, delimiter = detectDeli
   let quoted = false;
   let fieldStart = true;
   let nonEmpty = 0;
+  let pendingEmpty = 0;
+  const maxPhysical = limits.maxPhysicalRows ?? Infinity;
   const pushField = () => {
     if (field.length > limits.maxCellChars) throw new CsvError("cell_too_long");
     row.push(field);
@@ -60,10 +69,16 @@ export function parseCsv(text: string, limits: CsvLimits, delimiter = detectDeli
   const pushRow = () => {
     pushField();
     while (row.length > limits.maxColumns && row[row.length - 1].trim() === "") row.pop();
-    if (row.some((v) => v.trim() !== "")) {
-      nonEmpty++;
-      if (nonEmpty > limits.maxRows + 1) throw new CsvError("too_many_rows");
+    if (!row.some((v) => v.trim() !== "")) {
+      // Üres sor: csak számoljuk; nem materializáljuk, amíg nem jön utána tartalom.
+      pendingEmpty++;
+      row = [];
+      return;
     }
+    nonEmpty++;
+    if (nonEmpty > limits.maxRows + 1) throw new CsvError("too_many_rows");
+    if (rows.length + pendingEmpty + 1 > maxPhysical) throw new CsvError("too_many_physical_rows");
+    for (; pendingEmpty > 0; pendingEmpty--) rows.push([]);
     rows.push(row);
     row = [];
   };
@@ -89,7 +104,6 @@ export function parseCsv(text: string, limits: CsvLimits, delimiter = detectDeli
   }
   if (quoted) throw new CsvError("unterminated_quote");
   if (field !== "" || row.length) pushRow();
-  while (rows.length && !rows[rows.length - 1].some((v) => v.trim() !== "")) rows.pop();
   return { rows, delimiter };
 }
 
