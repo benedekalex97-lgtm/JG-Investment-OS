@@ -1,0 +1,54 @@
+name: QA - native PostgreSQL test suite (isolated)
+run-name: "QA native PostgreSQL ${{ github.sha }}"
+
+# Izolált, eldobható PostgreSQL-konténeren futtatja a teljes tesztcsomagot (a natív PG-t igénylő tesztekkel együtt).
+# Nem használ titkot, nem kapcsolódik megosztott Preview vagy Production adatbázishoz, és nem ír a repóba.
+# A konténer jelszava kizárólag ennek a futásnak az eldobható szolgáltatásához tartozik.
+on:
+  push:
+    branches: [feat/jg-crm-import-export-v10]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-native-postgres-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-postgres:
+    name: Node 22 + PostgreSQL ${{ matrix.pg }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["18.6"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: ci-throwaway-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      JG_TEST_DATABASE_URL: postgres://postgres:ci-throwaway-only@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Versions
+        run: |
+          node --version
+          node -e 'const {Client}=require("pg");const c=new Client({connectionString:process.env.JG_TEST_DATABASE_URL});c.connect().then(()=>c.query("select version(), current_setting($$default_transaction_isolation$$) as iso")).then(r=>{console.log(r.rows[0]);return c.end()})'
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Review regressions (F1 two-connection backup snapshot, F2 environment, F3 import limits)
+        run: npx vitest run tests/server/backup-snapshot.test.ts tests/server/db-environment.test.ts tests/server/data-import-limits.test.ts --reporter=verbose
+      - name: Full test suite on native PostgreSQL
+        run: npx vitest run --reporter=verbose
