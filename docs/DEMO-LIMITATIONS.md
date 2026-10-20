@@ -1,11 +1,25 @@
-# Demókorlátok — Foundation v0.1
+# Demókorlátok — v0.5.1 (történeti; a v0.6 felülírja a tárolásra és hitelesítésre vonatkozó pontokat: lásd `docs/V0.6-PERSISTENCE.md`)
+
+> **v0.6:** az adat tartós (PostgreSQL), van bejelentkezés és szerveroldali jogosultság. Az alábbi „böngészőfül/sessionStorage”, „nincs hitelesítés”, „nincs auditnapló/RLS” pontok a v0.5.1 állapotot írják le. Változatlanul érvényes: nincs K&H/Patria szinkron, a szolgáltatói mérföldkő szimulált, nincs megkeresési jogalap-vizsgálat, az éles használat külön jóváhagyás nélkül tiltott.
+
 
 - **Adatmegőrzés:** a módosítások a böngészőfül `sessionStorage`-ában élnek; frissítést túlélnek, a fül bezárásakor elvesznek. Nincs szerveroldali mentés, backup. A felület is jelzi ("DEMÓ" sáv, visszaállítás gomb).
 - **Nincs hitelesítés és jogosultság:** a két "Admin" fiktív felhasználó (`DEMO_USERS`), a közös csapatnézet nem jogosultság-érvényesítés, és nem írhatja felül a később meghatározandó adatkezelési/hozzáférési szabályokat. Alkalmazásszintű Admin ≠ infrastruktúra-/adatbázis-/Gmail-admin.
 - **Megkereshetőség:** alapértelmezett `unknown`; az "engedélyezett" érték fiktív tesztállapot, nem jogi igazolás. Ügyfélstátusz vagy korábbi kapcsolat nem marketingengedély. Nincs automatikus megkeresés.
+- **Szolgáltatói mérföldkövek (számlanyitás folyamatban, számla megnyitva, első pénzelhelyezés igazolt):** a demóban kézzel rögzített, SZIMULÁLT állapotok. Nincs K&H/Patria szinkron vagy API, nem ellenőrizhető a valóságban; a CRM nem helyettesíti a szolgáltató nyilvántartását, nem tárol számlaszámot, egyenleget vagy tranzakciós bizonylatot. A manuális igazolás (forráskategória + compliance tudomásulvétel) csak a demó folyamatát mutatja, jogosultságot nem igazol.
+- **Kapcsolati státusz (igazolt meglévő/korábbi ügyfél):** a besorolás kézi, naplózott demóművelet; nem igazolt szolgáltatói ügyfélstátusz.
+- **Megkeresési jogalap, adatforrás, tiltakozás:** a felület csak jelzi az ellenőrzés szükségességét és rögzíti a tiltakozást/korlátozást; a jogszerűséget nem vizsgálja, a kontaktadatbázisban szereplés nem igazol jogalapot. Nincs automatikus megkeresés, hideghívás vagy e-mail-küldés.
+- **Üres kezdőállapot (v0.3):** új munkamenetben nincs fiktív adat; a rögzített adat csak a böngészőfül `sessionStorage`-ában él, a fül bezárásakor elvész. A rendszer nem alkalmas valós ügyféladatok tárolására. A korábbi munkamenetekből maradt demóadat csak explicit, megerősítést kérő művelettel távolítható el.
+- **Pipeline (v0.5):** egyszerű ügyfélstátusz-tábla, drag-and-drop és automatizmus nélkül; a státusz az ügyféladatlapon módosítható.
+- **Egyszerű státuszmodell (v0.5):** hét, üzletileg jóváhagyott kapcsolati státusz; „Tőke elhelyezve” csak igazolási forrással és compliance tudomásulvétellel (a demóban szimulált). A „Számlanyitás” nem jelent tényleges számlanyitást. A JG a K&H Értékpapír / Patria Finance függő ügynöke, nem vezet számlát és nem vesz át ügyfélpénzt.
+- **Régi adatok (v0.5):** a régi folyamatok, négyértékű besorolás és feladatok megmaradnak (csak olvasható archívum / státusz nélküli feladatok); a régi folyamatstátuszokra nincs leképezés, a státusz nélküli ügyfél alapértelmezetten a „Kapcsolatfelvételre vár” státuszban jelenik meg (az adat csak felhasználói váltáskor módosul).
+- **Megkeresési korlátozás:** a kimenő kapcsolatfelvételi státuszok (Kapcsolatfelvétel, Kapcsolatépítés) blokkoltak; ez a v0.2 szabály kiterjesztése az új státuszokra (üzleti jóváhagyásra vár).
+- **v0.1 adat:** nincs automatikus migráció (lásd `docs/V0.2-WORKFLOW.md`); a régi adat érintetlen marad, exportálható vagy törölhető.
 - **Státuszok és pipeline-szakaszok:** előzetes, üzletileg még nem jóváhagyott megnevezések (`src/domain/constants.ts`), nem jogi vagy szolgáltatói ügyfélstátusz-igazolások; nem sugallnak JG-hatáskört.
 - **Tevékenységek:** belső demórekordok; nincs telefon-, Google Calendar- vagy Gmail-kapcsolat.
 - **Nincs:** Trello-kapcsolat/import, JG Email System integráció, éles adat, production deployment, auditnapló, RLS, import staging.
 - **Nem épült:** befektetési ajánlás, portfóliókezelés, hozamszámítás, ügyfélpénz-kezelés, értékpapír-nyilvántartás, MiFID/KYC, marketingautomatizáció.
 - **Keresés/lista:** kliensoldali, kis adatmennyiségre; nincs lapozás. Az ügyfél-törlés nincs (csak archivált státusz).
 - A JG és a Patria Finance Magyarországi Fióktelepe (K&H Értékpapír) viszonyára vonatkozó tartalom nem szerepel a felületen; a függő ügynöki szerep pontos megfogalmazása jogi/compliance review tárgya.
+- **Megkereshetőség és tiltakozás (v0.5.1):** a felületről nem szerkeszthető (nincs panel). A háttéradat és a státuszblokkoló kontroll megmaradt; új tiltakozás/korlátozás rögzítése és feloldása a felületről nem lehetséges. Éles működéshez külön adatvédelmi és compliance review szükséges.
+- **Feladat Input/Output (v0.5.1):** a feladattípus-lista ideiglenes, jóváhagyásra vár (`TASK_TYPES`); az Output kötelező a lezáráshoz (implementációs javaslat, manuális review-ban ellenőrizendő). Az adatok csak a böngészőfül `sessionStorage`-ában élnek.
