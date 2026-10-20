@@ -6,7 +6,7 @@ import { CrmDataProvider } from "@/data/store";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "JG Investment OS — v0.9",
+  title: "JG Investment OS — v1.0",
   description: "Belső CRM pilot. Bejelentkezés szükséges.",
   robots: { index: false, follow: false },
 };

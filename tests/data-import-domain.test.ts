@@ -79,7 +79,7 @@ describe("V03-V07: soronkénti validáció", () => {
     expect(codes(row({ type: "Magánszemély", name: "X Y", email: "x@example.test", status: "Tőke elhelyezve" }))).toContain("status_not_applied");
     expect(codes(row({ type: "Magánszemély", name: "X Y", email: "x@example.test", status: "Valami" }))).toContain("unknown_status");
     expect(evaluateRow(row({ type: "Magánszemély", name: "X Y", email: "x@example.test", status: "Feldolgozásra vár" }), M, null).status).toBe("valid");
-    const d = evaluateRow(row({ type: "Magánszemély", name: "X Y", email: "x@example.test", status: "capital_placed" }), M, null).draft as Record<string, unknown>;
+    const d = evaluateRow(row({ type: "Magánszemély", name: "X Y", email: "x@example.test", status: "capital_placed" }), M, null).draft as unknown as Record<string, unknown>;
     expect(Object.keys(d)).not.toContain("crmStatus");
   });
   it("figyelmeztetések: nincs elérhetőség, képletszerű érték, cégnél megjegyzés", () => {
