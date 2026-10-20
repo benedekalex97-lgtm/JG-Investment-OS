@@ -131,7 +131,8 @@ async function wizard(page, file, label, opts = {}) {
       const page = await ctx.newPage();
       watch(page);
       await login(page, EMAIL_B, PW_B);
-      log("P01/P02: munkatárs: az Adatkezelés menüpont nem látszik", (await page.locator('nav a:has-text("Adatkezelés")').count()) === 0);
+      // v1.1: az Adatkezelés a Beállítások alá került; jog nélkül egyik menüpont sem látszik.
+      log("P01/P02: munkatárs: az Adatkezelés (Beállítások) menüpont nem látszik", (await page.locator('nav a:has-text("Adatkezelés"), nav a:has-text("Beállítások")').count()) === 0);
       await page.goto(BASE + "/data/import", { waitUntil: "networkidle" });
       log("P01: munkatárs: az importoldal jogosultsági üzenetet mutat", (await page.locator('[data-testid="no-permission"]').innerText()).includes("Ehhez a művelethez nincs jogosultságod."));
       const api = await page.request.post(BASE + "/api/data/export", { headers: { origin: BASE }, data: { format: "csv", filters: {} } });
@@ -148,7 +149,7 @@ async function wizard(page, file, label, opts = {}) {
     await login(pageA, EMAIL_A, PW_A);
     // Meglévő ügyfél az erős egyezéshez (a CRM normál útján).
     await pageA.request.post(BASE + "/api/crm/op", { headers: { origin: BASE }, data: { requestId: require("crypto").randomUUID(), op: "customer.create", args: { input: { type: "individual", name: "Meglévő Melinda", email: "melinda@example.test" } } } });
-    log("P03/P04: CRM-admin: az Adatkezelés menüpont látszik", (await pageA.locator('nav a:has-text("Adatkezelés")').count()) > 0);
+    log("P03/P04: CRM-admin: az Adatkezelés (v1.1: Beállítások) menüpont látszik", (await pageA.locator('nav a:has-text("Beállítások")').count()) > 0);
     await pageA.goto(BASE + "/data", { waitUntil: "networkidle" });
     await pageA.waitForURL("**/data/import");
     log("Adatkezelés: a kezdőoldal az első jogosult aloldalra (Importálás) visz", pageA.url().endsWith("/data/import"));
@@ -229,7 +230,7 @@ async function wizard(page, file, label, opts = {}) {
       await page.goto(BASE + "/data/history", { waitUntil: "networkidle" });
       await page.locator('[data-testid="import-job"]').first().waitFor();
       await checkPage(page, label, "importelozmenyek");
-      if (label === "mobil") log("[mobil] az Adatkezelés menüpont a mobil navigációban is elérhető", (await page.locator('nav[aria-label="Fő navigáció (mobil)"] a:has-text("Adatkezelés")').count()) === 1);
+      if (label === "mobil") log("[mobil] az Adatkezelés (v1.1: Beállítások) menüpont a mobil navigációban is elérhető", (await page.locator('nav[aria-label="Fő navigáció (mobil)"] a:has-text("Beállítások")').count()) === 1);
       await ctx.close();
     }
 
@@ -245,7 +246,7 @@ async function wizard(page, file, label, opts = {}) {
       const res = await page.request.post(BASE + "/api/data/export", { headers: { origin: BASE }, data: { format: "csv", filters: {} } });
       log("P06: visszavont jog: a korábbi munkamenettel az export 403", res.status() === 403);
       await page.goto(BASE + "/data/export", { waitUntil: "networkidle" });
-      log("P06: visszavont jog: az export fül eltűnik, az oldal jogosultsági üzenetet mutat", (await page.locator('[data-testid="no-permission"]').count()) === 1 && (await page.locator('nav[aria-label="Adatkezelés"] a:has-text("Exportálás")').count()) === 0);
+      log("P06: visszavont jog: az export fül eltűnik, az oldal jogosultsági üzenetet mutat", (await page.locator('[data-testid="no-permission"]').count()) === 1 && (await page.locator('nav[aria-label="Beállítások"] a:has-text("Exportálás")').count()) === 0);
       await ctx.close();
     }
 
