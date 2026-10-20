@@ -46,7 +46,7 @@ describe.each(DRIVERS)("adatbázis-környezet ellenőrzése (%s)", (kind) => {
     const backup = await exportBackup(t.db, "production");
     await expect(restoreBackup(t.db, { ...backup, environment: "preview" }, "preview")).rejects.toThrow(/környezet/);
     expect(await count("select count(*) as n from user_permissions where permission = 'crm.customer.import'")).toBe(0);
-    expect(await count("select count(*) as n from user_permissions where permission = 'crm.customer.export'")).toBe(1);
+    expect(await count("select count(*) as n from user_permissions where permission = 'crm.customer.export' and revoked_at is null")).toBe(1);
     expect(await count("select count(*) as n from ops_log")).toBe(0);
   });
 

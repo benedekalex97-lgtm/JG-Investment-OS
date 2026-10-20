@@ -6,6 +6,9 @@
  *   status | migrate | user:create <email> <név> | user:set-password <email> | user:deactivate <email> | user:activate <email>
  *   permission:grant <email> <jog> | permission:revoke <email> <jog> | permission:list      (v1.0; JG_OPERATOR kötelező a módosításhoz)
  *       jogok: crm.customer.import, crm.customer.export, crm.import.history.read
+ *       v1.1 adminjogok: crm.settings.manage, crm.users.manage, crm.settings.audit.read (első admin kijelölése: külön jóváhagyás után,
+ *       pl. JG_OPERATOR=<üzemeltető> npm run db -- permission:grant <email> crm.users.manage). A visszavonás nem töröl: a sor
+ *       visszavont jelölést kap. Minden változás a beállítási változásnaplóba is bekerül (via=cli, az üzemeltető azonosítójával).
  *   backup <fájl>              titkosított mentés (JG_BACKUP_KEY vagy JG_BACKUP_KEY_FILE, JG_OPERATOR); Git munkakönyvtárba nem ír
  *   backup:keygen <fájl>       új, véletlen 32 bájtos mentési kulcs (0600 jogosultsággal; csak új fájlba)
  *   backup:inspect <fájl>      biztonságos metaadatok (kulcs nélkül; személyes adatot nem ír ki)

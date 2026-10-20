@@ -9,6 +9,7 @@ import { features } from "../features";
 import { loadSnapshot, InvariantError } from "../crm/store";
 import { permissionsOf } from "../data/permissions";
 import { handleData } from "./data-api";
+import { handleSettings } from "./settings-api";
 import { csrfProblem } from "./guards";
 
 /**
@@ -87,6 +88,9 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
 
       // v1.0 adatkezelés (import/export): műveletspecifikus jogosultsággal, lásd data-api.ts.
       if (path.startsWith("data/")) return handleData(req, path, db, user, clock);
+
+      // v1.1 adminisztráció (beállítások, felhasználói jogok, változásnapló): műveletspecifikus jogosultsággal, lásd settings-api.ts.
+      if (path.startsWith("settings/")) return handleSettings(req, path, db, user);
 
       if (path === "crm/snapshot") {
         if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);

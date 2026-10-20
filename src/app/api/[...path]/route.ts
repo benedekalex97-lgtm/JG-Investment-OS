@@ -7,3 +7,4 @@ export const runtime = "nodejs";
 const handle = createApi(getRuntime);
 export const GET = handle;
 export const POST = handle;
+export const PATCH = handle;

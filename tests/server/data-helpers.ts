@@ -1,11 +1,11 @@
-import { grantPermission, type DataPermission } from "@/server/data/permissions";
+import { grantPermission, type CrmPermission } from "@/server/data/permissions";
 import type { Db } from "@/server/db/types";
 import type { Client } from "./helpers";
 
 /** v1.0 adatkezelési teszt-segédek: jogosultság kiosztása (üzemeltetői úton) és multipart feltöltés. Kizárólag fiktív adat. */
 export const OPERATOR = "Teszt Üzemeltető";
 
-export async function grant(db: Db, email: string, ...permissions: DataPermission[]) {
+export async function grant(db: Db, email: string, ...permissions: CrmPermission[]) {
   for (const permission of permissions) await grantPermission(db, { email, permission, operator: OPERATOR, env: "local" });
 }
 

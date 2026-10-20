@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DemoRepository } from "@/data/repository";
+import { loadConfig } from "../crm/store";
 import { CUSTOMER_TYPE_LABELS } from "@/domain/constants";
 import {
   canImportExplicitly, evaluateRow, importsByDefault, IMPORT_FIELD_KEYS, mappingProblems, ROW_STATE_SEVERITY, SOURCE_VERIFICATION, suggestMapping,
@@ -424,7 +425,8 @@ export async function commit(tx: Tx, user: AuthUser, bytes: Buffer, rawBody: unk
   // Az előnézet besorolása sorszám szerint (a row_states a fájl összes adatsorát - az üreseket is - tartalmazza, sorrendben).
   if (previewStates.length !== ev.order.length) throw new ImportError("file_mismatch", "A fájl eltér az előnézetben használttól. Készíts új előnézetet.", 409);
   const beforeOf = new Map(ev.order.map((rowNo, i) => [rowNo, previewStates[i] as RowState]));
-  const repo = new DemoRepository(emptySnapshot(), { clock: () => now, idGen: newId });
+  // v1.1: a véglegesítés a tényleges (adatbázisból töltött) konfigurációval fut.
+  const repo = new DemoRepository(emptySnapshot(await loadConfig(tx)), { clock: () => now, idGen: newId });
   const results: { rowNo: number; outcome: string; customerId?: string }[] = [];
   ev.rows.forEach((row) => {
     checkDeadline(deadline);

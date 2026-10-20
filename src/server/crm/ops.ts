@@ -8,7 +8,7 @@ import type { Db, Tx } from "../db/types";
 import { DELETE_CONFIRMATION_WORD, features } from "../features";
 import { findDuplicates, maskRemoved, type DuplicateCandidate } from "@/domain/duplicates";
 import { contactFromRow, customerFromRow, type Row } from "./rows";
-import { loadSnapshot, saveDiff } from "./store";
+import { loadConfig, loadSnapshot, saveDiff } from "./store";
 
 /**
  * A kliens által hívható, szerveroldali műveletek (zárt lista). A rögzítő/felelős azonosítót MINDIG a hitelesített munkamenetből
@@ -228,7 +228,8 @@ export async function executeOp(db: Db, user: AuthUser, req: { requestId: string
       if (blocked) return { kind: "result", result: blocked, snapshot: await loadSnapshot(tx), replayed: false } as const;
     }
 
-    const before = customerId === null ? emptySnapshot() : await loadSnapshot(tx, customerId);
+    // v1.1: új ügyfélnél is a tényleges (adatbázisból töltött) konfiguráció érvényes - nincs visszaesés a beépített listára.
+    const before = customerId === null ? emptySnapshot(await loadConfig(tx)) : await loadSnapshot(tx, customerId);
     const repo = new DemoRepository(before, { clock, idGen: newId });
     const result = def.custom ? await def.custom(tx, args, user, clock()) : def.run!(repo, args, user);
     if (result.ok) {
