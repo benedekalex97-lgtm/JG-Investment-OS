@@ -31,16 +31,28 @@ interface OpDef<A, R> {
   /** Közvetlen, szűk SQL-művelet ugyanabban a tranzakcióban (pl. logikai törlés), ha a tartományi modellben nincs megfelelője. */
   custom?(tx: Tx, a: A, u: AuthUser, now: Date): Promise<Result<R>>;
   audit(a: A, value: R, before: DataSnapshot, after: DataSnapshot): AuditInfo;
+  /**
+   * Idempotens újraküldés: a TÁROLT sikeres eredményhez tartozó ügyfél azonosítója (szigorú sémával, nem az újraküldött args-ból).
+   * Ha nem olvasható ki, a tárolt eredmény nem szolgálható ki.
+   */
+  replayCustomer(value: unknown): string | undefined;
 }
 const defineOp = <A, R>(d: OpDef<A, R>) => d;
 
 const changedFields = (b?: Customer, a?: Customer) =>
   b && a ? Object.keys({ ...a, ...b }).filter((k) => k !== "updatedAt" && JSON.stringify((a as never)[k]) !== JSON.stringify((b as never)[k])) : [];
 
+/** Tárolt eredményformák (műveletenként): csak a tulajdonos ügyfél azonosítója számít, minden más mezőt figyelmen kívül hagyunk. */
+const byCustomerId = (v: unknown) => z.object({ customerId: id }).safeParse(v).data?.customerId;
+const byId = (v: unknown) => z.object({ id }).safeParse(v).data?.id;
+const byCreatedCustomer = (v: unknown) => z.object({ customer: z.object({ id }) }).safeParse(v).data?.customer.id;
+const storedSuccess = z.object({ ok: z.literal(true), value: z.unknown() });
+
 export const OPS = {
   "note.create": defineOp({
     args: z.object({ customerId: id, text: z.string().trim().min(1).max(2000) }).strict(),
     scope: (a) => ({ customerId: a.customerId }),
+    replayCustomer: byCustomerId,
     run: (repo, a, u) => repo.createActivity({ customerId: a.customerId, type: "note", summary: a.text, recordedBy: u.id, occurredAt: new Date().toISOString() }),
     audit: (_a, v) => ({ action: "note.create", entityType: "activity", entityId: v.id, customerId: v.customerId }),
   }),
@@ -48,6 +60,7 @@ export const OPS = {
   "customer.create": defineOp({
     args: z.object({ input: record, confirmDuplicates: z.boolean().optional() }).strict(),
     scope: () => null,
+    replayCustomer: byCreatedCustomer,
     precheck: async (tx, a) => {
       if (a.confirmDuplicates === true) return null;
       const strong = (await strongDuplicates(tx, a.input)).filter((d) => d.level === "strong");
@@ -62,6 +75,7 @@ export const OPS = {
   "customer.update": defineOp({
     args: z.object({ id, input: record }).strict(),
     scope: (a) => ({ customerId: a.id }),
+    replayCustomer: byId,
     run: (repo, a) => repo.updateCustomer(a.id, a.input),
     audit: (a, v, b, af) => ({
       action: "customer.update", entityType: "customer", entityId: v.id, customerId: v.id,
@@ -72,6 +86,7 @@ export const OPS = {
   "customer.changeStatus": defineOp({
     args: z.object({ customerId: id, input: record }).strict(),
     scope: (a) => ({ customerId: a.customerId }),
+    replayCustomer: byId,
     run: (repo, a, u) => repo.changeCrmStatus(a.customerId, { ...a.input, recordedBy: u.id }),
     audit: (a, v, b) => ({
       action: "customer.status_change", entityType: "customer", entityId: v.id, customerId: v.id,
@@ -83,6 +98,7 @@ export const OPS = {
       input: z.object({ customerId: id, taskType: z.string().max(60).optional(), inputKey: z.string().max(60).optional(), inputNote: z.string().max(2000).optional(), dueAt: z.string().max(40).optional() }).strict(),
     }).strict(),
     scope: (a) => ({ customerId: a.input.customerId }),
+    replayCustomer: byCustomerId,
     run: (repo, a, u) => repo.createTask({ ...a.input, assigneeId: u.id, recordedBy: u.id }),
     audit: (_a, v) => ({ action: "task.create", entityType: "task", entityId: v.id, customerId: v.customerId, detail: { taskType: v.taskType ?? null, inputKey: v.inputKey ?? null, crmStatus: v.crmStatus ?? null } }),
   }),
@@ -91,6 +107,7 @@ export const OPS = {
   "task.close": defineOp({
     args: z.object({ taskId: id, input: z.object({ outcome: z.string().max(20).optional(), output: z.string().max(TASK_TEXT_MAX * 2).optional() }).strict() }).strict(),
     scope: (a) => ({ taskId: a.taskId }),
+    replayCustomer: byCustomerId,
     run: (repo, a, u) => repo.closeTask(a.taskId, { ...a.input, recordedBy: u.id }),
     // Az auditba csak a minősítés és az Output hossza kerül (a szöveg személyes adatot tartalmazhat).
     audit: (_a, v) => ({ action: "task.close", entityType: "task", entityId: v.id, customerId: v.customerId, detail: { outcome: v.outputs?.at(-1)?.outcome ?? null, outputLength: v.outputs?.at(-1)?.text.length ?? 0 } }),
@@ -98,12 +115,14 @@ export const OPS = {
   "task.reopen": defineOp({
     args: z.object({ taskId: id }).strict(),
     scope: (a) => ({ taskId: a.taskId }),
+    replayCustomer: byCustomerId,
     run: (repo, a, u) => repo.setTaskStatus(a.taskId, "open", u.id),
     audit: (_a, v) => ({ action: "task.reopen", entityType: "task", entityId: v.id, customerId: v.customerId }),
   }),
   "task.setDue": defineOp({
     args: z.object({ taskId: id, dueAt: z.string().max(40).nullable() }).strict(),
     scope: (a) => ({ taskId: a.taskId }),
+    replayCustomer: byCustomerId,
     run: (repo, a, u) => repo.updateTask(a.taskId, { dueAt: a.dueAt }, u.id),
     audit: (_a, v, b) => ({
       action: "task.update_due", entityType: "task", entityId: v.id, customerId: v.customerId,
@@ -115,6 +134,7 @@ export const OPS = {
   "customer.delete": defineOp({
     args: z.object({ customerId: id, confirmation: z.string().max(40) }).strict(),
     scope: (a) => ({ customerId: a.customerId }),
+    replayCustomer: byId,
     custom: async (tx, a, u, now) => {
       if (!features().testCustomerDelete) return { ok: false, errors: { _form: "Az ügyfél törlése ebben a környezetben nincs engedélyezve." } };
       if (a.confirmation.trim() !== DELETE_CONFIRMATION_WORD) return { ok: false, errors: { confirmation: `A törléshez írd be pontosan: ${DELETE_CONFIRMATION_WORD}` } };
@@ -159,6 +179,27 @@ async function resolveCustomer(tx: Tx, scope: Scope): Promise<string | null | un
   return rows[0]?.customer_id;
 }
 
+const REPLAY_UNAVAILABLE: Result<never> = { ok: false, errors: { _form: "A korábbi kérés eredménye nem szolgáltatható ki újra." } };
+const REPLAY_STALE: Result<never> = { ok: false, errors: { _form: "A kérés már feldolgozva; az ügyfél állapota azóta megváltozott." } };
+
+/**
+ * A request_log-ban tárolt eredmény újbóli kiszolgálása. A tárolt sikeres eredményhez tartozó ügyfelet (nem az újraküldött args-ot)
+ * ellenőrizzük: logikailag törölt vagy nem létező ügyfél adata nem kerül vissza. Ismeretlen vagy sérült eredményformát nem szolgálunk ki.
+ * A `customer.delete` újraküldése, amíg az ügyfél eltávolított, csak a kérésben is szereplő azonosítót adja vissza (személyes adat
+ * nélkül); ha az ügyfelet azóta visszaállították, nem sikeres. Az újraküldés semmit nem ír (nincs új rekord és audit).
+ */
+async function replayResult(tx: Tx, op: OpName, def: OpDef<unknown, unknown>, stored: unknown): Promise<Result<unknown>> {
+  const parsed = storedSuccess.safeParse(stored);
+  if (!parsed.success) return REPLAY_UNAVAILABLE;
+  const customerId = def.replayCustomer(parsed.data.value);
+  if (!customerId) return REPLAY_UNAVAILABLE;
+  const rows = await tx.query<{ deleted_at: unknown }>("select deleted_at from customers where id = $1", [customerId]);
+  const removed = rows.length > 0 && rows[0].deleted_at !== null;
+  if (op === "customer.delete") return removed ? { ok: true, value: { id: customerId } } : REPLAY_STALE;
+  if (!rows.length || removed) return NOT_FOUND;
+  return { ok: true, value: parsed.data.value };
+}
+
 /** Egy művelet végrehajtása egyetlen, RLS-es tranzakcióban: idempotencia-ellenőrzés, zárolás, szabályok, mentés, audit. */
 export async function executeOp(db: Db, user: AuthUser, req: { requestId: string; op: OpName; args: unknown }, clock: () => Date = () => new Date()): Promise<OpOutcome> {
   const def = OPS[req.op] as unknown as OpDef<unknown, unknown>;
@@ -170,9 +211,8 @@ export async function executeOp(db: Db, user: AuthUser, req: { requestId: string
     await tx.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [req.requestId]);
     const prior = await tx.query<{ response: Result<unknown>; user_id: string; op: string }>("select response, user_id, op from request_log where request_id = $1", [req.requestId]);
     if (prior.length) {
-      const snapshot = await loadSnapshot(tx);
       if (prior[0].user_id !== user.id || prior[0].op !== req.op) return { kind: "bad_args" } as const;
-      return { kind: "result", result: prior[0].response, snapshot, replayed: true } as const;
+      return { kind: "result", result: await replayResult(tx, req.op, def, prior[0].response), snapshot: await loadSnapshot(tx), replayed: true } as const;
     }
 
     const customerId = await resolveCustomer(tx, def.scope(args));
