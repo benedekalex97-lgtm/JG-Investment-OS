@@ -3,6 +3,7 @@ import { LATEST_MIGRATION, MIGRATIONS } from "./db/migrate";
 import type { Db, Tx } from "./db/types";
 import type { JgEnv } from "./config";
 import { assertDbEnvironment } from "./db/environment";
+import { BUILTIN_CRM_CONFIG } from "@/domain/config";
 
 /**
  * Logikai mentés/visszaállítás (JSON dokumentum, v0.6 óta; v1.0-ban bővítve). A mentés TARTALMAZ személyes adatot és jelszó-hash-eket:
@@ -14,11 +15,20 @@ import { assertDbEnvironment } from "./db/environment";
  * beállítását, a környezeti változókat/titkokat, a Neon projekt- és szerepkör-beállításait (lásd docs/V1.0-DATA-OPERATIONS.md).
  */
 export const BACKUP_TABLES = [
-  "users", "oauth_identities", "user_permissions", "customers", "customer_restrictions", "company_contacts", "processes", "activities", "tasks", "task_results",
-  "contactability", "audit_events", "request_log", "import_jobs", "import_results", "ops_log",
+  "users", "oauth_identities", "user_permissions", "crm_pipeline_statuses", "crm_task_types", "crm_task_input_options",
+  "customers", "customer_restrictions", "company_contacts", "processes", "activities", "tasks", "task_results",
+  "contactability", "audit_events", "request_log", "import_jobs", "import_results", "ops_log", "settings_audit",
 ] as const;
+/**
+ * v1.1 konfigurációs katalógusok: a migráció (0008) a v1.0 értékekkel tölti fel őket, ezért egy frissen migrált céladatbázisban NEM
+ * üresek. Visszaállításkor a cél katalógusának pontosan ebben az érintetlen kiinduló állapotban kell lennie; a mentés sorai ezt
+ * kulcs szerint felülírják (a kiinduló sorok mind szerepelnek a mentésben, mert rendszerelem nem törölhető), törlés nincs.
+ */
+export const CATALOG_TABLES = ["crm_pipeline_statuses", "crm_task_types", "crm_task_input_options"] as const;
+type CatalogTable = (typeof CATALOG_TABLES)[number];
+const isCatalog = (t: string): t is CatalogTable => (CATALOG_TABLES as readonly string[]).includes(t);
 export type BackupTable = (typeof BACKUP_TABLES)[number];
-const JSONB_COLUMNS = new Set(["meta", "detail", "response", "options"]);
+const JSONB_COLUMNS = new Set(["meta", "detail", "response", "options", "changes"]);
 
 /**
  * Kompatibilitási leképezés: melyik migráció hozta létre a táblát. Régebbi sémájú mentésből a később létrejött tábla hiányozhat
@@ -30,6 +40,10 @@ export const TABLE_SINCE: Partial<Record<BackupTable, string>> = {
   ops_log: "0005_crm_data_permissions",
   import_jobs: "0006_crm_import_jobs",
   import_results: "0006_crm_import_jobs",
+  settings_audit: "0007_crm_settings_permissions",
+  crm_pipeline_statuses: "0008_crm_config_catalogs",
+  crm_task_types: "0008_crm_config_catalogs",
+  crm_task_input_options: "0008_crm_config_catalogs",
 };
 
 export interface Backup {
@@ -46,6 +60,7 @@ const orderBy: Record<BackupTable, string> = {
   users: "created_at, id", oauth_identities: "issuer, subject", user_permissions: "user_id, permission", customers: "created_at, id", customer_restrictions: "customer_id",
   company_contacts: "created_at, id", processes: "created_at, id", activities: "occurred_at, id", tasks: "created_at, id", task_results: "task_id, seq", contactability: "id",
   audit_events: "id", request_log: "created_at, request_id", import_jobs: "created_at, id", import_results: "job_id, row_no", ops_log: "id",
+  crm_pipeline_statuses: "key", crm_task_types: "key", crm_task_input_options: "key", settings_audit: "id",
 };
 
 /** Kanonikus JSON (rendezett kulcsok) - a tábla-lenyomatokhoz. */
@@ -89,8 +104,12 @@ export class RestoreError extends Error {}
  * kizárólag NULL-ozható oszlopokat (0003: `task_results.outcome`; 0004: `customers.deleted_at` / `deleted_by`) vagy új táblákat
  * (0005: `user_permissions`, `ops_log`; 0006: `import_jobs`, `import_results`) adtak hozzá. A régi sorok az új oszlopokban NULL-t
  * kapnak, az új táblák üresek maradnak - kitalált érték nem keletkezik. Nem additív sémaváltozásnál a lista nem bővíthető.
+ * v1.1 (0007-0009): a `user_permissions` két új, NULL-ozható oszlopot kapott (visszavonás), a napló új tábla; a katalógusok a
+ * migráció kiinduló (v1.0) értékeivel maradnak - pontosan azzal a konfigurációval, amellyel a régi mentés készült. A régi
+ * feladatokon szereplő, a v1.0 listában nem szereplő típus/Input kulcsok a migrációval azonos szabállyal archivált katalóguselemet
+ * kapnak (a hivatkozási integritás miatt); más adat nem keletkezik.
  */
-export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", LATEST_MIGRATION];
+export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", "0006_crm_import_jobs", LATEST_MIGRATION];
 
 const migrationIndex = (id: string) => MIGRATIONS.findIndex((m) => m.id === id);
 
@@ -120,9 +139,31 @@ export function checkBackupShape(backup: Backup, env: JgEnv): BackupTable[] {
 /** Az adatbázis összes mentett táblája üres-e (a visszaállítás előfeltétele). */
 export async function assertEmptyTarget(tx: Tx): Promise<void> {
   for (const t of BACKUP_TABLES) {
+    if (isCatalog(t)) {
+      if (!(await isPristineCatalog(tx, t))) throw new RestoreError(`A céladatbázis nem üres (${t}: a katalógus eltér a migráció kiinduló állapotától). A visszaállítás csak üres adatbázisba engedett.`);
+      continue;
+    }
     const [{ n }] = await tx.query<{ n: string }>(`select count(*) as n from ${t}`);
     if (Number(n) > 0) throw new RestoreError(`A céladatbázis nem üres (${t}). A visszaállítás csak üres adatbázisba engedett.`);
   }
+}
+
+/** A migráció (0008) által létrehozott, érintetlen kiinduló sorok (kulcs, név, sorrend, állapot, verzió, módosító nélkül). */
+function seedRows(t: CatalogTable): string[] {
+  const list = t === "crm_pipeline_statuses" ? BUILTIN_CRM_CONFIG.statuses : t === "crm_task_types" ? BUILTIN_CRM_CONFIG.taskTypes : BUILTIN_CRM_CONFIG.taskInputs;
+  return list.map((x) => `${x.key}|${x.label}|${x.sortOrder}|t|t|1||`).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+async function isPristineCatalog(tx: Tx, t: CatalogTable): Promise<boolean> {
+  // Rendezés a kliensen (a szerver kollációjától függetlenül, determinisztikusan).
+  const rows = (await tx.query<{ r: string }>(`select concat_ws('|', key, label, sort_order, case when is_active then 't' else 'f' end, case when is_system then 't' else 'f' end, version, coalesce(created_by, ''), coalesce(updated_by, '')) as r from ${t}`)).sort((a, b) => (a.r < b.r ? -1 : a.r > b.r ? 1 : 0));
+  const want = seedRows(t);
+  return rows.length === want.length && rows.every((x, i) => x.r === want[i]);
+}
+
+/** Régi (katalógus nélküli) mentésnél a feladatok listán kívüli kulcsai - ugyanaz a szabály, mint a 0008 migrációban. */
+function legacyKeys(backup: Backup, col: "task_type" | "input_key", t: CatalogTable): string[] {
+  const known = new Set(seedRows(t).map((r) => r.split("|")[0]));
+  return [...new Set((backup.tables.tasks ?? []).map((r) => r[col]).filter((v): v is string => typeof v === "string" && !known.has(v) && /^[a-z][a-z0-9_]{1,39}$/.test(v)))].sort();
 }
 
 /**
@@ -135,15 +176,33 @@ export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise
   return db.system(async (tx) => {
     await assertDbEnvironment(tx, env);
     await assertEmptyTarget(tx);
-    for (const t of present) await insertRows(tx, t, backup.tables[t]);
-    for (const seq of [["audit_events", "id"], ["ops_log", "id"]]) {
+    // A v1.1 őr-, napló- és aktív-elem triggerei a visszaállítás idejére (csak ebben a tranzakcióban) kikapcsolnak: a mentés a már
+    // naplózott, korábban érvényes állapotot tartalmazza (pl. archivált státuszban lévő ügyfelet, a mentett verziószámokat). Az idegen
+    // kulcsok és CHECK-ek érvényesek maradnak. Hiba esetén a tranzakció visszagördül, a triggerek is visszakapcsolnak.
+    const guarded = [...CATALOG_TABLES, "user_permissions", "customers", "tasks"];
+    for (const t of guarded) await tx.exec(`alter table ${t} disable trigger user`);
+    const derived: Partial<Record<CatalogTable, number>> = {};
+    for (const t of BACKUP_TABLES) {
+      if (isCatalog(t)) {
+        if (present.includes(t)) await upsertCatalog(tx, t, backup.tables[t]);
+        else if (t !== "crm_pipeline_statuses") {
+          const keys = legacyKeys(backup, t === "crm_task_types" ? "task_type" : "input_key", t);
+          for (const [i, k] of keys.entries()) await tx.query(`insert into ${t} (key, label, sort_order, is_active, archived_at) values ($1, $1, $2, false, now())`, [k, 1001 + i]);
+          derived[t] = keys.length;
+        }
+        continue;
+      }
+      if (present.includes(t)) await insertRows(tx, t, backup.tables[t]);
+    }
+    for (const t of guarded) await tx.exec(`alter table ${t} enable trigger user`);
+    for (const seq of [["audit_events", "id"], ["ops_log", "id"], ["settings_audit", "id"]]) {
       await tx.query(`select setval(pg_get_serial_sequence('${seq[0]}', '${seq[1]}'), greatest((select coalesce(max(${seq[1]}), 0) from ${seq[0]}), 1), (select count(*) > 0 from ${seq[0]}))`);
     }
     const counts: Record<string, number> = {};
     for (const t of BACKUP_TABLES) {
       const [{ n }] = await tx.query<{ n: string }>(`select count(*) as n from ${t}`);
       counts[t] = Number(n);
-      const expected = present.includes(t) ? backup.counts[t] : 0;
+      const expected = present.includes(t) ? backup.counts[t] : isCatalog(t) ? seedRows(t).length + (derived[t] ?? 0) : 0;
       if (counts[t] !== expected) throw new RestoreError(`A visszaállított sorok száma eltér (${t}): ${counts[t]} / ${expected}.`);
     }
     for (const t of present) {
@@ -152,8 +211,25 @@ export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise
       const projected = rows.map((r, i) => Object.fromEntries(Object.keys(want[i] ?? {}).map((k) => [k, r[k]])));
       if (tableChecksum(projected) !== tableChecksum(want)) throw new RestoreError(`A visszaállított tartalom eltér a mentéstől (${t}).`);
     }
+    // Régi mentésnél a katalógus a migráció kiinduló állapota (+ a régi feladatok archivált kulcsai) marad.
+    for (const t of CATALOG_TABLES.filter((x) => !present.includes(x))) {
+      const rows = (await tx.query<{ key: string }>(`select key from ${t}`)).sort((a, b) => (a.key < b.key ? -1 : 1));
+      const want = [...seedRows(t).map((r) => r.split("|")[0]), ...(t === "crm_pipeline_statuses" ? [] : legacyKeys(backup, t === "crm_task_types" ? "task_type" : "input_key", t))].sort();
+      if (rows.map((r) => r.key).join() !== want.join()) throw new RestoreError(`A visszaállított tartalom eltér a mentéstől (${t}).`);
+    }
     return Object.fromEntries(Object.entries(counts).filter(([t]) => present.includes(t as BackupTable) || backup.counts[t] !== undefined));
   });
+}
+
+/** Katalógus visszaállítása kulcs szerint (a cél kiinduló sorai a mentés értékeit kapják; új kulcs beszúrás). Törlés nincs. */
+async function upsertCatalog(tx: Tx, table: CatalogTable, rows: Record<string, unknown>[]) {
+  for (const row of rows) {
+    const cols = Object.keys(row);
+    if (!cols.every((c) => /^[a-z_][a-z0-9_]*$/.test(c)) || !cols.includes("key")) throw new RestoreError(`Érvénytelen oszlopnév a mentésben (${table}).`);
+    const ph = cols.map((_c, i) => `$${i + 1}`).join(", ");
+    const upd = cols.filter((c) => c !== "key").map((c) => `${c} = excluded.${c}`).join(", ");
+    await tx.query(`insert into ${table} (${cols.join(", ")}) values (${ph}) on conflict (key) do update set ${upd}`, cols.map((c) => row[c]));
+  }
 }
 
 /** Üzemeltetői kapcsolat ellenőrzése: a mentés/visszaállítás csak a séma tulajdonosával (vagy szuperfelhasználóval) futhat. */

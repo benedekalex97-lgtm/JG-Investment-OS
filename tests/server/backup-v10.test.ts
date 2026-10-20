@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assertOperatorConnection, BACKUP_TABLES, exportBackup, restoreBackup, RestoreError, tableChecksum, type Backup } from "@/server/backup";
+import { assertEmptyTarget, assertOperatorConnection, BACKUP_TABLES, CATALOG_TABLES, exportBackup, restoreBackup, RestoreError, tableChecksum, type Backup } from "@/server/backup";
 import { BackupIntegrityError, generateKey, openBackup, parseKey, readHeader, sealBackup, verifyAgainstHeader } from "@/server/backup-crypto";
 import { checkBackupTarget, insideGitRepo, loadBackupKey, plaintextGate, restoreGate } from "@/server/backup-ops";
 import { LATEST_MIGRATION } from "@/server/db/migrate";
@@ -150,8 +150,10 @@ describe.each(DRIVERS)("v1.0 mentés és visszaállítás (%s)", (kind) => {
       await expect(restoreBackup(dst.db, badCount, "local")).rejects.toThrow(/sorösszesítő/);
       const broken = JSON.parse(JSON.stringify(backup)); broken.tables.import_results[0].customer_id = "nincs-ilyen-ugyfel";
       await expect(restoreBackup(dst.db, broken, "local")).rejects.toThrow();
-      const n = await dst.db.system((tx) => tx.query<{ n: string }>(`select (${BACKUP_TABLES.map((t) => `(select count(*) from ${t})`).join(" + ")}) as n`));
+      // v1.1: a katalógusok a migráció kiinduló sorait tartalmazzák (nem a mentés adatát) - a sikertelen kísérlet után is érintetlenül.
+      const n = await dst.db.system((tx) => tx.query<{ n: string }>(`select (${BACKUP_TABLES.filter((t) => !(CATALOG_TABLES as readonly string[]).includes(t)).map((t) => `(select count(*) from ${t})`).join(" + ")}) as n`));
       expect(Number(n[0].n)).toBe(0);
+      await dst.db.system((tx) => assertEmptyTarget(tx));
     } finally { await dst.cleanup(); }
   });
 
