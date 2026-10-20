@@ -57,7 +57,10 @@ export const tableChecksum = (rows: Record<string, unknown>[]) => sha256(canonic
 
 export async function exportBackup(db: Db, env: JgEnv, now: Date = new Date()): Promise<Backup> {
   return db.system(async (tx) => {
-    // Egyetlen tranzakció = konzisztens pillanatkép.
+    // Egyetlen, REPEATABLE READ + READ ONLY tranzakció: a környezet-ellenőrzés és MINDEN tábla ugyanabból a pillanatképből olvasódik
+    // (READ COMMITTED mellett a táblák közötti olvasások között véglegesített írás - pl. új ügyfél + feladata - részben kerülne a mentésbe).
+    // Csak ez a tranzakció kapja ezt a szintet; az általános driver-tranzakciók izolációja változatlan.
+    await tx.exec("set transaction isolation level repeatable read, read only");
     await assertDbEnvironment(tx, env);
     const tables: Backup["tables"] = {};
     for (const t of BACKUP_TABLES) tables[t] = await tx.query(`select * from ${t} order by ${orderBy[t]}`);
