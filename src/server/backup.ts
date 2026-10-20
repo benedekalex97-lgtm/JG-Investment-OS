@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { LATEST_MIGRATION, MIGRATIONS } from "./db/migrate";
 import type { Db, Tx } from "./db/types";
 import type { JgEnv } from "./config";
+import { assertDbEnvironment } from "./db/environment";
 
 /**
  * Logikai mentés/visszaállítás (JSON dokumentum, v0.6 óta; v1.0-ban bővítve). A mentés TARTALMAZ személyes adatot és jelszó-hash-eket:
@@ -57,6 +58,7 @@ export const tableChecksum = (rows: Record<string, unknown>[]) => sha256(canonic
 export async function exportBackup(db: Db, env: JgEnv, now: Date = new Date()): Promise<Backup> {
   return db.system(async (tx) => {
     // Egyetlen tranzakció = konzisztens pillanatkép.
+    await assertDbEnvironment(tx, env);
     const tables: Backup["tables"] = {};
     for (const t of BACKUP_TABLES) tables[t] = await tx.query(`select * from ${t} order by ${orderBy[t]}`);
     const counts = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length]));
@@ -128,6 +130,7 @@ export async function assertEmptyTarget(tx: Tx): Promise<void> {
 export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise<Record<string, number>> {
   const present = checkBackupShape(backup, env);
   return db.system(async (tx) => {
+    await assertDbEnvironment(tx, env);
     await assertEmptyTarget(tx);
     for (const t of present) await insertRows(tx, t, backup.tables[t]);
     for (const seq of [["audit_events", "id"], ["ops_log", "id"]]) {

@@ -1,6 +1,7 @@
 import type { Db, Tx } from "../db/types";
 import { normalizeEmail } from "../auth/service";
 import { opsLog } from "../ops-log";
+import { assertDbEnvironment } from "../db/environment";
 import type { JgEnv } from "../config";
 
 /**
@@ -64,6 +65,8 @@ export async function grantPermission(db: Db, input: { email: string; permission
   if (!isDataPermission(input.permission)) throw new Error(`Ismeretlen jogosultság. Elérhető: ${DATA_PERMISSIONS.join(", ")}`);
   const operator = validateOperator(input.operator);
   return db.system(async (tx) => {
+    // Az adatbázis saját környezetjelölése a módosítás előtt (fail-closed).
+    await assertDbEnvironment(tx, input.env);
     const users = await tx.query<{ id: string }>("select id from users where email = $1 and active", [normalizeEmail(input.email)]);
     if (!users.length) throw new Error("Nincs ilyen aktív felhasználó.");
     const rows = await tx.query("insert into user_permissions (user_id, permission, granted_by) values ($1, $2, $3) on conflict do nothing returning user_id", [users[0].id, input.permission, operator]);
@@ -77,6 +80,7 @@ export async function revokePermission(db: Db, input: { email: string; permissio
   if (!isDataPermission(input.permission)) throw new Error(`Ismeretlen jogosultság. Elérhető: ${DATA_PERMISSIONS.join(", ")}`);
   const operator = validateOperator(input.operator);
   return db.system(async (tx) => {
+    await assertDbEnvironment(tx, input.env);
     const users = await tx.query<{ id: string }>("select id from users where email = $1", [normalizeEmail(input.email)]);
     if (!users.length) throw new Error("Nincs ilyen felhasználó.");
     const rows = await tx.query("delete from user_permissions where user_id = $1 and permission = $2 returning user_id", [users[0].id, input.permission]);
