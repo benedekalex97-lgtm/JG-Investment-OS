@@ -1,5 +1,6 @@
 -- JG Investment OS v1.1 -> v1.0 SÉMA-visszagörgetés (2. szint). KIZÁRÓLAG külön jóváhagyás, friss titkosított mentés és a
--- docs/V1.1-ADMIN-SETTINGS.md 19. fejezetének ellenőrzőlistája után, a séma tulajdonosi kapcsolatával futtatandó (psql -1 -f ...).
+-- docs/V1.1-ADMIN-SETTINGS.md 19. fejezetének ellenőrzőlistája után, a séma tulajdonosi kapcsolatával futtatandó
+-- (psql -v ON_ERROR_STOP=1 -f scripts/sql/v1.1-schema-rollback.sql; a szkript maga egy tranzakció).
 -- Az 1. szintű (ajánlott) visszagörgetés csak az alkalmazáskódot állítja vissza v1.0-ra: a v1.1 séma visszafelé kompatibilis, ezt
 -- a szkriptet ahhoz NEM kell futtatni.
 --
