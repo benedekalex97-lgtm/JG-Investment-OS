@@ -27,6 +27,9 @@ const nextConfig: NextConfig = {
       { source: "/cases/:id", destination: "/customers", permanent: false },
       { source: "/tasks", destination: "/#feladatok", permanent: false },
       { source: "/activities", destination: "/customers", permanent: false },
+      // v1.1: az Adatkezelés a Beállítások alá került; a v1.0 hivatkozások (könyvjelzők) tovább működnek. Az API (/api/data/*) változatlan.
+      { source: "/data", destination: "/settings/data", permanent: false },
+      { source: "/data/:path*", destination: "/settings/data/:path*", permanent: false },
     ];
   },
 };

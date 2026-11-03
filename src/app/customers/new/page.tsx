@@ -7,7 +7,9 @@ import { VerificationFields } from "@/components/forms";
 import { SelectInput, TextInput } from "@/components/ui/form";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { useCrmData } from "@/data/store";
-import { CRM_STATUSES, CRM_STATUS_LABELS, CUSTOMER_TYPE_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
+import { CUSTOMER_TYPE_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
+import { activeOf } from "@/domain/config";
+import { useCrmConfig } from "@/components/common";
 import { findDuplicates, type DuplicateCandidate } from "@/domain/duplicates";
 import { isCrmMilestone } from "@/domain/workflow";
 import { cn } from "@/lib/cn";
@@ -21,6 +23,7 @@ type Errors = Record<string, string>;
 export default function NewCustomerPage() {
   const router = useRouter();
   const { repo, data } = useCrmData();
+  const config = useCrmConfig();
   const [busy, setBusy] = useState(false);
   const [type, setType] = useState<"individual" | "company">("individual");
   const [f, setF] = useState({ name: "", companyName: "", contactName: "", contactPosition: "", phone: "", email: "", source: "", crmStatus: DEFAULT_CRM_STATUS as string });
@@ -28,7 +31,7 @@ export default function NewCustomerPage() {
   const [vAck, setVAck] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
-  const milestone = isCrmMilestone(f.crmStatus as typeof DEFAULT_CRM_STATUS);
+  const milestone = isCrmMilestone(config, f.crmStatus);
   // CRM-013: lehetséges duplikációk már gépelés közben (a betöltött, aktív ügyfelekből); a szerver mentés előtt újra ellenőriz.
   const local = useMemo(
     () => (data ? findDuplicates(data, { type, name: f.name, companyName: f.companyName, contactName: f.contactName, phone: f.phone, email: f.email }) : []),
@@ -106,7 +109,7 @@ export default function NewCustomerPage() {
             <TextInput label="E-mail (ha ismert)" type="email" value={f.email} error={errors.email} onChange={set("email")} autoComplete="off" />
             <TextInput label="Adatforrás (ha ismert)" value={f.source} onChange={set("source")} hint="Pl. weboldali érdeklődés, ajánlás, kontaktadatbázis." />
             <SelectInput label="Kapcsolati státusz" value={f.crmStatus} error={errors.toStatus} onChange={set("crmStatus")}>
-              {CRM_STATUSES.map((s) => <option key={s} value={s}>{CRM_STATUS_LABELS[s]}</option>)}
+              {activeOf(config.statuses).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
             </SelectInput>
             {milestone ? (
               <div className="sm:col-span-2"><VerificationFields source={vSource} ack={vAck} onSource={setVSource} onAck={setVAck} error={errors.verification} /></div>

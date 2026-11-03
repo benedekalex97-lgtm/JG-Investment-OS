@@ -5,8 +5,9 @@ import {
   newCustomerForm, processInput, reopenInput, restrictionInput, statusChangeInput, taskInput,
 } from "@/domain/schemas";
 import {
-  CONTACT_STATUS_LABELS, CRM_STATUS_LABELS, TASK_OUTCOME_LABELS, DEFAULT_CRM_STATUS, TASK_TYPE_LABELS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
+  CONTACT_STATUS_LABELS, TASK_OUTCOME_LABELS, DEFAULT_CRM_STATUS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
+import { findTaskInput, findTaskType, isSelectableStatus, statusLabel } from "@/domain/config";
 import { buildDisplayName, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
 import type {
   Activity, CompanyContact, Contactability, ContactabilityStatus, ContactChannel, ContactPurpose, Customer, CustomerProcess,
@@ -149,8 +150,10 @@ export class DemoRepository implements DataRepository {
       d.type === "individual"
         ? { ...base, type: "individual", ...splitName(d.name), displayName: d.name, notes: d.notes }
         : { ...base, type: "company", companyName: d.companyName };
+    // v1.1: az alapértelmezett státusznak is aktívnak kell lennie a katalógusban (a rendszer nem talál ki státuszt).
+    if (!isSelectableStatus(this.snap.config, DEFAULT_CRM_STATUS)) return fail({ toStatus: "Az alapértelmezett státusz nem érhető el a konfigurációban." });
     if (d.crmStatus !== DEFAULT_CRM_STATUS) {
-      const errors = validateCrmStatusChange(draft, d.crmStatus, d.verification);
+      const errors = validateCrmStatusChange(this.snap.config, draft, d.crmStatus, d.verification);
       if (Object.keys(errors).length) return fail(errors);
     }
     this.commit({ customers: [draft, ...this.snap.customers] });
@@ -208,17 +211,18 @@ export class DemoRepository implements DataRepository {
     const parsed = crmStatusChangeInput.safeParse(input);
     if (!parsed.success) return fail(zodErrors(parsed.error));
     const d = parsed.data;
-    const errors = validateCrmStatusChange(cur, d.toStatus, d.verification);
+    const cfg = this.snap.config;
+    const errors = validateCrmStatusChange(cfg, cur, d.toStatus, d.verification);
     if (Object.keys(errors).length) return fail(errors);
     const from = cur.crmStatus ?? DEFAULT_CRM_STATUS;
-    const milestone = isCrmMilestone(d.toStatus);
+    const milestone = isCrmMilestone(cfg, d.toStatus);
     const verification = milestone && d.verification ? this.verification(d.verification, d.recordedBy) : undefined;
     const res = this.patchCustomer(customerId, { crmStatus: d.toStatus });
     this.log({
       customerId, recordedBy: d.recordedBy, type: milestone ? "provider_milestone" : "crm_status_change",
       summary: milestone
-        ? `Szimulált szolgáltatói mérföldkő: ${CRM_STATUS_LABELS[d.toStatus]} (igazolás forrása: ${VERIFICATION_SOURCE_LABELS[verification!.sourceCategory]})`
-        : `Kapcsolati státusz: ${CRM_STATUS_LABELS[from]} → ${CRM_STATUS_LABELS[d.toStatus]}`,
+        ? `Szimulált szolgáltatói mérföldkő: ${statusLabel(cfg, d.toStatus)} (igazolás forrása: ${VERIFICATION_SOURCE_LABELS[verification!.sourceCategory]})`
+        : `Kapcsolati státusz: ${statusLabel(cfg, from)} → ${statusLabel(cfg, d.toStatus)}`,
       meta: { fromCrmStatus: from, toCrmStatus: d.toStatus, verification },
     });
     return res;
@@ -423,11 +427,19 @@ export class DemoRepository implements DataRepository {
     const { recordedBy, taskType, title, ...d } = parsed.data;
     const rel = validateRelations(this.snap, d);
     if (rel) return fail({ customerId: rel });
+    // v1.1: a típus és az Input a tényleges katalógus AKTÍV eleme kell legyen; megjegyzés csak megjegyzést engedő Inputhoz.
+    const cfg = this.snap.config;
+    const type = findTaskType(cfg, taskType);
+    if (taskType !== undefined && !type?.isActive) return fail({ taskType: type ? "Ez a feladattípus archivált: új feladathoz nem választható." : "Ismeretlen feladattípus." });
+    const inputDef = findTaskInput(cfg, d.inputKey);
+    if (d.inputKey !== undefined && !inputDef?.isActive) return fail({ inputKey: inputDef ? "Ez az Input-opció archivált: új feladathoz nem választható." : "Érvénytelen Input érték" });
+    if (d.inputNote !== undefined && !inputDef?.allowsNote) return fail({ inputNote: "Megjegyzés csak megjegyzést engedő Input értékhez (pl. „Egyéb”) adható meg" });
     const t = this.now();
     // v0.5: a feladat automatikusan az ügyfél AKTUÁLIS státuszához kapcsolódik (külön státuszválasztás nélkül).
     const customer = this.snap.customers.find((c) => c.id === d.customerId) as Customer;
     // v0.5.1: a feladat neve a kiválasztott típus neve.
-    const name = taskType ? TASK_TYPE_LABELS[taskType] : (title as string);
+    // A feladat neve a létrehozáskori típusnév: a típus későbbi átnevezése a meglévő feladatot nem írja át (történeti megőrzés).
+    const name = type ? type.label : (title as string);
     const task: Task = { id: this.nextId("task"), ...d, title: name, ...(taskType ? { taskType } : {}), crmStatus: d.crmStatus ?? customer.crmStatus ?? DEFAULT_CRM_STATUS, createdAt: t };
     this.commit({ tasks: [task, ...this.snap.tasks] });
     this.log({

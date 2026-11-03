@@ -8,6 +8,7 @@ import { TextInput } from "@/components/ui/form";
 import { Button, LoadingState } from "@/components/ui/primitives";
 import { cn } from "@/lib/cn";
 import { GlobalSearch } from "./global-search";
+import { hasAnySettingsAccess, SlidersIcon } from "@/components/settings/nav";
 
 export const NAV = [
   { href: "/", label: "Áttekintés" },
@@ -15,12 +16,23 @@ export const NAV = [
   { href: "/customers", label: "Ügyfelek" },
 ] as const;
 
+/**
+ * v1.1: a Beállítások menüpont (benne a v1.0 Adatkezelés) csak valamely CRM-jogosultsággal látszik; a szerver minden kérésnél külön is
+ * ellenőriz. A korábbi /data útvonalak a /settings/data alá irányítanak.
+ */
+export const SETTINGS_NAV = { href: "/settings", label: "Beállítások" } as const;
+const useNav = () => {
+  const { permissions } = useCrmData();
+  return hasAnySettingsAccess(permissions) ? [...NAV, SETTINGS_NAV] : [...NAV];
+};
+
 const isActive = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 
 function NavLinks({ path, orientation }: { path: string; orientation: "vertical" | "horizontal" }) {
+  const nav = useNav();
   return (
     <ul className={cn("flex gap-1", orientation === "vertical" ? "flex-col" : "flex-row")}>
-      {NAV.map((n) => {
+      {nav.map((n) => {
         const active = isActive(path, n.href);
         return (
           <li key={n.href} className={orientation === "horizontal" ? "flex-1" : undefined}>
@@ -29,10 +41,11 @@ function NavLinks({ path, orientation }: { path: string; orientation: "vertical"
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex min-h-11 items-center rounded-md px-3 text-sm font-medium transition-colors",
-                orientation === "horizontal" && "justify-center",
+                orientation === "horizontal" && "justify-center px-1 text-center text-[13px] sm:px-3 sm:text-sm",
                 active ? "bg-on-carbon/10 text-on-carbon" : "text-on-carbon-muted hover:bg-on-carbon/5 hover:text-on-carbon",
               )}
             >
+              {n.href === SETTINGS_NAV.href ? <SlidersIcon className="mr-2 hidden shrink-0 sm:block" /> : null}
               {n.label}
             </Link>
           </li>
@@ -46,7 +59,7 @@ function Brand() {
   return (
     <Link href="/" className="block rounded-md px-3 py-1 text-on-carbon">
       <span className="block text-[15px] font-semibold tracking-tight">JG Investment OS</span>
-      <span className="block text-xs text-on-carbon-muted">v0.9</span>
+      <span className="block text-xs text-on-carbon-muted">v1.1</span>
     </Link>
   );
 }
@@ -54,7 +67,7 @@ function Brand() {
 export function AppShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const { phase, user, logout, environmentLabel, legacy } = useCrmData();
-  const current = NAV.find((n) => isActive(path, n.href))?.label ?? "";
+  const current = [...NAV, SETTINGS_NAV].find((n) => isActive(path, n.href))?.label ?? "";
   const ready = phase === "ready";
 
   return (

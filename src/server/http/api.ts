@@ -7,6 +7,10 @@ import type { Runtime } from "../db";
 import { executeOp, isOpName } from "../crm/ops";
 import { features } from "../features";
 import { loadSnapshot, InvariantError } from "../crm/store";
+import { permissionsOf } from "../data/permissions";
+import { handleData } from "./data-api";
+import { handleSettings } from "./settings-api";
+import { csrfProblem } from "./guards";
 
 /**
  * A HTTP API logikája szabványos Request/Response felületen (a Next route csak továbbítja), így Next nélkül is tesztelhető.
@@ -21,24 +25,6 @@ const json = (body: unknown, status = 200, extra: Record<string, string> = {}) =
 
 const loginBody = z.object({ email: z.string().max(200), password: z.string().max(500) }).strict();
 const opBody = z.object({ requestId: z.string().uuid(), op: z.string().max(60), args: z.unknown() }).strict();
-
-/** CSRF-védelem: a módosító kérés csak azonos eredetű lehet (Origin vagy Sec-Fetch-Site), és JSON tartalmú. */
-function csrfProblem(req: Request): string | null {
-  const origin = req.headers.get("origin");
-  const url = new URL(req.url);
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-  if (origin) {
-    let ok = origin === url.origin;
-    try {
-      ok = ok || (host !== null && new URL(origin).host === host);
-    } catch {
-      ok = false;
-    }
-    if (!ok) return "cross_origin";
-  } else if (!["same-origin", "none"].includes(req.headers.get("sec-fetch-site") ?? "")) return "missing_origin";
-  if (!(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return "bad_content_type";
-  return null;
-}
 
 async function readJson(req: Request): Promise<unknown | undefined> {
   const text = await req.text();
@@ -94,7 +80,17 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
       const user: AuthUser | null = await userFromRequest(db, req);
       if (!user) return json({ state: "unauthenticated" }, 401);
 
-      if (path === "auth/me") return req.method === "GET" ? json({ state: "ok", user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings(), features: features() }) : json({ error: "method_not_allowed" }, 405);
+      if (path === "auth/me") {
+        if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+        // A jogosultságlista csak a navigációhoz kell; a szerver minden adatkezelési műveletnél újra, frissen ellenőriz.
+        return json({ state: "ok", user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings(), features: features(), permissions: await permissionsOf(db, user.id) });
+      }
+
+      // v1.0 adatkezelés (import/export): műveletspecifikus jogosultsággal, lásd data-api.ts.
+      if (path.startsWith("data/")) return handleData(req, path, db, user, clock);
+
+      // v1.1 adminisztráció (beállítások, felhasználói jogok, változásnapló): műveletspecifikus jogosultsággal, lásd settings-api.ts.
+      if (path.startsWith("settings/")) return handleSettings(req, path, db, user);
 
       if (path === "crm/snapshot") {
         if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);

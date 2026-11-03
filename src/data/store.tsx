@@ -34,12 +34,16 @@ interface Ctx {
   authMode: "password" | "google";
   googleConfigured: boolean;
   /** Szerveroldali funkciókapcsolók (csak tájékoztató; a szerver minden műveletnél újra ellenőriz). */
-  features: { testCustomerDelete: boolean };
+  features: { testCustomerDelete: boolean; customerImport: boolean };
+  /** v1.0: a bejelentkezett felhasználó adatmozgatási jogai (csak a navigációhoz; a szerver minden kérésnél frissen ellenőriz). */
+  permissions: string[];
   /** A bejelentkezett felhasználó azonosítója (a naplózott műveletek rögzítője - a szerver állítja be). */
   currentUserId: string;
   login: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** v1.1: a snapshot (és vele a CRM-konfiguráció) újratöltése, pl. adminmódosítás után - a nézetek azonnal az új beállítást mutatják. */
+  reloadData: () => Promise<boolean>;
   legacy: { items: LegacyBrowserData[]; discard: () => void };
 }
 const StoreContext = createContext<Ctx | null>(null);
@@ -72,7 +76,8 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
   const [environmentLabel, setEnvironmentLabel] = useState("");
   const [authMode, setAuthMode] = useState<"password" | "google">("password");
   const [googleConfigured, setGoogleConfigured] = useState(false);
-  const [features, setFeatures] = useState({ testCustomerDelete: false });
+  const [features, setFeatures] = useState({ testCustomerDelete: false, customerImport: false });
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [legacyItems, setLegacyItems] = useState<LegacyBrowserData[]>([]);
 
   const [repo] = useState(
@@ -83,6 +88,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
           if (e === "unauthenticated") {
             setData(null);
             setUser(null);
+            setPermissions([]);
             setPhase("unauthenticated");
           } else {
             setProblem("unreachable");
@@ -104,6 +110,7 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
       if (status === 401) {
         setData(null);
         setUser(null);
+        setPermissions([]);
         setPhase("unauthenticated");
       } else {
         setProblem(String(body.state ?? "unreachable"));
@@ -125,7 +132,9 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
         const auth = body.auth as { mode?: string; configured?: boolean } | undefined;
         setAuthMode(auth?.mode === "google" ? "google" : "password");
         setGoogleConfigured(auth?.configured === true);
-        setFeatures({ testCustomerDelete: (body.features as { testCustomerDelete?: boolean } | undefined)?.testCustomerDelete === true });
+        const f = body.features as { testCustomerDelete?: boolean; customerImport?: boolean } | undefined;
+        setFeatures({ testCustomerDelete: f?.testCustomerDelete === true, customerImport: f?.customerImport === true });
+        setPermissions(Array.isArray(body.permissions) ? (body.permissions as unknown[]).filter((x): x is string => typeof x === "string") : []);
         await loadSnapshotFromServer();
       } else if (status === 401) {
         const s = await getJson("/api/status");
@@ -209,12 +218,13 @@ export function CrmDataProvider({ children }: { children: ReactNode }) {
     }
     setData(null);
     setUser(null);
-    setFeatures({ testCustomerDelete: false });
+    setFeatures({ testCustomerDelete: false, customerImport: false });
+    setPermissions([]);
     setPhase("unauthenticated");
   }, []);
 
   const value: Ctx = {
-    phase, problem, data, repo, user, users, environmentLabel, authMode, googleConfigured, features, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap,
+    phase, problem, data, repo, user, users, environmentLabel, authMode, googleConfigured, features, permissions, currentUserId: user?.id ?? "", login, logout, refresh: bootstrap, reloadData: loadSnapshotFromServer,
     legacy: {
       items: legacyItems,
       /** Csak kifejezett felhasználói döntésre hívandó: a régi, csak böngészőben tárolt adat törlése. */

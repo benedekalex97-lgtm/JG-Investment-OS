@@ -1,4 +1,5 @@
-import { ACTIVITY_LABELS, CALL_OUTCOME_LABELS, CRM_STATUS_LABELS, TASK_OUTCOME_LABELS, VERIFICATION_SOURCE_LABELS } from "./constants";
+import { ACTIVITY_LABELS, CALL_OUTCOME_LABELS, TASK_OUTCOME_LABELS, VERIFICATION_SOURCE_LABELS } from "./constants";
+import { BUILTIN_CRM_CONFIG, statusLabel } from "./config";
 import type { Activity, DataSnapshot, TaskOutcome } from "./types";
 
 /**
@@ -28,7 +29,8 @@ const titleFromSummary = (summary: string) => {
   return i >= 0 ? summary.slice(i + 2) : "";
 };
 
-export function historyEntry(a: Activity, snap: Pick<DataSnapshot, "tasks" | "processes">, formatDate: (iso?: string) => string): HistoryEntry {
+export function historyEntry(a: Activity, snap: Pick<DataSnapshot, "tasks" | "processes"> & Partial<Pick<DataSnapshot, "config">>, formatDate: (iso?: string) => string): HistoryEntry {
+  const cfg = snap.config ?? BUILTIN_CRM_CONFIG;
   const m = a.meta ?? {};
   const task = m.taskId ? snap.tasks.find((t) => t.id === m.taskId) : undefined;
   const base = { id: a.id, occurredAt: a.occurredAt, recordedBy: a.recordedBy };
@@ -66,7 +68,8 @@ export function historyEntry(a: Activity, snap: Pick<DataSnapshot, "tasks" | "pr
       return {
         ...base, kind: "status", title: ACTIVITY_LABELS.crm_status_change,
         details: m.fromCrmStatus && m.toCrmStatus
-          ? [{ label: "Korábbi státusz", value: CRM_STATUS_LABELS[m.fromCrmStatus] }, { label: "Új státusz", value: CRM_STATUS_LABELS[m.toCrmStatus] }]
+          // A katalógus aktuális neve (átnevezés után is értelmezhető); a rögzítéskori nevet az összefoglaló szövege őrzi.
+          ? [{ label: "Korábbi státusz", value: statusLabel(cfg, m.fromCrmStatus) }, { label: "Új státusz", value: statusLabel(cfg, m.toCrmStatus) }]
           : [{ label: "Összefoglaló", value: a.summary }],
       };
     default: {

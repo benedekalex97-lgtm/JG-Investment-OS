@@ -27,7 +27,7 @@ export function LinkButton({ variant = "primary", size = "md", className, ...pro
   return <Link className={buttonStyles(variant, size, className)} {...props} />;
 }
 
-export type Tone = "neutral" | "ok" | "warn" | "danger" | "info" | "accent";
+export type Tone = "neutral" | "ok" | "warn" | "danger" | "info" | "accent" | "teal" | "indigo";
 const TONES: Record<Tone, string> = {
   neutral: "bg-surface-muted text-ink-muted ring-line",
   ok: "bg-ok-soft text-ok ring-ok/20",
@@ -35,6 +35,12 @@ const TONES: Record<Tone, string> = {
   danger: "bg-danger-soft text-danger ring-danger/25",
   info: "bg-info-soft text-info ring-info/20",
   accent: "bg-accent-soft text-accent ring-accent/20",
+  teal: "bg-teal-soft text-teal ring-teal/20",
+  indigo: "bg-indigo-soft text-indigo ring-indigo/20",
+};
+/** A Pipeline-státusz színjelölő pöttye (a palettaszín teli változata). */
+export const TONE_DOT: Record<Tone, string> = {
+  neutral: "bg-ink-subtle", ok: "bg-ok", warn: "bg-warn", danger: "bg-danger", info: "bg-info", accent: "bg-accent", teal: "bg-teal", indigo: "bg-indigo",
 };
 export function Badge({ tone = "neutral", children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
   return <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", TONES[tone], className)}>{children}</span>;

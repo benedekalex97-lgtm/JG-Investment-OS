@@ -10,7 +10,7 @@ import { CustomerHistory } from "@/components/customer-history";
 import { CustomerNotes } from "@/components/customer-notes";
 import { ContactSidebar, CustomerHeader } from "@/components/customer-details";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorState } from "@/components/ui/primitives";
-import { CRM_STATUS_LABELS } from "@/domain/constants";
+import { statusLabel } from "@/domain/config";
 import { statusOf, tasksByStatus } from "@/domain/logic";
 import type { Customer, DataSnapshot } from "@/domain/types";
 
@@ -27,7 +27,7 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
       <div className="min-w-0 space-y-6 lg:col-start-1 lg:row-start-2">
 
         <Card id="feladatok-lista">
-          <CardHeader title={`Feladatok — ${CRM_STATUS_LABELS[status]}`} count={view.current.length} action={<Button size="sm" onClick={() => setNewTask(true)}>+ Feladat hozzáadása</Button>} />
+          <CardHeader title={`Feladatok — ${statusLabel(data.config, status)}`} count={view.current.length} action={<Button size="sm" onClick={() => setNewTask(true)}>+ Feladat hozzáadása</Button>} />
           {view.current.length ? (
             <ul className="divide-y divide-line">{view.current.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
           ) : (
@@ -44,8 +44,8 @@ function Profile({ data, customer }: { data: DataSnapshot; customer: Customer })
               </summary>
               <div className="border-t border-line">
                 {view.earlier.map((g) => (
-                  <section key={g.status} aria-label={`Korábbi státusz: ${CRM_STATUS_LABELS[g.status]}`}>
-                    <h3 className="bg-canvas px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-subtle">{CRM_STATUS_LABELS[g.status]}</h3>
+                  <section key={g.status} aria-label={`Korábbi státusz: ${statusLabel(data.config, g.status)}`}>
+                    <h3 className="bg-canvas px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-subtle">{statusLabel(data.config, g.status)}</h3>
                     <ul className="divide-y divide-line">{g.tasks.map((t) => <TaskRow key={t.id} task={t} data={data} />)}</ul>
                   </section>
                 ))}

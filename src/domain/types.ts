@@ -1,12 +1,16 @@
 import type {
-  ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CRM_STATUSES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
+  ACTIVITY_TYPES, CALL_OUTCOMES, CLOSURE_STATES, CONTACT_CHANNELS, CONTACT_PURPOSES, CONTACT_STATUSES, CONTACTABILITY_STATUSES,
   EVIDENCE_STATUSES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_TYPES, PROCESS_STATUS_DEFS, RESTRICTION_KINDS,
-  TASK_INPUT_OPTIONS, TASK_OUTCOMES, TASK_OUTPUT_OPTIONS, TASK_STATUSES, TASK_TYPES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
+  TASK_OUTCOMES, TASK_OUTPUT_OPTIONS, TASK_STATUSES, VERIFICATION_SOURCES, VERIFICATION_STATUSES,
 } from "./constants";
+import { BUILTIN_CRM_CONFIG, type CrmConfig } from "./config";
 
 export type ContactStatus = (typeof CONTACT_STATUSES)[number];
-/** v0.5: az ügyfél egyetlen aktuális kapcsolati státusza (hét érték). */
-export type CrmStatus = (typeof CRM_STATUSES)[number];
+/**
+ * Az ügyfél egyetlen aktuális kapcsolati (Pipeline-) státuszának stabil kulcsa. v1.1-től a megengedett értékek az adatbázis
+ * katalógusából jönnek (`CrmConfig.statuses`), ezért itt szöveg; az érvényességet a szerver a katalógus alapján ellenőrzi.
+ */
+export type CrmStatus = string;
 export type ProcessType = (typeof PROCESS_TYPES)[number];
 export type ProcessStatus = (typeof PROCESS_STATUS_DEFS)[number]["key"];
 export type ClosureState = (typeof CLOSURE_STATES)[number];
@@ -16,8 +20,9 @@ export type ProcessSource = (typeof PROCESS_SOURCES)[number];
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 export type TaskStatus = (typeof TASK_STATUSES)[number];
-export type TaskType = (typeof TASK_TYPES)[number]["key"];
-export type TaskInputKey = (typeof TASK_INPUT_OPTIONS)[number]["key"];
+/** Feladattípus / Input kulcsa (v1.1-től a katalógusból; lásd CrmConfig). */
+export type TaskType = string;
+export type TaskInputKey = string;
 export type TaskOutputKey = (typeof TASK_OUTPUT_OPTIONS)[number]["key"];
 /** v0.9: a feladat lezárásának minősítése (Sikeres / Sikertelen). */
 export type TaskOutcome = (typeof TASK_OUTCOMES)[number];
@@ -214,6 +219,8 @@ export const SNAPSHOT_VERSION = 2 as const;
 
 export interface DataSnapshot {
   version: typeof SNAPSHOT_VERSION;
+  /** v1.1: a CRM konfigurációs katalógusai (státuszok, feladattípusok, Input-opciók); a szerver az adatbázisból tölti. */
+  config: CrmConfig;
   customers: Customer[];
   contacts: CompanyContact[];
   processes: CustomerProcess[];
@@ -222,6 +229,9 @@ export interface DataSnapshot {
   contactability: Contactability[];
 }
 
-export const emptySnapshot = (): DataSnapshot => ({
-  version: SNAPSHOT_VERSION, customers: [], contacts: [], processes: [], activities: [], tasks: [], contactability: [],
+/** A beépített (v1.0) katalógus mély másolata - tartományi tesztekhez és a fiktív seedhez; a szerver a saját, adatbázisból töltött konfigurációját adja. */
+export const builtinConfig = (): CrmConfig => structuredClone(BUILTIN_CRM_CONFIG);
+
+export const emptySnapshot = (config: CrmConfig = builtinConfig()): DataSnapshot => ({
+  version: SNAPSHOT_VERSION, config, customers: [], contacts: [], processes: [], activities: [], tasks: [], contactability: [],
 });

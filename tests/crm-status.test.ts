@@ -166,8 +166,11 @@ describe("CRM-008 — „Feldolgozásra vár” címke", () => {
     const h = customerHistory(r.getSnapshot(), c.id, String);
     expect(h[0].details[0]).toEqual({ label: "Korábbi státusz", value: "Feldolgozásra vár" });
   });
-  it("S5: nincs migráció: az adatbázis CHECK értékkészlete (0001) változatlanul a belső kulcsokat tartalmazza", () => {
+  it("S5: a címkeváltás nem igényelt migrációt (0001-0006 nem érinti a crm_status-t); v1.1-ben a 0008 katalógus ugyanazt a hét belső kulcsot veszi át, a 0009 a CHECK-et idegen kulcsra cseréli", () => {
     expect(MIGRATIONS[0].sql).toContain("'waiting_for_contact','contact','relationship','meeting','account_opening','capital_placed','lost'");
-    expect(MIGRATIONS.slice(1).some((m) => /crm_status/.test(m.sql))).toBe(false);
+    expect(MIGRATIONS.slice(1, 6).some((m) => /crm_status/.test(m.sql))).toBe(false);
+    const seed = MIGRATIONS.find((m) => m.id === "0008_crm_config_catalogs")!.sql;
+    for (const k of ["waiting_for_contact", "contact", "relationship", "meeting", "account_opening", "capital_placed", "lost"]) expect(seed).toContain(`('${k}', `);
+    expect(MIGRATIONS.find((m) => m.id === "0009_dynamic_crm_statuses")!.sql).toContain("references crm_pipeline_statuses(key)");
   });
 });

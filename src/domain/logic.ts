@@ -1,4 +1,5 @@
-import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS, RESTRICTION_LABELS, TASK_INPUT_LABELS, TASK_OUTCOME_LABELS, TASK_OUTPUT_LABELS } from "./constants";
+import { DEFAULT_CRM_STATUS, RESTRICTION_LABELS, TASK_OUTCOME_LABELS, TASK_OUTPUT_LABELS } from "./constants";
+import { BUILTIN_CRM_CONFIG, ordered, taskInputLabel, type CrmConfig, type PipelineStatusDef } from "./config";
 import type {
   Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task, TaskOutput,
 } from "./types";
@@ -60,10 +61,13 @@ export function outputText(o: Pick<TaskOutput, "key" | "text">): string {
   const label = (TASK_OUTPUT_LABELS as Record<string, string>)[o.key] ?? o.key;
   return o.text ? `${label} — ${o.text}` : label;
 }
-/** Megjelenítendő Input: a választott érték (+ megjegyzés), különben a régi szabad szöveges leírás; egyébként üres szöveg. */
-export function inputText(t: Pick<Task, "inputKey" | "inputNote" | "description">): string {
+/**
+ * Megjelenítendő Input: a választott érték (+ megjegyzés), különben a régi szabad szöveges leírás; egyébként üres szöveg. A név a
+ * katalógus aktuális neve (archivált elemé is); ismeretlen kulcsnál maga a kulcs.
+ */
+export function inputText(t: Pick<Task, "inputKey" | "inputNote" | "description">, cfg: CrmConfig = BUILTIN_CRM_CONFIG): string {
   if (!t.inputKey) return t.description ?? "";
-  const label = (TASK_INPUT_LABELS as Record<string, string>)[t.inputKey] ?? t.inputKey;
+  const label = taskInputLabel(cfg, t.inputKey);
   return t.inputNote ? `${label} — ${t.inputNote}` : label;
 }
 export const isOpenTask = (t: Task) => !isDone(t);
@@ -287,7 +291,10 @@ export function tasksByStatus(snap: DataSnapshot, customer: Customer): CustomerT
   const now = statusOf(customer);
   const current = mine.filter((t) => t.crmStatus === now).sort(taskOrder);
   const unassigned = mine.filter((t) => t.crmStatus === undefined).sort(taskOrder);
-  const earlier = CRM_STATUSES.filter((s) => s !== now)
+  // v1.1: a csoportok a katalógus sorrendjében (archivált státuszok is); katalógusban nem szereplő kulcs a végén (nem vész el).
+  const known = ordered(snap.config.statuses).map((d) => d.key);
+  const extra = [...new Set(mine.map((t) => t.crmStatus).filter((k): k is string => k !== undefined && !known.includes(k)))].sort();
+  const earlier = [...known, ...extra].filter((s) => s !== now)
     .map((status) => ({ status, tasks: mine.filter((t) => t.crmStatus === status).sort(taskOrder) }))
     .filter((g) => g.tasks.length > 0);
   const openEarlier = [...unassigned, ...earlier.flatMap((g) => g.tasks)].filter(isOpenTask).length;
@@ -300,17 +307,26 @@ export interface PipelineFilter { query?: string }
 export interface PipelineColumn {
   status: CrmStatus;
   label: string;
+  /** A katalógus bejegyzése (szín, archivált állapot); katalógusban nem szereplő kulcsnál hiányzik. */
+  def?: PipelineStatusDef;
   customers: Customer[];
 }
 
-/** A hét státusz oszlopai, minden ügyfél pontosan egy oszlopban (egy ügyfél = egy kártya), név szerint rendezve. */
+/**
+ * Pipeline-oszlopok a katalógus sorrendjében: minden AKTÍV státusz oszlopa, valamint az archivált státuszoké, amíg ügyfél van bennük
+ * (az archiválás nem helyezi át és nem rejti el az ügyfeleket). Minden ügyfél pontosan egy oszlopban (egy ügyfél = egy kártya), név szerint.
+ */
 export function crmPipeline(snap: DataSnapshot, f: PipelineFilter = {}): PipelineColumn[] {
   const matching = searchCustomers(snap, { query: f.query });
-  return CRM_STATUSES.map((status) => ({
-    status,
-    label: CRM_STATUS_LABELS[status],
-    customers: matching.filter((c) => statusOf(c) === status).sort((a, b) => customerName(a).localeCompare(customerName(b), "hu")),
-  }));
+  const byName = (a: Customer, b: Customer) => customerName(a).localeCompare(customerName(b), "hu");
+  const inUse = new Set(snap.customers.map(statusOf));
+  const defs = ordered(snap.config.statuses).filter((d) => d.isActive || inUse.has(d.key));
+  const known = new Set(snap.config.statuses.map((d) => d.key));
+  const orphan = [...inUse].filter((k) => !known.has(k)).sort();
+  return [
+    ...defs.map((def) => ({ status: def.key, label: def.label, def, customers: matching.filter((c) => statusOf(c) === def.key).sort(byName) })),
+    ...orphan.map((status) => ({ status, label: status, customers: matching.filter((c) => statusOf(c) === status).sort(byName) })),
+  ];
 }
 
 // ------------------------------------------------------- Gyorsműveletek (CRM-011)

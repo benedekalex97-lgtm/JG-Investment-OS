@@ -59,6 +59,8 @@ export interface Client {
   cookie: string;
   get(path: string): Promise<Response>;
   post(path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
+  /** v1.1: PATCH JSON-törzzsel (azonos eredet, mint a böngészőből). */
+  patch(path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   login(email: string, password: string): Promise<Response>;
   op<T = unknown>(op: string, args: unknown, requestId?: string): Promise<{ status: number; body: { result: { ok: boolean; value?: T; errors?: Record<string, string> }; snapshot: import("@/domain/types").DataSnapshot; replayed: boolean } }>;
 }
@@ -68,6 +70,8 @@ export function client(handle: (r: Request) => Promise<Response>): Client {
     get: (path) => handle(new Request(`${ORIGIN}${path}`, { headers: c.cookie ? { cookie: c.cookie } : {} })),
     post: (path, body, headers = {}) =>
       handle(new Request(`${ORIGIN}${path}`, { method: "POST", headers: { "content-type": "application/json", origin: ORIGIN, ...(c.cookie ? { cookie: c.cookie } : {}), ...headers }, body: JSON.stringify(body ?? {}) })),
+    patch: (path, body, headers = {}) =>
+      handle(new Request(`${ORIGIN}${path}`, { method: "PATCH", headers: { "content-type": "application/json", origin: ORIGIN, ...(c.cookie ? { cookie: c.cookie } : {}), ...headers }, body: JSON.stringify(body ?? {}) })),
     async login(email, password) {
       const res = await c.post("/api/auth/login", { email, password });
       const set = res.headers.get("set-cookie");

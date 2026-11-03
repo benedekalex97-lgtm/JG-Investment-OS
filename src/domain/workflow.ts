@@ -1,4 +1,5 @@
-import { CRM_MILESTONE_STATUSES, DEFAULT_CRM_STATUS, CRM_OUTREACH_STATUSES, PROCESS_STATUS_DEFS, RESTRICTION_LABELS, VERIFIED_CONTACT_STATUSES } from "./constants";
+import { DEFAULT_CRM_STATUS, PROCESS_STATUS_DEFS, RESTRICTION_LABELS, VERIFIED_CONTACT_STATUSES } from "./constants";
+import { findStatus, isMilestoneStatus, isOutreachStatus, type CrmConfig } from "./config";
 import type { ContactStatus, CrmStatus, Customer, CustomerProcess, DataSnapshot, ProcessStatus, ProcessType, Verification } from "./types";
 import type { CloseInput, ContactStatusInput, StatusChangeInput } from "./schemas";
 
@@ -80,22 +81,28 @@ export function validateContactStatusChange(from: ContactStatus, input: Pick<Con
   return {};
 }
 
-// ------------------------------------------------------------ v0.5 kapcsolati státusz
-export const isCrmMilestone = (s: CrmStatus) => (CRM_MILESTONE_STATUSES as readonly string[]).includes(s);
+// ------------------------------------------------------------ v0.5 kapcsolati státusz (v1.1: katalógus alapján)
+/** Szolgáltatói mérföldkő (igazolást igénylő) státusz a tényleges konfiguráció szerint. */
+export const isCrmMilestone = (cfg: CrmConfig, s: CrmStatus) => isMilestoneStatus(cfg, s);
 
 /**
- * Kapcsolati státuszváltás szabályai (v0.5). Nincs kötelező sorrend és nincs indoklás: bármely másik státuszra lehet váltani.
+ * Kapcsolati státuszváltás szabályai (v0.5, v1.1-től a katalógus üzleti jelentése alapján). Nincs kötelező sorrend és nincs indoklás.
+ * - csak a katalógusban szereplő, AKTÍV státusz választható (archivált vagy ismeretlen nem);
  * - ugyanarra a státuszra nem váltható;
- * - megkeresési korlátozás/tiltakozás mellett a kimenő kapcsolatfelvételi státuszok (Kapcsolatfelvétel, Kapcsolatépítés) nem választhatók;
- * - a „Tőke elhelyezve” szolgáltatói mérföldkő: igazolási forrás + compliance tudomásulvétel nélkül nem rögzíthető (demóban szimulált).
+ * - megkeresési korlátozás/tiltakozás mellett a kimenő megkeresést jelentő státuszok (`outreach`) nem választhatók;
+ * - a szolgáltatói mérföldkő (`milestone`) igazolási forrás + compliance tudomásulvétel nélkül nem rögzíthető (demóban szimulált).
+ * A szabályok a kulcs üzleti jelentéséhez kötöttek, nem a megnevezéshez: átnevezés nem kapcsolja ki őket.
  */
-export function validateCrmStatusChange(customer: Customer, to: CrmStatus, verification?: Pick<Verification, "sourceCategory"> | { sourceCategory?: string; complianceAcknowledged?: boolean }): Record<string, string> {
+export function validateCrmStatusChange(cfg: CrmConfig, customer: Customer, to: CrmStatus, verification?: Pick<Verification, "sourceCategory"> | { sourceCategory?: string; complianceAcknowledged?: boolean }): Record<string, string> {
+  const def = findStatus(cfg, to);
+  if (!def) return { toStatus: "Ismeretlen státusz." };
   if (to === (customer.crmStatus ?? DEFAULT_CRM_STATUS)) return { toStatus: "Az ügyfél már ebben a státuszban van." };
-  if (customer.restriction && (CRM_OUTREACH_STATUSES as readonly string[]).includes(to)) {
+  if (!def.isActive) return { toStatus: "Ez a státusz archivált: új státuszváltásként nem választható." };
+  if (customer.restriction && isOutreachStatus(cfg, to)) {
     return { toStatus: `${RESTRICTION_LABELS[customer.restriction.kind]} van rögzítve: ebbe a kimenő kapcsolatfelvételi státuszba nem váltható.` };
   }
-  if (isCrmMilestone(to) && !verification) {
-    return { verification: "A „Tőke elhelyezve” szolgáltatói mérföldkő csak igazolási forrással és a compliance figyelmeztetés tudomásulvételével rögzíthető." };
+  if (isMilestoneStatus(cfg, to) && !verification) {
+    return { verification: `A „${def.label}” szolgáltatói mérföldkő csak igazolási forrással és a compliance figyelmeztetés tudomásulvételével rögzíthető.` };
   }
   return {};
 }

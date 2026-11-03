@@ -6,3 +6,7 @@ next-env.d.ts
 e2e/shots
 !.env.example
 .data
+# v1.0: mentések és kulcsok soha nem kerülhetnek verziókezelésbe
+*.jgbackup
+*.backup.json
+*.key

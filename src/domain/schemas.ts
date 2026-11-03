@@ -1,8 +1,9 @@
 import { z } from "zod";
 import {
-  CALL_OUTCOMES, CONTACT_STATUSES, NOTE_OPTION_KEY, TASK_INPUT_KEYS, TASK_NOTE_MAX, TASK_OUTCOMES, TASK_OUTPUT_REQUIRED, TASK_TEXT_MAX, TASK_TYPE_KEYS, CRM_STATUSES, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
+  CALL_OUTCOMES, CONTACT_STATUSES, TASK_NOTE_MAX, TASK_OUTCOMES, TASK_OUTPUT_REQUIRED, TASK_TEXT_MAX, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
   PROCESS_TYPES, RESTRICTION_KINDS, VERIFICATION_SOURCES,
 } from "./constants";
+import { CONFIG_KEY_RE } from "./config";
 
 const req = (label: string) => z.string({ message: `${label} megadása kötelező` }).trim().min(1, `${label} megadása kötelező`);
 const optText = z.string().trim().optional().transform((v) => (v ? v : undefined));
@@ -13,6 +14,12 @@ const optPhone = z
   .string().trim().optional().transform((v) => (v ? v : undefined))
   .refine((v) => v === undefined || /^\+?[0-9 ()/-]{6,20}$/.test(v), "Érvénytelen telefonszám");
 const isoDate = z.string().trim().min(1, "Dátum megadása kötelező").refine((v) => !Number.isNaN(Date.parse(v)), "Érvénytelen dátum");
+/**
+ * Katalógus-kulcs (v1.1): formailag ellenőrzött stabil azonosító. Hogy LÉTEZIK-E és AKTÍV-e, azt a tartományi réteg a tényleges
+ * (szerveren: adatbázisból töltött) konfiguráció alapján dönti el - a séma nem tartalmaz rögzített listát.
+ */
+const configKey = (message: string) => z.string({ message }).trim().regex(CONFIG_KEY_RE, message);
+
 const optIsoDate = z
   .string().trim().optional().transform((v) => (v ? v : undefined))
   .refine((v) => v === undefined || !Number.isNaN(Date.parse(v)), "Érvénytelen dátum");
@@ -56,7 +63,7 @@ export const verificationInput = z
  */
 const formCommon = {
   source: z.string().trim().optional().transform((v) => (v ? v : "")),
-  crmStatus: z.enum(CRM_STATUSES).default(DEFAULT_CRM_STATUS),
+  crmStatus: configKey("Válassz státuszt").default(DEFAULT_CRM_STATUS),
   verification: verificationInput.optional(),
   recordedBy: req("Rögzítő"),
 };
@@ -73,7 +80,7 @@ export const customerUpdateInput = z.discriminatedUnion("type", [
 
 /** Kapcsolati státusz váltása (v0.5): nincs kötelező sorrend, indoklás; a „Tőke elhelyezve” igazolást kér. */
 export const crmStatusChangeInput = z
-  .object({ toStatus: z.enum(CRM_STATUSES, { message: "Válassz státuszt" }), verification: verificationInput.optional(), recordedBy: req("Rögzítő") })
+  .object({ toStatus: configKey("Válassz státuszt"), verification: verificationInput.optional(), recordedBy: req("Rögzítő") })
   .strict();
 
 export const processInput = z
@@ -108,7 +115,8 @@ const shortNote = z.string().trim().max(TASK_NOTE_MAX, `Legfeljebb ${TASK_NOTE_M
 const longText = z.string().trim().max(TASK_TEXT_MAX, `Legfeljebb ${TASK_TEXT_MAX} karakter adható meg`);
 
 /**
- * Új feladat (v0.5.1): a feladat neve a kiválasztott `taskType` neve (központi lista: TASK_TYPES), nincs külön szabad szöveges név.
+ * Új feladat (v0.5.1): a feladat neve a kiválasztott `taskType` neve (v1.1-től: a feladattípus-katalógus), nincs külön szabad szöveges név.
+ * A típus és az Input létezését/aktív voltát, valamint a megjegyzés-szabályt (`allowsNote`) a tartományi réteg a konfiguráció alapján ellenőrzi.
  * A `title` kizárólag régi/belső útra (seed, tesztek) marad: a felület mindig `taskType`-ot küld. Az Input (`description`)
  * opcionális és korlátozott hosszú. A feladat a létrehozáskori ügyfélstátuszhoz kapcsolódik (a repository tölti), nincs folyamathoz kötve.
  */
@@ -117,22 +125,22 @@ export const taskInput = z
     customerId: req("Ügyfél"),
     processId: optText,
     companyContactId: optText,
-    taskType: z.enum(TASK_TYPE_KEYS, { message: "A feladat típusának kiválasztása kötelező" }).optional(),
+    taskType: configKey("A feladat típusának kiválasztása kötelező").optional(),
     title: optText,
     /** Régi, szabad szöveges Input: csak belső/régi útra (seed, tesztek) - a felület a legördülő `inputKey`-t küldi. */
     description: longText.optional().transform((v) => (v ? v : undefined)),
-    inputKey: z.enum(TASK_INPUT_KEYS, { message: "Érvénytelen Input érték" }).optional(),
+    inputKey: configKey("Érvénytelen Input érték").optional(),
     inputNote: shortNote,
     assigneeId: req("Felelős"),
     dueAt: optIsoDate,
     /** Új feladat csak nyitott lehet; a lezárás Output-tal, a `closeTask` műveleten át történik (a „folyamatban” csak régi adat). */
     status: z.enum(["open", "in_progress"]).default("open"),
-    crmStatus: z.enum(CRM_STATUSES).optional(),
+    crmStatus: configKey("Érvénytelen státusz").optional(),
     recordedBy: z.string().trim().optional(),
   })
   .strict()
   .refine((v) => v.taskType !== undefined || (v.title ?? "") !== "", { path: ["taskType"], message: "A feladat típusának kiválasztása kötelező" })
-  .refine((v) => v.inputNote === undefined || v.inputKey === NOTE_OPTION_KEY, { path: ["inputNote"], message: "Megjegyzés csak az „Egyéb” Input értékhez adható meg" });
+  .refine((v) => v.inputNote === undefined || v.inputKey !== undefined, { path: ["inputNote"], message: "Megjegyzés csak megjegyzést engedő Input értékhez (pl. „Egyéb”) adható meg" });
 
 /**
  * Feladat lezárása (v0.9): két, egymástól külön tárolt adat - a lezárás minősítése (`outcome`: Sikeres / Sikertelen, a két lezáró

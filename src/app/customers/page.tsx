@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { CrmStatusBadge, DataGate, RestrictedBadge, TypeBadge } from "@/components/common";
+import { CrmStatusBadge, DataGate, optionLabel, RestrictedBadge, TypeBadge } from "@/components/common";
 import { FilterSelect } from "@/components/ui/form";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
-import { CRM_STATUSES, CRM_STATUS_LABELS, CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
+import { CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
+import { ordered } from "@/domain/config";
 import { customerMatches, customerName, nextTask, searchCustomers, statusOf, type CustomerFilter } from "@/domain/logic";
 import type { DataSnapshot } from "@/domain/types";
 import { formatDate } from "@/lib/format";
@@ -27,7 +28,7 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
         </FilterSelect>
         <FilterSelect label="Kapcsolati státusz" value={f.crmStatus} onChange={(e) => set("crmStatus", e.target.value as typeof f.crmStatus)}>
           <option value="">Összes</option>
-          {CRM_STATUSES.map((s) => <option key={s} value={s}>{CRM_STATUS_LABELS[s]}</option>)}
+          {ordered(data.config.statuses).map((s) => <option key={s.key} value={s.key}>{optionLabel(s)}</option>)}
         </FilterSelect>
       </div>
       <p className="px-4 pt-3 text-[13px] text-ink-muted" role="status" aria-live="polite">{rows.length} találat</p>
@@ -52,7 +53,7 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
                       {why.length ? <p className="break-all text-xs text-ink-muted">Egyezés — {why.slice(0, 2).map((m) => `${m.label}: ${m.value}`).join(" · ")}</p> : null}
                     </td>
                     <td className="px-4 py-3"><TypeBadge type={c.type} /></td>
-                    <td className="px-4 py-3"><CrmStatusBadge status={statusOf(c)} /></td>
+                    <td className="px-4 py-3"><CrmStatusBadge status={statusOf(c)} config={data.config} /></td>
                     <td className="px-4 py-3 text-ink-muted">{task ? <>{task.title}{task.dueAt ? <><br /><span className="text-xs">{formatDate(task.dueAt)}</span></> : null}</> : "—"}</td>
                   </tr>
                 );

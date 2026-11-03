@@ -2,10 +2,9 @@
 
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useCrmData } from "@/data/store";
-import {
-  CRM_STATUS_LABELS, NOTE_OPTION_KEY, TASK_INPUT_OPTIONS, TASK_NOTE_MAX, TASK_TYPES, VERIFICATION_COMPLIANCE_WARNING,
-  VERIFICATION_SOURCES, VERIFICATION_SOURCE_LABELS,
-} from "@/domain/constants";
+import { TASK_NOTE_MAX, VERIFICATION_COMPLIANCE_WARNING, VERIFICATION_SOURCES, VERIFICATION_SOURCE_LABELS } from "@/domain/constants";
+import { activeOf, findTaskInput, statusLabel } from "@/domain/config";
+import { useCrmConfig } from "./common";
 import { customerName, statusOf } from "@/domain/logic";
 import type { Customer, Task } from "@/domain/types";
 import { fromDateInputValue } from "@/lib/format";
@@ -48,15 +47,17 @@ export function VerificationFields({ source, ack, onSource, onAck, error }: { so
   );
 }
 
-// ---------------------------------------------------- „Tőke elhelyezve” igazolás
-export function CapitalPlacedModal({ open, onClose, customer }: { open: boolean; onClose: () => void; customer: Customer }) {
+// ---------------------------------------------------- Szolgáltatói mérföldkő („Tőke elhelyezve”) igazolás
+/** Az igazolást igénylő (mérföldkő) státuszra váltás párbeszéde; a státusz a katalógus kulcsa (alapból „capital_placed”). */
+export function CapitalPlacedModal({ open, onClose, customer, status = "capital_placed" }: { open: boolean; onClose: () => void; customer: Customer; status?: string }) {
+  const config = useCrmConfig();
   return (
-    <Modal open={open} onClose={onClose} title={`Státusz: ${CRM_STATUS_LABELS.capital_placed}`}>
-      <CapitalPlacedForm onClose={onClose} customer={customer} />
+    <Modal open={open} onClose={onClose} title={`Státusz: ${statusLabel(config, status)}`}>
+      <CapitalPlacedForm onClose={onClose} customer={customer} status={status} label={statusLabel(config, status)} />
     </Modal>
   );
 }
-function CapitalPlacedForm({ onClose, customer }: { onClose: () => void; customer: Customer }) {
+function CapitalPlacedForm({ onClose, customer, status, label }: { onClose: () => void; customer: Customer; status: string; label: string }) {
   const { repo } = useCrmData();
   const [source, setSource] = useState("");
   const [ack, setAck] = useState(false);
@@ -67,7 +68,7 @@ function CapitalPlacedForm({ onClose, customer }: { onClose: () => void; custome
     if (busy) return;
     setBusy(true);
     const r = await repo.changeCrmStatus(customer.id, {
-      toStatus: "capital_placed",
+      toStatus: status,
       verification: source || ack ? { sourceCategory: source || undefined, complianceAcknowledged: ack } : undefined,
     });
     setBusy(false);
@@ -76,7 +77,7 @@ function CapitalPlacedForm({ onClose, customer }: { onClose: () => void; custome
   };
   return (
     <FormShell onSubmit={submit} errors={errors} submitLabel="Státusz rögzítése" onCancel={onClose} busy={busy}>
-      <p className="text-sm">A „{CRM_STATUS_LABELS.capital_placed}” szolgáltatói mérföldkő: csak igazolt visszaigazolás alapján rögzíthető. A JG nem vesz át ügyfélpénzt; a tőke elhelyezése a szolgáltatónál történik.</p>
+      <p className="text-sm">A „{label}” szolgáltatói mérföldkő: csak igazolt visszaigazolás alapján rögzíthető. A JG nem vesz át ügyfélpénzt; a tőke elhelyezése a szolgáltatónál történik.</p>
       <VerificationFields source={source} ack={ack} onSource={setSource} onAck={setAck} error={errors.verification} />
     </FormShell>
   );
@@ -86,9 +87,8 @@ const counter = (text: string, max: number) => `${text.length} / ${max} karakter
 
 // ------------------------------------------------------------ Új feladat (modál)
 /**
- * Új feladat (v0.6): külön modál. A feladat neve a kiválasztott feladattípus neve (központi lista: TASK_TYPES), az Input
- * legördülő lista (központi lista: TASK_INPUT_OPTIONS, opcionális), a határidő opcionális. A feladat automatikusan az ügyfél
- * aktuális státuszához kapcsolódik.
+ * Új feladat (v0.6): külön modál. A feladat neve a kiválasztott feladattípus neve, az Input legördülő lista (opcionális), a határidő
+ * opcionális; v1.1-től mindkét lista a katalógus aktív elemeiből áll. A feladat automatikusan az ügyfél aktuális státuszához kapcsolódik.
  */
 export function NewTaskModal({ open, onClose, customerId }: { open: boolean; onClose: () => void; customerId: string }) {
   return (
@@ -105,6 +105,7 @@ export function NewTaskModal({ open, onClose, customerId }: { open: boolean; onC
  */
 export function NewTaskForm({ customerId, onCancel, onCreated, cancelLabel = "Mégse" }: { customerId: string; onCancel: () => void; onCreated: (task: Task) => void; cancelLabel?: string }) {
   const { repo, data, user } = useCrmData();
+  const config = useCrmConfig();
   const customer = data?.customers.find((c) => c.id === customerId);
   const [taskType, setTaskType] = useState("");
   const [inputKey, setInputKey] = useState("");
@@ -113,6 +114,7 @@ export function NewTaskForm({ customerId, onCancel, onCreated, cancelLabel = "M�
   const [errors, setErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
   const lock = useRef(false); // dupla kattintás/Enter elleni védelem (a szerver idempotenciája mellett)
+  const noteAllowed = findTaskInput(config, inputKey)?.allowsNote === true;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (lock.current) return;
@@ -122,7 +124,7 @@ export function NewTaskForm({ customerId, onCancel, onCreated, cancelLabel = "M�
     try {
       const r = await repo.createTask({
         customerId, taskType: taskType || undefined, inputKey: inputKey || undefined,
-        inputNote: inputKey === NOTE_OPTION_KEY && inputNote.trim() ? inputNote : undefined, dueAt: fromDateInputValue(due) || undefined,
+        inputNote: noteAllowed && inputNote.trim() ? inputNote : undefined, dueAt: fromDateInputValue(due) || undefined,
       });
       if (!r.ok) return setErrors(r.errors);
       onCreated(r.value);
@@ -137,16 +139,16 @@ export function NewTaskForm({ customerId, onCancel, onCreated, cancelLabel = "M�
         <div className="min-w-0"><dt className="text-xs font-medium text-ink-muted">Ügyfél</dt><dd className="break-words font-medium">{customer ? customerName(customer) : "—"}</dd></div>
         <div className="min-w-0"><dt className="text-xs font-medium text-ink-muted">Felelős</dt><dd className="break-words">{user?.name ?? "—"} (bejelentkezett munkatárs)</dd></div>
       </dl>
-      {customer ? <p className="text-[13px] text-ink-muted">Az új feladat a(z) „{CRM_STATUS_LABELS[statusOf(customer)]}” státuszhoz kapcsolódik.</p> : null}
+      {customer ? <p className="text-[13px] text-ink-muted">Az új feladat a(z) „{statusLabel(config, statusOf(customer))}” státuszhoz kapcsolódik.</p> : null}
       <SelectInput label="Feladat típusa" required value={taskType} error={errors.taskType} onChange={(e) => setTaskType(e.target.value)} autoFocus>
         <option value="">— válassz —</option>
-        {TASK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+        {activeOf(config.taskTypes).map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
       </SelectInput>
       <SelectInput label="Input (opcionális)" value={inputKey} error={errors.inputKey} onChange={(e) => { setInputKey(e.target.value); setErrors((x) => ({ ...x, inputKey: "", inputNote: "" })); }}>
         <option value="">— nincs megadva —</option>
-        {TASK_INPUT_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+        {activeOf(config.taskInputs).map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
       </SelectInput>
-      {inputKey === NOTE_OPTION_KEY ? (
+      {noteAllowed ? (
         <TextArea label="Rövid megjegyzés (opcionális)" value={inputNote} error={errors.inputNote} maxLength={TASK_NOTE_MAX} rows={2} onChange={(e) => setInputNote(e.target.value)} hint={counter(inputNote, TASK_NOTE_MAX)} />
       ) : null}
       <TextInput label="Határidő (opcionális)" type="date" value={due} error={errors.dueAt} onChange={(e) => setDue(e.target.value)} />

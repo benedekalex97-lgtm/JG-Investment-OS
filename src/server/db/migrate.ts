@@ -4,6 +4,11 @@ import { migration0001 } from "./migrations/0001_init";
 import { migration0002 } from "./migrations/0002_google_auth";
 import { migration0003 } from "./migrations/0003_task_outcome";
 import { migration0004 } from "./migrations/0004_test_customer_soft_delete";
+import { migration0005 } from "./migrations/0005_crm_data_permissions";
+import { migration0006 } from "./migrations/0006_crm_import_jobs";
+import { migration0007 } from "./migrations/0007_crm_settings_permissions";
+import { migration0008 } from "./migrations/0008_crm_config_catalogs";
+import { migration0009 } from "./migrations/0009_dynamic_crm_statuses";
 import type { Db } from "./types";
 
 export interface Migration {
@@ -13,7 +18,7 @@ export interface Migration {
 }
 
 /** Verziózott migrációk időrendben. Új migráció csak a lista végére kerülhet; alkalmazott migráció nem módosítható (ellenőrzőösszeg). */
-export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004];
+export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1].id;
 
 export const checksum = (m: Migration) => createHash("sha256").update(m.sql).digest("hex");
@@ -86,12 +91,12 @@ export async function migrate(db: Db, opts: MigrateOptions): Promise<MigrateResu
 export type SchemaState = { ok: true } | { ok: false; reason: "schema_missing" | "schema_outdated" | "environment_mismatch" };
 
 /** Az alkalmazás indulási ellenőrzése: nem migrál, csak megállapítja, hogy a séma és a környezet megfelel-e. */
-export async function checkSchema(db: Db, env: JgEnv): Promise<SchemaState> {
+export async function checkSchema(db: Db, env: JgEnv, migrations: readonly Migration[] = MIGRATIONS): Promise<SchemaState> {
   return db.system(async (tx) => {
     const t = await tx.query<{ ok: boolean }>("select to_regclass('public.schema_migrations') is not null as ok");
     if (!t[0]?.ok) return { ok: false, reason: "schema_missing" } as const;
     const have = new Set((await tx.query<{ id: string }>("select id from schema_migrations")).map((r) => r.id));
-    if (!MIGRATIONS.every((m) => have.has(m.id))) return { ok: false, reason: "schema_outdated" } as const;
+    if (!migrations.every((m) => have.has(m.id))) return { ok: false, reason: "schema_outdated" } as const;
     const e = await tx.query<{ value: string }>("select value from meta where key = 'environment'");
     if (!e.length || e[0].value !== env) return { ok: false, reason: "environment_mismatch" } as const;
     return { ok: true } as const;

@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useCrmData } from "@/data/store";
-import { CRM_STATUS_LABELS, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
+import { CUSTOMER_TYPE_LABELS } from "@/domain/constants";
+import { statusLabel } from "@/domain/config";
 import { customerName, primaryContactOf, searchCustomerHits, statusOf } from "@/domain/logic";
 import type { Customer, DataSnapshot } from "@/domain/types";
 import { cn } from "@/lib/cn";
@@ -117,7 +118,7 @@ export function GlobalSearch({ className, compact = false }: { className?: strin
             >
               <span className="block break-words text-sm font-medium text-ink">{customerName(h.customer)}</span>
               <span className="block text-[13px] text-ink-muted">
-                {CUSTOMER_TYPE_LABELS[h.customer.type]} · {CRM_STATUS_LABELS[statusOf(h.customer)]}
+                {CUSTOMER_TYPE_LABELS[h.customer.type]} · {data ? statusLabel(data.config, statusOf(h.customer)) : ""}
               </span>
               {h.why ? <span className="block break-all text-[13px] text-ink">Egyezés — {h.why}</span> : null}
               {h.contact ? <span className="block break-all text-[13px] text-ink-muted">{h.contact}</span> : null}

@@ -1,9 +1,34 @@
 import { emptySnapshot, type DataSnapshot } from "@/domain/types";
+import { STATUS_COLORS, STATUS_SEMANTICS, type CrmConfig, type StatusColor, type StatusSemantic } from "@/domain/config";
 import type { Tx } from "../db/types";
 import {
   activityFromRow, activityToRow, contactabilityFromRow, contactabilityToRow, contactFromRow, contactToRow, customerFromRow, customerToRow,
   processFromRow, processToRow, resultToRow, taskFromRow, taskToRow, type Row,
 } from "./rows";
+
+const num = (v: unknown) => Number(v);
+const optText = (v: unknown) => (v === null || v === undefined ? {} : { description: String(v) });
+
+/**
+ * A CRM konfigurációs katalógusai (v1.1) a hívó tranzakciójában - az egyetlen megbízható forrás. Hiba (pl. hiányzó tábla) esetén a
+ * kérés hibával áll meg: nincs csendes visszaesés a beépített listára, és ismeretlen palettaszín/jelentés sem kerül tovább.
+ */
+export async function loadConfig(tx: Tx): Promise<CrmConfig> {
+  const st = await tx.query<Row>("select * from crm_pipeline_statuses order by sort_order, key");
+  const tt = await tx.query<Row>("select * from crm_task_types order by sort_order, key");
+  const ti = await tx.query<Row>("select * from crm_task_input_options order by sort_order, key");
+  const base = (r: Row) => ({ key: String(r.key), label: String(r.label), sortOrder: num(r.sort_order), isActive: r.is_active === true, isSystem: r.is_system === true, version: num(r.version) });
+  return {
+    statuses: st.map((r) => ({
+      ...base(r), ...optText(r.description),
+      color: (STATUS_COLORS as readonly string[]).includes(String(r.color)) ? (r.color as StatusColor) : "neutral",
+      semantic: (STATUS_SEMANTICS as readonly string[]).includes(String(r.semantic_type)) ? (r.semantic_type as StatusSemantic) : "workflow",
+      requiresVerification: r.requires_verification === true, labelLocked: r.label_locked === true,
+    })),
+    taskTypes: tt.map(base),
+    taskInputs: ti.map((r) => ({ ...base(r), allowsNote: r.allows_note === true })),
+  };
+}
 
 /** Az aktív (nem logikailag törölt) ügyfelek azonosítói - minden snapshot-lekérdezés ehhez szűr (CRM-006). */
 const ACTIVE = "(select id from customers where deleted_at is null)";
@@ -27,6 +52,7 @@ export async function loadSnapshot(tx: Tx, customerId?: string): Promise<DataSna
   const contactability = await tx.query<Row>(
     `select * from contactability where (customer_id in ${ACTIVE}${one("customer_id")}) or company_contact_id in (select id from company_contacts where company_id in ${ACTIVE}${one("company_id")}) order by id`, p,
   );
+  const config = await loadConfig(tx);
   const restrictionOf = new Map(restrictions.map((r) => [String(r.customer_id), r]));
   const resultsOf = new Map<string, Row[]>();
   for (const r of results) {
@@ -34,7 +60,7 @@ export async function loadSnapshot(tx: Tx, customerId?: string): Promise<DataSna
     resultsOf.set(k, [...(resultsOf.get(k) ?? []), r]);
   }
   return {
-    ...emptySnapshot(),
+    ...emptySnapshot(config),
     customers: customers.map((r) => customerFromRow(r, restrictionOf.get(String(r.id)))),
     contacts: contacts.map(contactFromRow),
     processes: processes.map(processFromRow),

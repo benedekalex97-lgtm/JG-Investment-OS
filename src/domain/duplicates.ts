@@ -46,11 +46,11 @@ export function nameKey(s: string, company = false): string {
   return tokens.filter((t) => !company || !LEGAL_FORMS.has(t)).sort().join(" ");
 }
 /** Telefon-kulcs erős egyezéshez: legalább 6 számjegy (rövid töredék nem azonosít). */
-const strongPhone = (s?: string) => {
+export const strongPhone = (s?: string) => {
   const k = s ? phoneKey(s) : "";
   return k.length >= 6 ? k : "";
 };
-const strongEmail = (s?: string) => {
+export const strongEmail = (s?: string) => {
   const e = s ? normalizeEmail(s) : "";
   return e.includes("@") ? e : "";
 };
