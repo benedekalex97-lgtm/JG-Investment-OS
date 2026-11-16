@@ -12,19 +12,19 @@ import type { Customer } from "@/domain/types";
 const WORD = "TÖRLÉS";
 
 /**
- * CRM-006: tesztfázisban létrehozott ügyfél eltávolítása az aktív CRM-ből. Csak akkor jelenik meg, ha a szerver a funkciót engedélyezte
- * (JG_TEST_CUSTOMER_DELETE_ENABLED); a szerver ettől függetlenül minden kérésnél újra ellenőriz. Logikai, visszaállítható törlés: a
- * feladatok, Outputok, jegyzetek, előzmények és kapcsolattartók megmaradnak, csak az aktív felületekről tűnik el az ügyfél.
+ * Ügyfél törlése (CRM-006, v1.1.1-től adminfunkció): csak a `crm.customer.delete` jogú felhasználónak jelenik meg; a szerver és az
+ * adatbázis ettől függetlenül minden kérésnél újra ellenőriz. Logikai, visszaállítható törlés: a feladatok, Outputok, jegyzetek,
+ * előzmények és kapcsolattartók megmaradnak, csak az aktív felületekről tűnik el az ügyfél.
  */
 export function CustomerDeleteCard({ customer }: { customer: Customer }) {
-  const { features } = useCrmData();
+  const { permissions } = useCrmData();
   const [open, setOpen] = useState(false);
-  if (!features.testCustomerDelete) return null;
+  if (!permissions.includes("crm.customer.delete")) return null;
   return (
     <Card id="ugyfel-torlese">
       <div className="space-y-2 p-4">
-        <h2 className="text-sm font-semibold">Tesztfázis: ügyfél eltávolítása</h2>
-        <p className="text-[13px] text-ink-muted">A tesztelés közben létrehozott ügyfél eltávolítható az aktív CRM-ből. A kapcsolódó adatok megmaradnak, és az üzemeltető visszaállíthatja.</p>
+        <h2 className="text-sm font-semibold">Ügyfél törlése (admin)</h2>
+        <p className="text-[13px] text-ink-muted">Az ügyfél eltávolítható az aktív CRM-ből. A kapcsolódó adatok megmaradnak, a törlés naplózódik, és az üzemeltető visszaállíthatja.</p>
         <Button variant="danger" size="sm" aria-haspopup="dialog" onClick={() => setOpen(true)}>Ügyfél törlése</Button>
       </div>
       <Modal open={open} onClose={() => setOpen(false)} title="Ügyfél törlése">

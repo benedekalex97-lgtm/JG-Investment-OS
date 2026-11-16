@@ -6,7 +6,7 @@ run-name: "QA native PostgreSQL ${{ github.sha }}"
 # A konténer jelszava kizárólag ennek a futásnak az eldobható szolgáltatásához tartozik.
 on:
   push:
-    branches: [feat/jg-crm-import-export-v10, feat/jg-crm-admin-settings-v11]
+    branches: [feat/jg-crm-import-export-v10, feat/jg-crm-admin-settings-v11, feat/jg-crm-admin-customer-delete]
   workflow_dispatch:
 
 permissions:

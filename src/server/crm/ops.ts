@@ -5,7 +5,8 @@ import { TASK_TEXT_MAX } from "@/domain/constants";
 import { emptySnapshot, type Customer, type DataSnapshot } from "@/domain/types";
 import type { AuthUser } from "../auth/service";
 import type { Db, Tx } from "../db/types";
-import { DELETE_CONFIRMATION_WORD, features } from "../features";
+import { DELETE_CONFIRMATION_WORD } from "../features";
+import { hasPermission } from "../data/permissions";
 import { findDuplicates, maskRemoved, type DuplicateCandidate } from "@/domain/duplicates";
 import { contactFromRow, customerFromRow, type Row } from "./rows";
 import { loadConfig, loadSnapshot, saveDiff } from "./store";
@@ -129,14 +130,20 @@ export const OPS = {
       detail: { hasDue: v.dueAt !== undefined, changed: (b.tasks.find((t) => t.id === v.id)?.dueAt ?? null) !== (v.dueAt ?? null) },
     }),
   }),
-  // CRM-006: tesztügyfél logikai eltávolítása. Csak bekapcsolt szerveroldali kapcsolóval és a beírt megerősítő szóval; a rekord és
-  // minden kapcsolódó adat megmarad (deleted_at/deleted_by), az ügyfél kikerül az aktív CRM-ből. Ismételt kérés: „nem található”.
+  // CRM-006 / v1.1.1: ügyfél logikai eltávolítása - csak a kifejezetten kiosztott `crm.customer.delete` joggal (a kérés tranzakciójában
+  // frissen ellenőrizve; az adatbázis-trigger a felület megkerülésével is tilt) és a beírt megerősítő szóval. A rekord és minden
+  // kapcsolódó adat megmarad (deleted_at/deleted_by), az ügyfél kikerül az aktív CRM-ből; az üzemeltető visszaállíthatja. Ismételt
+  // kérés: „nem található”. Az elutasított kísérlet naplózódik.
   "customer.delete": defineOp({
     args: z.object({ customerId: id, confirmation: z.string().max(40) }).strict(),
     scope: (a) => ({ customerId: a.customerId }),
     replayCustomer: byId,
     custom: async (tx, a, u, now) => {
-      if (!features().testCustomerDelete) return { ok: false, errors: { _form: "Az ügyfél törlése ebben a környezetben nincs engedélyezve." } };
+      if (!(await hasPermission(tx, "crm.customer.delete"))) {
+        await tx.query("insert into audit_events (user_id, action, entity_type, entity_id, customer_id, detail) values ($1, 'customer.delete_denied', 'customer', $2, $2, $3::jsonb)",
+          [u.id, a.customerId, JSON.stringify({ permission: "crm.customer.delete" })]);
+        return { ok: false, errors: { _form: "Ügyfelet csak ügyféltörlési joggal rendelkező admin törölhet." } };
+      }
       if (a.confirmation.trim() !== DELETE_CONFIRMATION_WORD) return { ok: false, errors: { confirmation: `A törléshez írd be pontosan: ${DELETE_CONFIRMATION_WORD}` } };
       const rows = await tx.query<{ id: string }>("update customers set deleted_at = $2, deleted_by = $3 where id = $1 and deleted_at is null returning id", [a.customerId, now.toISOString(), u.id]);
       return rows.length ? { ok: true, value: { id: a.customerId } } : NOT_FOUND;

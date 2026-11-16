@@ -4,31 +4,40 @@ import { exportBackup, restoreBackup } from "@/server/backup";
 import { LATEST_MIGRATION } from "@/server/db/migrate";
 import { features } from "@/server/features";
 import type { Customer, DataSnapshot, Task } from "@/domain/types";
-import { DRIVERS, PASSWORD_A, addPilotUsers, client, makeApi, makeTestDb, type Client, type TestDb } from "./helpers";
+import { revokePermission } from "@/server/data/permissions";
+import { DRIVERS, PASSWORD_A, PASSWORD_B, addPilotUsers, client, makeApi, makeTestDb, type Client, type TestDb } from "./helpers";
+import { grant, OPERATOR } from "./data-helpers";
 
-const FLAG = "JG_TEST_CUSTOMER_DELETE_ENABLED";
+/** A korábbi (v0.9-v1.1) kapcsoló, amely v1.1.1-től semmit nem kapcsol be: a törléshez a crm.customer.delete jog kell. */
+const OLD_FLAG = "JG_TEST_CUSTOMER_DELETE_ENABLED";
 
 describe("funkciókapcsoló", () => {
-  it("D1: alapértelmezetten kikapcsolva; csak a pontos „true” kapcsolja be", () => {
-    expect(features({})).toEqual({ testCustomerDelete: false, customerImport: false });
-    for (const v of ["", "false", "1", "yes", "TRUEISH"]) expect(features({ [FLAG]: v }).testCustomerDelete).toBe(false);
-    expect(features({ [FLAG]: "true" }).testCustomerDelete).toBe(true);
-    expect(features({ [FLAG]: " TRUE " }).testCustomerDelete).toBe(true);
+  it("D1: a régi tesztügyfél-törlési kapcsoló megszűnt (nem ad törlési lehetőséget)", () => {
+    expect(features({})).toEqual({ customerImport: false });
+    expect(features({ [OLD_FLAG]: "true" })).toEqual({ customerImport: false });
   });
 });
 
 describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (kind) => {
   let t: TestDb;
   let c: Client;
+  let worker: Client;
   let userId = "";
+  let workerId = "";
   beforeAll(async () => {
     t = await makeTestDb(kind);
-    userId = (await addPilotUsers(t.db)).a.id;
+    const u = await addPilotUsers(t.db);
+    userId = u.a.id;
+    workerId = u.b.id;
+    // v1.1.1: az ügyféltörlés adminjog; az admin (pilot.egy) kifejezetten megkapja, a munkatárs (pilot.ketto) nem.
+    await grant(t.db, "pilot.egy@example.test", "crm.customer.delete");
     c = client(makeApi(t.db));
+    worker = client(makeApi(t.db));
     await c.login("pilot.egy@example.test", PASSWORD_A);
+    await worker.login("pilot.ketto@example.test", PASSWORD_B);
   });
   afterAll(async () => { await t.cleanup(); });
-  afterEach(() => { delete process.env[FLAG]; });
+  afterEach(() => { delete process.env[OLD_FLAG]; });
 
   const snap = async () => ((await (await c.get("/api/crm/snapshot")).json()) as { snapshot: DataSnapshot }).snapshot;
   const raw = (sql: string, p: unknown[] = []) => t.db.system((tx) => tx.query<Record<string, unknown>>(sql, p));
@@ -45,18 +54,23 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
     return { cust, task };
   };
 
-  it("D1/D14: kikapcsolt kapcsolónál a szerver elutasítja (a gomb elrejtésétől függetlenül), és a kapcsoló a felületre is kijut", async () => {
-    const { cust } = await seedCustomer("Kapcsoló Kft.");
-    const r = await c.op("customer.delete", { customerId: cust.id, confirmation: "TÖRLÉS" });
-    expect(r.body.result).toMatchObject({ ok: false, errors: { _form: expect.stringMatching(/nincs engedélyezve/) } });
+  it("D1/D14: csak az ügyféltörlési jogú admin törölhet - a munkatársat a szerver elutasítja (a régi kapcsolóval is), naplózza, és a DB is tilt", async () => {
+    const { cust } = await seedCustomer("Jogosultság Kft.");
+    process.env[OLD_FLAG] = "true";
+    const r = await worker.op("customer.delete", { customerId: cust.id, confirmation: "TÖRLÉS" });
+    expect(r.body.result).toMatchObject({ ok: false, errors: { _form: expect.stringMatching(/ügyféltörlési joggal/) } });
     expect((await snap()).customers.some((x) => x.id === cust.id)).toBe(true);
-    expect(((await (await c.get("/api/auth/me")).json()) as { features: unknown }).features).toEqual({ testCustomerDelete: false, customerImport: false });
-    process.env[FLAG] = "true";
-    expect(((await (await c.get("/api/auth/me")).json()) as { features: unknown }).features).toEqual({ testCustomerDelete: true, customerImport: false });
+    expect((await raw("select action, user_id from audit_events where customer_id = $1 and action = 'customer.delete_denied'", [cust.id]))).toEqual([{ action: "customer.delete_denied", user_id: workerId }]);
+    // A felület megkerülésével sem: az alkalmazás szerepköre jog nélkül nem írhatja az eltávolítás-jelölést.
+    await expect(t.db.asUser(workerId, (tx) => tx.query("update customers set deleted_at = now(), deleted_by = $2 where id = $1", [cust.id, workerId]))).rejects.toThrow(/forbidden_customer_delete/);
+    await expect(t.db.asUser(workerId, (tx) => tx.query("insert into customers (id, type, display_name, owner_id, created_at, updated_at, deleted_at, deleted_by) values ('c-x','individual','X',$1,now(),now(),now(),$1)", [workerId]))).rejects.toThrow(/forbidden_customer_delete/);
+    // A jog a felület menüjébe is kijut (csak megjelenítés; a szerver minden kérésnél ellenőriz).
+    expect(((await (await c.get("/api/auth/me")).json()) as { permissions: string[] }).permissions).toContain("crm.customer.delete");
+    expect(((await (await worker.get("/api/auth/me")).json()) as { permissions: string[] }).permissions).not.toContain("crm.customer.delete");
+    expect(((await (await c.get("/api/auth/me")).json()) as { features: unknown }).features).toEqual({ customerImport: false });
   });
 
   it("D2: munkamenet nélkül 401, adat nem változik", async () => {
-    process.env[FLAG] = "true";
     const { cust } = await seedCustomer("Jogosulatlan Kft.");
     const anon = client(makeApi(t.db));
     expect((await anon.post("/api/crm/op", { requestId: crypto.randomUUID(), op: "customer.delete", args: { customerId: cust.id, confirmation: "TÖRLÉS" } })).status).toBe(401);
@@ -64,7 +78,6 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
   });
 
   it("D3/D4: megerősítő szó nélkül vagy hibásan nem töröl", async () => {
-    process.env[FLAG] = "true";
     const { cust } = await seedCustomer("Megerősítés Kft.");
     for (const confirmation of ["", "torles", "TÖRLÉS!", "igen"]) {
       expect((await c.op("customer.delete", { customerId: cust.id, confirmation })).body.result).toMatchObject({ ok: false, errors: { confirmation: expect.any(String) } });
@@ -74,7 +87,6 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
   });
 
   it("D5-D13: logikai törlés; eltűnik az aktív adatból; minden kapcsolódó adat megmarad; a törölt ügyfél API-n sem módosítható; ismételt törlés ártalmatlan", async () => {
-    process.env[FLAG] = "true";
     const keep = await seedCustomer("Marad Kft.");
     const { cust, task } = await seedCustomer("Törlendő Kft.");
     const counts = async () => Object.fromEntries(await Promise.all(["company_contacts", "tasks", "task_results", "activities"].map(async (tb) => {
@@ -117,9 +129,10 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
     const again = await c.op("customer.delete", { customerId: cust.id, confirmation: "TÖRLÉS" });
     expect(again.body.result).toMatchObject({ ok: false });
     expect((await raw("select deleted_at from customers where id = $1", [cust.id]))[0].deleted_at).toEqual(row.deleted_at);
-    // D14: a kapcsoló kikapcsolása után újabb törlés nem lehetséges.
-    delete process.env[FLAG];
+    // D14: a jog visszavonása után (a meglévő munkamenettel is) újabb törlés nem lehetséges; újra kiosztva ismét igen.
+    await revokePermission(t.db, { email: "pilot.egy@example.test", permission: "crm.customer.delete", operator: OPERATOR, env: "local" });
     expect((await c.op("customer.delete", { customerId: keep.cust.id, confirmation: "TÖRLÉS" })).body.result).toMatchObject({ ok: false });
+    await grant(t.db, "pilot.egy@example.test", "crm.customer.delete");
 
     // D11: a mentés a törölt ügyfelet és teljes történetét tartalmazza; a visszaállítás után is törölt marad.
     const b = JSON.parse(JSON.stringify(await exportBackup(t.db, "local")));

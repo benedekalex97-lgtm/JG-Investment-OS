@@ -62,7 +62,7 @@ describe.each(DRIVERS)("v1.1 migráció v1.0 adatbázisról (%s)", (kind) => {
 
   it("M01/M06/M07/M14: a v1.0 adatbázis migrál; minden eredeti oszlop és sor változatlan (új oszlop csak NULL-lal)", async () => {
     const r = await migrate(t.db, { env: "local" });
-    expect(r.applied).toEqual(["0007_crm_settings_permissions", "0008_crm_config_catalogs", "0009_dynamic_crm_statuses"]);
+    expect(r.applied).toEqual(MIGRATIONS.slice(6).map((m) => m.id));
     expect(await checkSchema(t.db, "local")).toEqual({ ok: true });
     const after = await dump(t);
     for (const table of TABLES) {
@@ -152,7 +152,7 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
       expect(await t.db.system((tx) => tx.query("select count(*)::int as n from pg_constraint where conname = 'customers_crm_status_fk'"))).toEqual([{ n: 0 }]);
       expect(await t.db.system((tx) => tx.query("select count(*)::int as n from pg_trigger where tgname = 'customers_assign_active'"))).toEqual([{ n: 0 }]);
       // Az adat javítása után a migráció befejezhető.
-      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0009_dynamic_crm_statuses"]);
+      expect((await migrate(t.db, { env: "local" })).applied).toEqual(MIGRATIONS.slice(8).map((m) => m.id));
       expect(await checkSchema(t.db, "local")).toEqual({ ok: true });
     } finally {
       await t.cleanup();
@@ -182,8 +182,8 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
       for (const table of TABLES.filter((x) => x !== "customers")) expect(after[table], table).toEqual(before[table]);
       expect(after.customers.find((c) => c.id === "c-0")!.crm_status).toBe("waiting_for_contact");
       // Ezután a v1.1 migráció újra alkalmazható (előre-visszalépés).
-      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0007_crm_settings_permissions", "0008_crm_config_catalogs", "0009_dynamic_crm_statuses"]);
-      expect(LATEST_MIGRATION).toBe("0009_dynamic_crm_statuses");
+      expect((await migrate(t.db, { env: "local" })).applied).toEqual(MIGRATIONS.slice(6).map((m) => m.id));
+      expect(LATEST_MIGRATION).toBe("0010_crm_customer_delete_permission");
     } finally {
       await t.cleanup();
     }

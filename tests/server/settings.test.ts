@@ -320,7 +320,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     await setActive(t.db, EMAIL_C, false);
     const r = await body<{ users: { id: string; name: string; email: string; active: boolean; lastLoginAt: string | null; permissions: string[] }[]; currentUserId: string; permissions: { key: string }[] }>(await admin.get("/api/settings/users"));
     expect(r.currentUserId).toBe(ids.a);
-    expect(r.permissions.map((p) => p.key)).toEqual(["crm.customer.import", "crm.customer.export", "crm.import.history.read", "crm.settings.manage", "crm.users.manage", "crm.settings.audit.read"]);
+    expect(r.permissions.map((p) => p.key)).toEqual(["crm.customer.import", "crm.customer.export", "crm.import.history.read", "crm.settings.manage", "crm.users.manage", "crm.settings.audit.read", "crm.customer.delete"]);
     const byId = new Map(r.users.map((u) => [u.id, u]));
     expect(byId.get(ids.a)).toMatchObject({ name: "Teszt Pilot Egy", email: EMAIL_A, active: true, permissions: ["crm.settings.audit.read", "crm.settings.manage", "crm.users.manage"] });
     expect(byId.get(ids.a)!.lastLoginAt).not.toBeNull();
@@ -437,5 +437,22 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     expect(Buffer.from(await exp.arrayBuffer()).toString("utf8")).toContain("Ajánlatkérés folyamatban");
     expect((await dataOnly.post("/api/data/export", { format: "csv", filters: { crmStatus: "nincs_ilyen" } })).status).toBe(400);
     expect((await admin.post("/api/data/export", { format: "csv", filters: {} })).status).toBe(403); // az adminjog nem ad exportjogot
+  });
+  it("v1.1.1: az ügyféltörlési jog (crm.customer.delete) a felhasználókezelő adminnál kiosztható/visszavonható, és csak vele lehet ügyfelet törölni", async () => {
+    const created = await createCustomer(worker, { type: "individual", name: "Fiktív Törlendő Tamás" });
+    const id = created.value!.customer.id;
+    const denied = await worker.op("customer.delete", { customerId: id, confirmation: "TÖRLÉS" });
+    expect(denied.body.result).toMatchObject({ ok: false, errors: { _form: expect.stringMatching(/ügyféltörlési joggal/) } });
+    const users = await body<{ users: { id: string; permissions: string[] }[] }>(await admin.get("/api/settings/users"));
+    const before = users.users.find((u) => u.id === ids.b)!.permissions;
+    expect((await admin.patch("/api/settings/users/permissions", { userId: ids.b, expected: before, grant: ["crm.customer.delete"] })).status).toBe(200);
+    const ok = await worker.op("customer.delete", { customerId: id, confirmation: "TÖRLÉS" });
+    expect(ok.body.result).toEqual({ ok: true, value: { id } });
+    expect(ok.body.snapshot.customers.some((c) => c.id === id)).toBe(false);
+    expect((await admin.patch("/api/settings/users/permissions", { userId: ids.b, expected: [...before, "crm.customer.delete"], revoke: ["crm.customer.delete"] })).status).toBe(200);
+    const other = await createCustomer(worker, { type: "individual", name: "Fiktív Maradó Márta" });
+    expect((await worker.op("customer.delete", { customerId: other.value!.customer.id, confirmation: "TÖRLÉS" })).body.result.ok).toBe(false);
+    const log = (await audit()).filter((a) => a.entity_key === `${ids.b}:crm.customer.delete`).map((a) => a.action);
+    expect(log).toEqual(["permission.grant", "permission.revoke"]);
   });
 });

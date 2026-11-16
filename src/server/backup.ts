@@ -108,8 +108,9 @@ export class RestoreError extends Error {}
  * migráció kiinduló (v1.0) értékeivel maradnak - pontosan azzal a konfigurációval, amellyel a régi mentés készült. A régi
  * feladatokon szereplő, a v1.0 listában nem szereplő típus/Input kulcsok a migrációval azonos szabállyal archivált katalóguselemet
  * kapnak (a hivatkozási integritás miatt); más adat nem keletkezik.
+ * v1.1.1 (0010): csak a jogosultság-lista bővült és egy trigger került be - a 0009-es mentés változtatás nélkül visszaállítható.
  */
-export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", "0006_crm_import_jobs", LATEST_MIGRATION];
+export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", "0006_crm_import_jobs", "0009_dynamic_crm_statuses", LATEST_MIGRATION];
 
 const migrationIndex = (id: string) => MIGRATIONS.findIndex((m) => m.id === id);
 

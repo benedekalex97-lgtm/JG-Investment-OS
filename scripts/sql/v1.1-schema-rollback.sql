@@ -1,4 +1,4 @@
--- JG Investment OS v1.1 -> v1.0 SÉMA-visszagörgetés (2. szint). KIZÁRÓLAG külön jóváhagyás, friss titkosított mentés és a
+-- JG Investment OS v1.1 (0007-0010) -> v1.0 SÉMA-visszagörgetés (2. szint). KIZÁRÓLAG külön jóváhagyás, friss titkosított mentés és a
 -- docs/V1.1-ADMIN-SETTINGS.md 19. fejezetének ellenőrzőlistája után, a séma tulajdonosi kapcsolatával futtatandó
 -- (psql -v ON_ERROR_STOP=1 -f scripts/sql/v1.1-schema-rollback.sql; a szkript maga egy tranzakció).
 -- Az 1. szintű (ajánlott) visszagörgetés csak az alkalmazáskódot állítja vissza v1.0-ra: a v1.1 séma visszafelé kompatibilis, ezt
@@ -23,6 +23,10 @@ begin
   select count(*) into bad from tasks t join crm_task_input_options c on c.key = t.input_key where not c.is_system and c.created_by is not null;
   if bad > 0 then raise exception 'v1.1 rollback: % feladat v1.1-ben felvett Input-opciót használ.', bad; end if;
 end $$;
+
+-- 0010 (v1.1.1: ügyféltörlési jog). A crm.customer.delete sorait az alábbi 0007-es lépés törli (a v1.0 nem ismeri).
+drop trigger customers_removal_guard on customers;
+drop function customers_removal_guard();
 
 -- 0009
 drop trigger customers_assign_active on customers;
@@ -69,5 +73,5 @@ alter table user_permissions drop column revoked_by;
 alter table user_permissions drop constraint user_permissions_permission_chk;
 alter table user_permissions add constraint user_permissions_permission_check check (permission in ('crm.customer.import','crm.customer.export','crm.import.history.read'));
 
-delete from schema_migrations where id in ('0007_crm_settings_permissions','0008_crm_config_catalogs','0009_dynamic_crm_statuses');
+delete from schema_migrations where id in ('0007_crm_settings_permissions','0008_crm_config_catalogs','0009_dynamic_crm_statuses','0010_crm_customer_delete_permission');
 commit;

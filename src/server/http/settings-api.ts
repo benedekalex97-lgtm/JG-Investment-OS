@@ -2,7 +2,7 @@ import type { AuthUser } from "../auth/service";
 import { listUsers } from "../auth/service";
 import type { Db, Tx } from "../db/types";
 import { features } from "../features";
-import { hasPermission, permissionsOf, PERMISSION_LABELS, CRM_PERMISSIONS, ADMIN_PERMISSIONS, type CrmPermission } from "../data/permissions";
+import { hasPermission, permissionsOf, PERMISSION_LABELS, CRM_PERMISSIONS, ADMIN_PERMISSIONS, CUSTOMER_ADMIN_PERMISSIONS, type CrmPermission } from "../data/permissions";
 import { CATALOG_KINDS, createCatalogItem, listCatalog, reorderCatalog, SettingsError, SPECS, updateCatalogItem, type CatalogKind } from "../settings/catalog";
 import { auditQuery, changePermissions, listAdminUsers, listAudit, logRejection, PermissionChangeError } from "../settings/admin";
 import { csrfProblem, readBodyLimited } from "./guards";
@@ -160,7 +160,7 @@ export async function handleSettings(req: Request, path: string, db: Db, user: A
       const users = await withPermission(db, user, route, path, method, (tx) => listAdminUsers(tx));
       return json({
         users, currentUserId: user.id,
-        permissions: CRM_PERMISSIONS.map((p) => ({ key: p, label: PERMISSION_LABELS[p], admin: (ADMIN_PERMISSIONS as readonly string[]).includes(p) })),
+        permissions: CRM_PERMISSIONS.map((p) => ({ key: p, label: PERMISSION_LABELS[p], admin: ([...ADMIN_PERMISSIONS, ...CUSTOMER_ADMIN_PERMISSIONS] as readonly string[]).includes(p) })),
       });
     }
 
