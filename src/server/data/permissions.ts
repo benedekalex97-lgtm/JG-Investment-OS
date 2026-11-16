@@ -21,7 +21,9 @@ export type DataPermission = (typeof DATA_PERMISSIONS)[number];
 /** v1.1 adminisztratív jogok: CRM-beállítások kezelése, felhasználói jogok kezelése, beállítási változásnapló olvasása. */
 export const ADMIN_PERMISSIONS = ["crm.settings.manage", "crm.users.manage", "crm.settings.audit.read"] as const;
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];
-export const CRM_PERMISSIONS = [...DATA_PERMISSIONS, ...ADMIN_PERMISSIONS] as const;
+/** v1.1.1: ügyfél logikai (visszaállítható) eltávolítása az aktív CRM-ből - csak kifejezetten kiosztott joggal (adminfunkció). */
+export const CUSTOMER_ADMIN_PERMISSIONS = ["crm.customer.delete"] as const;
+export const CRM_PERMISSIONS = [...DATA_PERMISSIONS, ...ADMIN_PERMISSIONS, ...CUSTOMER_ADMIN_PERMISSIONS] as const;
 export type CrmPermission = (typeof CRM_PERMISSIONS)[number];
 export const isDataPermission = (s: string): s is DataPermission => (DATA_PERMISSIONS as readonly string[]).includes(s);
 export const isCrmPermission = (s: string): s is CrmPermission => (CRM_PERMISSIONS as readonly string[]).includes(s);
@@ -33,6 +35,7 @@ export const PERMISSION_LABELS: Record<CrmPermission, string> = {
   "crm.settings.manage": "CRM-beállítások kezelése (Pipeline, feladattípusok, Input-opciók)",
   "crm.users.manage": "Felhasználók és jogosultságok kezelése",
   "crm.settings.audit.read": "Beállítási változásnapló megtekintése",
+  "crm.customer.delete": "Ügyfél törlése (eltávolítás az aktív CRM-ből, visszaállítható)",
 };
 
 /** A kérés tranzakciójában (asUser) ellenőrzi a jogot. Bármilyen hiba esetén hamis. */
