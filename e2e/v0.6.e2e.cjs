@@ -574,7 +574,7 @@ async function checkPage(page, label, tag) {
       const mailLink = qa.getByRole("link", { name: /^E-mail/ });
       L("G1-G3: Hívás, E-mail és Új feladat gomb az ügyfél fejlécében", (await qa.isVisible()) && (await pageA.locator("#ugyfel").getByRole("group", { name: "Gyorsműveletek" }).count()) === 1 && (await callLink.isVisible()) && (await mailLink.isVisible()) && (await qa.getByRole("button", { name: "Új feladat" }).isVisible()));
       L("G4/G5: szabványos tel: és mailto: hivatkozás a kapcsolati adatokból", (await callLink.getAttribute("href")) === "tel:+36209998888" && (await mailLink.getAttribute("href")) === "mailto:anna@example.test");
-      L("CRM-006/D1: kikapcsolt kapcsolónál nincs „Ügyfél törlése” a felületen", (await pageA.locator("#ugyfel-torlese").count()) === 0 && (await pageA.getByRole("button", { name: "Ügyfél törlése" }).count()) === 0);
+      L("CRM-006/D1: ügyféltörlési jog nélkül nincs „Ügyfél törlése” a felületen", (await pageA.locator("#ugyfel-torlese").count()) === 0 && (await pageA.getByRole("button", { name: "Ügyfél törlése" }).count()) === 0);
       const actsBefore = (await apiSnap()).activities.length;
       await qa.getByRole("button", { name: "Új feladat" }).click();
       L("G9: az „Új feladat” a meglévő feladatfelviteli modált nyitja, az ügyfél előre kiválasztva", (await dlg(pageA).getByRole("heading", { name: "Új feladat" }).isVisible()) && (await dlg(pageA).innerText()).includes("Minta Kft.") && (await dlg(pageA).getByLabel(/Feladat típusa/).count()) === 1);
@@ -875,8 +875,9 @@ async function checkPage(page, label, tag) {
       L("a szerverfolyamat leállt (szimulált új telepítés / újraindítás)", server.exitCode !== null || server.signalCode !== null);
       const r = spawnSync(process.execPath, ["--import", "tsx", "e2e/restriction.ts", DB_DIR, customerId], { cwd: ROOT, env: baseEnv, encoding: "utf8" });
       L("meglévő (fiktív) tiltakozási adat a CRM felületén kívül rögzítve az adatbázisban", r.status === 0, r.stderr);
-      // Újraindítás a tesztügyfél-törlés kapcsolójával (CRM-006); a korábbi szakaszok kikapcsolt kapcsolóval futottak.
-      server = await startServer(PORT, { ...baseEnv, JG_TEST_CUSTOMER_DELETE_ENABLED: "true" });
+      // v1.1.1: az ügyféltörlés adminjog (crm.customer.delete); a korábbi szakaszok jog nélkül futottak. Kiosztás az üzemeltetői CLI-vel.
+      cli(["permission:grant", EMAIL_B, "crm.customer.delete"], { JG_OPERATOR: "E2E Üzemeltető" });
+      server = await startServer(PORT, { ...baseEnv });
       const ctx2 = await browser.newContext(ctxOpts(DESKTOP));
       const q = await ctx2.newPage();
       await login(q, EMAIL_B, PW_B);
@@ -910,14 +911,14 @@ async function checkPage(page, label, tag) {
       const qaR = q.getByRole("group", { name: "Gyorsműveletek" });
       L("G7: rögzített tiltakozásnál a Hívás nem indítható (nincs tel: hivatkozás), az ok látható", (await qaR.getByRole("link").count()) === 0 && (await qaR.getByRole("button", { name: "Hívás" }).isDisabled()) && (await qaR.innerText()).includes("van rögzítve: kimenő megkeresés nem indítható."));
 
-      // ============ CRM-006) Tesztügyfél eltávolítása - a szerver bekapcsolt kapcsolóval fut ============
+      // ============ CRM-006) Ügyfél eltávolítása - ügyféltörlési joggal (admin) ============
       const apiQ = async () => (await (await q.request.get(BASE + "/api/crm/snapshot")).json()).snapshot;
       await q.goto(BASE + "/", { waitUntil: "networkidle" });
       const custCount = async () => Number((await q.locator("ul.grid li").nth(2).locator("span").first().innerText()).trim());
       const countBefore = await custCount();
       await openCustomer(q, "Napi Nándor");
       const napiId2 = q.url().split("/").pop();
-      L("D1/D2: bekapcsolt kapcsolóval és bejelentkezve megjelenik az „Ügyfél törlése”", await q.getByRole("button", { name: "Ügyfél törlése" }).isVisible());
+      L("D1/D2: ügyféltörlési joggal és bejelentkezve megjelenik az „Ügyfél törlése”", await q.getByRole("button", { name: "Ügyfél törlése" }).isVisible());
       await q.getByRole("button", { name: "Ügyfél törlése" }).click();
       const dd = q.getByRole("dialog", { name: "Ügyfél törlése" });
       L("D3: megerősítő modál az ügyfél nevével; a gomb a „TÖRLÉS” beírásáig tiltott", (await dd.innerText()).includes("Napi Nándor") && (await dd.locator("button[type=submit]").isDisabled()));

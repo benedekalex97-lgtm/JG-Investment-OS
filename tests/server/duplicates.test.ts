@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Customer, DataSnapshot } from "@/domain/types";
 import { DRIVERS, PASSWORD_A, addPilotUsers, client, makeApi, makeTestDb, type Client, type TestDb } from "./helpers";
+import { grant } from "./data-helpers";
 
 describe.each(DRIVERS)("CRM-013 szerveroldali duplikáció-ellenőrzés (%s)", (kind) => {
   let t: TestDb;
@@ -49,22 +50,22 @@ describe.each(DRIVERS)("CRM-013 szerveroldali duplikáció-ellenőrzés (%s)", (
   });
 
   it("U11: eltávolított rekorddal való erős egyezés: a tény jelzett, de a rekord neve és azonosítója nem kerül ki", async () => {
-    process.env.JG_TEST_CUSTOMER_DELETE_ENABLED = "true";
-    try {
+    // v1.1.1: az ügyféltörlés adminjog (crm.customer.delete).
+    await grant(t.db, "pilot.egy@example.test", "crm.customer.delete");
+    {
       const gone = (await create({ type: "individual", name: "Eltávolított Elemér", email: "elemer@example.test" })).body.result.value!.customer;
       expect((await c.op("customer.delete", { customerId: gone.id, confirmation: "TÖRLÉS" })).body.result.ok).toBe(true);
       const r = await create({ type: "individual", name: "Új Elemér", email: "elemer@example.test" });
       expect(r.body.result).toMatchObject({ ok: false, duplicates: [{ customerId: null, name: "Eltávolított ügyfélrekord", level: "strong", reasons: ["Azonos e-mail-cím"] }] });
       expect(JSON.stringify(r.body.result)).not.toMatch(/Eltávolított Elemér|elemer@|cust-/);
       expect(JSON.stringify(r.body.snapshot)).not.toContain("Eltávolított Elemér");
-    } finally {
-      delete process.env.JG_TEST_CUSTOMER_DELETE_ENABLED;
     }
   });
 
   it("eltávolított cég kapcsolattartójának beágyazott zárójeles neve sem szivárog ki a szerver válaszában", async () => {
-    process.env.JG_TEST_CUSTOMER_DELETE_ENABLED = "true";
-    try {
+    // v1.1.1: az ügyféltörlés adminjog (crm.customer.delete).
+    await grant(t.db, "pilot.egy@example.test", "crm.customer.delete");
+    {
       const co = (await create({ type: "company", companyName: "Zárójel (Belső) Kft.", contactName: "Minta Éva" })).body.result.value!.customer;
       const k = (await snap()).contacts.find((x) => x.companyId === co.id)!;
       await t.db.system((tx) => tx.query("update company_contacts set first_name = $2, last_name = $3, email = $4, phone = $5 where id = $1", [k.id, "(belső) Éva", "Minta", "eva.belso@example.test", "+36 1 888 7766"]));
@@ -75,8 +76,6 @@ describe.each(DRIVERS)("CRM-013 szerveroldali duplikáció-ellenőrzés (%s)", (
         const json = JSON.stringify(r.body.result);
         for (const secret of ["Minta", "belső", "Belső", "Éva", "Zárójel", "eva.belso", "888", co.id, "kapcsolattartó"]) expect(json.includes(secret), `${secret}: ${json}`).toBe(false);
       }
-    } finally {
-      delete process.env.JG_TEST_CUSTOMER_DELETE_ENABLED;
     }
   });
 });

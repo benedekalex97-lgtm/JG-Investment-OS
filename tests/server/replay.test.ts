@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { restoreCustomer } from "@/server/admin";
 import type { Customer, Task } from "@/domain/types";
 import { DRIVERS, PASSWORD_A, PASSWORD_B, addPilotUsers, client, makeApi, makeTestDb, type Client, type TestDb } from "./helpers";
+import { grant } from "./data-helpers";
 
-const FLAG = "JG_TEST_CUSTOMER_DELETE_ENABLED";
 const SECRET_NAME = "Titkos Tímea";
 const SECRET_NOTE = "Bizalmas jegyzet: 06 30 999 0000";
 
@@ -20,13 +20,14 @@ describe.each(DRIVERS)("idempotens újraküldés és eltávolított ügyfél (%s
   beforeAll(async () => {
     t = await makeTestDb(kind);
     await addPilotUsers(t.db);
+    // v1.1.1: az ügyféltörlés adminjog (crm.customer.delete).
+    await grant(t.db, "pilot.egy@example.test", "crm.customer.delete");
     a = client(makeApi(t.db));
     b = client(makeApi(t.db));
     await a.login("pilot.egy@example.test", PASSWORD_A);
     await b.login("pilot.ketto@example.test", PASSWORD_B);
   });
   afterAll(async () => { await t.cleanup(); });
-  afterEach(() => { delete process.env[FLAG]; });
 
   const count = async (table: string) => Number((await t.db.system((tx) => tx.query<{ n: string }>(`select count(*) as n from ${table}`)))[0].n);
   const newCustomer = async (name: string, rid = randomUUID()) => {
@@ -35,7 +36,6 @@ describe.each(DRIVERS)("idempotens újraküldés és eltávolított ügyfél (%s
     return r.body.result.value!.customer;
   };
   const remove = async (id: string) => {
-    process.env[FLAG] = "true";
     const r = await a.op("customer.delete", { customerId: id, confirmation: "TÖRLÉS" });
     expect(r.body.result.ok).toBe(true);
   };
@@ -126,7 +126,6 @@ describe.each(DRIVERS)("idempotens újraküldés és eltávolított ügyfél (%s
 
   it("customer.delete újraküldése: amíg eltávolított, ugyanaz a sikeres válasz csak az azonosítóval; visszaállítás után nem sikeres; személyes adat egyik esetben sincs", async () => {
     const c = await newCustomer("Törölt Tódor");
-    process.env[FLAG] = "true";
     const rid = randomUUID();
     const first = await a.op("customer.delete", { customerId: c.id, confirmation: "TÖRLÉS" }, rid);
     expect(first.body.result).toEqual({ ok: true, value: { id: c.id } });
