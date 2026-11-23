@@ -3,8 +3,8 @@ import { buildDisplayName, contactName, otherContactsOf, primaryContactOf, split
 import { emptySnapshot } from "@/domain/types";
 import { U, byName, errs, newRepo, seed, val } from "./helpers";
 
-const person = { type: "individual", name: "Kovács Béla", recordedBy: U } as const;
-const company = { type: "company", companyName: "Űrlap Kft.", recordedBy: U } as const;
+const person = { type: "individual", acquisitionChannel: "egyeb", name: "Kovács Béla", recordedBy: U } as const;
+const company = { type: "company", acquisitionChannel: "egyeb", companyName: "Űrlap Kft.", recordedBy: U } as const;
 
 describe("új ügyfél — egyszerű űrlap, üzleti minimum: a név", () => {
   it("magánszemély: csak a név kötelező; telefon, e-mail, adatforrás nélkül is létrejön", () => {

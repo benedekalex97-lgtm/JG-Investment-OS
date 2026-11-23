@@ -31,7 +31,7 @@ describe.each(DRIVERS)("idempotens újraküldés és eltávolított ügyfél (%s
 
   const count = async (table: string) => Number((await t.db.system((tx) => tx.query<{ n: string }>(`select count(*) as n from ${table}`)))[0].n);
   const newCustomer = async (name: string, rid = randomUUID()) => {
-    const r = await a.op<{ customer: Customer }>("customer.create", { input: { type: "individual", name, phone: `+36 30 400 ${String(1000 + ++seq)}` } }, rid);
+    const r = await a.op<{ customer: Customer }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name, phone: `+36 30 400 ${String(1000 + ++seq)}` } }, rid);
     expect(r.body.result.ok, JSON.stringify(r.body.result)).toBe(true);
     return r.body.result.value!.customer;
   };
@@ -90,7 +90,7 @@ describe.each(DRIVERS)("idempotens újraküldés és eltávolított ügyfél (%s
     rids["customer.create"] = createRid;
     await remove(c.id);
     const replays: Record<string, unknown> = {
-      "customer.create": { input: { type: "individual", name: SECRET_NAME + " Kettő" } },
+      "customer.create": { input: { type: "individual", acquisitionChannel: "egyeb", name: SECRET_NAME + " Kettő" } },
       "task.create": { input: { customerId: c.id, taskType: "phone_call" } },
       "task.setDue": { taskId: task.id, dueAt: null },
       "task.close": { taskId: task.id, input: { outcome: "success", output: "x" } },
@@ -116,9 +116,9 @@ describe.each(DRIVERS)("idempotens újraküldés és eltávolított ügyfél (%s
     expect(again.body.replayed).toBe(true);
     expect(again.body.result).toEqual(first.body.result);
     const createRid = randomUUID();
-    const created = await a.op<{ customer: Customer }>("customer.create", { input: { type: "individual", name: "Egyszeri Ernő", phone: "+36 30 401 0000" } }, createRid);
+    const created = await a.op<{ customer: Customer }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Egyszeri Ernő", phone: "+36 30 401 0000" } }, createRid);
     const mid = { customers: await count("customers"), audit: await count("audit_events") };
-    const createdAgain = await a.op("customer.create", { input: { type: "individual", name: "Egyszeri Ernő", phone: "+36 30 401 0000" } }, createRid);
+    const createdAgain = await a.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Egyszeri Ernő", phone: "+36 30 401 0000" } }, createRid);
     expect(createdAgain.body).toMatchObject({ replayed: true, result: created.body.result });
     expect({ customers: await count("customers"), audit: await count("audit_events") }).toEqual(mid);
     expect({ acts: await count("activities"), audit: await count("audit_events") - 1, log: await count("request_log") - 1 }).toEqual(before);

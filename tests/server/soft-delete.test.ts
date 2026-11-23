@@ -45,7 +45,7 @@ describe.each(DRIVERS)("CRM-006 tesztügyfél logikai eltávolítása (%s)", (ki
   const seedCustomer = async (name: string) => {
     // Egyedi telefonszám ügyfelenként (az azonos szám erős duplikáció-egyezés lenne, CRM-013).
     const phone = `+36 1 555 ${String(1000 + ++seq)}`;
-    const cust = (await c.op<{ customer: Customer }>("customer.create", { input: { type: "company", companyName: name, contactName: "Teszt Kapcsolattartó", phone } })).body.result.value!.customer;
+    const cust = (await c.op<{ customer: Customer }>("customer.create", { input: { type: "company", acquisitionChannel: "egyeb", companyName: name, contactName: "Teszt Kapcsolattartó", phone } })).body.result.value!.customer;
     const task = (await c.op<Task>("task.create", { input: { customerId: cust.id, taskType: "phone_call", dueAt: new Date().toISOString() } })).body.result.value!;
     await c.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Teszt lezárás" } });
     await c.op("task.reopen", { taskId: task.id });

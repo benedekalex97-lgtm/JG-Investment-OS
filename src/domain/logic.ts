@@ -1,5 +1,5 @@
 import { DEFAULT_CRM_STATUS, RESTRICTION_LABELS, TASK_OUTCOME_LABELS, TASK_OUTPUT_LABELS } from "./constants";
-import { BUILTIN_CRM_CONFIG, ordered, taskInputLabel, type CrmConfig, type PipelineStatusDef } from "./config";
+import { BUILTIN_CRM_CONFIG, ordered, type AcquisitionChannelDef, taskInputLabel, type CrmConfig, type PipelineStatusDef } from "./config";
 import type {
   Activity, CompanyContact, Contactability, ContactChannel, ContactPurpose, CrmStatus, Customer, CustomerProcess, DataSnapshot, Task, TaskOutput,
 } from "./types";
@@ -84,6 +84,8 @@ export interface CustomerFilter {
   query?: string;
   type?: "individual" | "company" | "";
   crmStatus?: CrmStatus | "";
+  /** v1.2: szűrés az érkezési csatorna kulcsára (üres = minden). */
+  acquisitionChannel?: string;
 }
 
 const contactMatches = (k: CompanyContact, q: string) => fold(`${k.firstName} ${k.lastName}`).includes(q) || fold(contactName(k)).includes(q);
@@ -165,6 +167,7 @@ export function searchCustomers(snap: DataSnapshot, f: CustomerFilter = {}): Cus
   return snap.customers.filter((c) => {
     if (f.type && c.type !== f.type) return false;
     if (f.crmStatus && statusOf(c) !== f.crmStatus) return false;
+    if (f.acquisitionChannel && c.acquisitionChannel !== f.acquisitionChannel) return false;
     if (!query) return true;
     return customerMatches(snap, c, query).length > 0;
   });
@@ -327,6 +330,66 @@ export function crmPipeline(snap: DataSnapshot, f: PipelineFilter = {}): Pipelin
     ...defs.map((def) => ({ status: def.key, label: def.label, def, customers: matching.filter((c) => statusOf(c) === def.key).sort(byName) })),
     ...orphan.map((status) => ({ status, label: status, customers: matching.filter((c) => statusOf(c) === status).sort(byName) })),
   ];
+}
+
+// ------------------------------------------------------- Csatornák kimutatás (v1.2)
+export interface ChannelReportFilter {
+  /** Létrehozás napja (budapesti nap, ÉÉÉÉ-HH-NN), tól-ig, mindkét végpontot beleértve. Üres = nincs korlát. */
+  from?: string;
+  to?: string;
+}
+export interface ChannelReportRow {
+  channel: string;
+  label: string;
+  /** A katalógus elem (hiányzik, ha a kulcs már nincs a katalógusban). */
+  def?: AcquisitionChannelDef;
+  total: number;
+  /** Ügyfelek száma a Pipeline-státusz kulcsa szerint. */
+  byStatus: Record<string, number>;
+}
+export interface ChannelReport {
+  /** Az oszlopok: a katalógus státuszai sorrendben (aktívak, valamint az archiváltak, ha van bennük ügyfél), majd a katalógusban nem szereplő kulcsok. */
+  statuses: { key: string; label: string; archived: boolean }[];
+  rows: ChannelReportRow[];
+  totals: { total: number; byStatus: Record<string, number> };
+}
+
+/**
+ * Érkezési csatornák kimutatása: csatornánként az ügyfelek száma, Pipeline-státuszonként bontva, az ügyfél LÉTREHOZÁSÁNAK napja
+ * (budapesti nap) szerinti időszakszűrővel. A logikailag törölt ügyfelek nincsenek a snapshotban, ezért nem számítanak.
+ * Sorok: minden aktív csatorna (üresen is, hogy látszódjon, mi nem hoz ügyfelet), az archivált vagy ismeretlen kulcsú csatorna csak ha van ügyfele.
+ */
+export function channelReport(snap: DataSnapshot, f: ChannelReportFilter = {}): ChannelReport {
+  const cfg = snap.config;
+  const list = snap.customers.filter((c) => {
+    const day = dayKey(c.createdAt);
+    return (!f.from || day >= f.from) && (!f.to || day <= f.to);
+  });
+  const statusKeys = new Set(list.map(statusOf));
+  const known = new Set(cfg.statuses.map((s) => s.key));
+  const statuses = [
+    ...ordered(cfg.statuses).filter((s) => s.isActive || statusKeys.has(s.key)).map((s) => ({ key: s.key, label: s.label, archived: !s.isActive })),
+    ...[...statusKeys].filter((k) => !known.has(k)).sort().map((k) => ({ key: k, label: k, archived: true })),
+  ];
+  const used = new Set(list.map((c) => c.acquisitionChannel));
+  const knownCh = new Set(cfg.acquisitionChannels.map((d) => d.key));
+  const defs: { key: string; def?: AcquisitionChannelDef }[] = [
+    ...ordered(cfg.acquisitionChannels).filter((d) => d.isActive || used.has(d.key)).map((d) => ({ key: d.key, def: d })),
+    ...[...used].filter((k) => !knownCh.has(k)).sort().map((k) => ({ key: k })),
+  ];
+  const totals = { total: 0, byStatus: {} as Record<string, number> };
+  const rows = defs.map(({ key, def }) => {
+    const mine = list.filter((c) => c.acquisitionChannel === key);
+    const byStatus: Record<string, number> = {};
+    for (const c of mine) {
+      const st = statusOf(c);
+      byStatus[st] = (byStatus[st] ?? 0) + 1;
+      totals.byStatus[st] = (totals.byStatus[st] ?? 0) + 1;
+    }
+    totals.total += mine.length;
+    return { channel: key, label: def?.label ?? key, def, total: mine.length, byStatus };
+  });
+  return { statuses, rows, totals };
 }
 
 // ------------------------------------------------------- Gyorsműveletek (CRM-011)

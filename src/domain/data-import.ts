@@ -1,4 +1,5 @@
 import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS } from "./constants";
+import { BUILTIN_CRM_CONFIG, UNKNOWN_CHANNEL_KEY, type AcquisitionChannelDef } from "./config";
 import { fold, phoneKey } from "./logic";
 
 /**
@@ -13,7 +14,7 @@ import { fold, phoneKey } from "./logic";
  */
 export const IMPORT_FIELD_KEYS = [
   "type", "fullName", "lastName", "firstName", "companyName", "phone", "email",
-  "contactName", "contactPosition", "contactPhone", "contactEmail", "notes", "source", "status",
+  "contactName", "contactPosition", "contactPhone", "contactEmail", "notes", "source", "status", "acquisitionChannel",
 ] as const;
 export type ImportFieldKey = (typeof IMPORT_FIELD_KEYS)[number];
 
@@ -34,6 +35,7 @@ export const IMPORT_FIELDS: readonly ImportFieldDef[] = [
   { key: "contactEmail", label: "Kapcsolattartó e-mail-címe", help: "Cégnél a kapcsolattartó e-mail-címe (a kapcsolattartó vezeték- és keresztneve szükséges hozzá).", aliases: ["kapcsolattartoemail", "kapcsolattartoemailcime", "contactemail"] },
   { key: "notes", label: "Megjegyzés", help: "Csak magánszemélynél tárolható. Ne tartalmazzon különleges személyes adatot.", aliases: ["megjegyzes", "megjegyzesek", "jegyzet", "notes", "note", "comment"] },
   { key: "source", label: "Adatforrás (soronként)", help: "Ha üres, az import adatforrás-megnevezése kerül az ügyfélhez.", aliases: ["adatforras", "forras", "source", "datasource"] },
+  { key: "acquisitionChannel", label: "Érkezési csatorna", help: "Opcionális. A katalógus aktív csatornájának neve vagy kulcsa; ismeretlen vagy hiányzó érték esetén az ügyfél „Ismeretlen” csatornával jön létre. Nem azonos az Adatforrással.", aliases: ["erkezesicsatorna", "erkezescsatorna", "csatorna", "erkezes", "acquisitionchannel", "channel"] },
   { key: "status", label: "Státusz (csak ellenőrzés)", help: "Nem kerül átvételre: az importált ügyfél mindig „Feldolgozásra vár” státusszal jön létre.", aliases: ["statusz", "status", "pipelinestatusz", "allapot"] },
 ] as const;
 export const IMPORT_FIELD_LABELS = Object.fromEntries(IMPORT_FIELDS.map((f) => [f.key, f.label])) as Record<ImportFieldKey, string>;
@@ -91,6 +93,17 @@ const STATUS_BY_LABEL = new Map<string, string>([
 ]);
 export const parseStatus = (v: string): string | null => STATUS_BY_LABEL.get(normalizeHeader(v)) ?? null;
 
+/**
+ * Az importált érkezési csatorna feloldása a katalógus AKTÍV elemeire (megnevezés vagy kulcs, kis-/nagybetű- és ékezetfüggetlenül).
+ * `unknown`: nincs ilyen elem; `archived`: létezik, de archivált (új hozzárendelésre nem használható).
+ */
+export function resolveChannel(channels: readonly AcquisitionChannelDef[], raw: string): { key: string } | { problem: "unknown" | "archived" } {
+  const n = normalizeHeader(raw);
+  const hit = channels.find((c) => normalizeHeader(c.key) === n || normalizeHeader(c.label) === n);
+  if (!hit) return { problem: "unknown" };
+  return hit.isActive ? { key: hit.key } : { problem: "archived" };
+}
+
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** A CRM űrlapjának telefonszám-szabálya (schemas.ts optPhone). */
 export const CRM_PHONE_RE = /^\+?[0-9 ()/-]{6,20}$/;
@@ -139,6 +152,8 @@ export interface ImportDraft {
   contactPhone?: string;
   contactEmail?: string;
   source?: string;
+  /** v1.2: a feloldott érkezési csatorna kulcsa; hiányzó / ismeretlen / archivált értéknél `ismeretlen`. */
+  acquisitionChannel: string;
 }
 
 export interface RowEvaluation {
@@ -156,7 +171,7 @@ const issue = (level: IssueLevel, code: string, message: string, field?: ImportF
  * Egy adatsor ellenőrzése és normalizálása (V03-V07). A hibaüzenetek nem tartalmazzák a cellaértéket (a hibajegyzék így nem
  * hordoz felesleges személyes adatot).
  */
-export function evaluateRow(cells: string[], mapping: ColumnMapping, defaultType: "individual" | "company" | null, notes: (col: number) => CellNotes = () => ({})): RowEvaluation {
+export function evaluateRow(cells: string[], mapping: ColumnMapping, defaultType: "individual" | "company" | null, notes: (col: number) => CellNotes = () => ({}), channels: readonly AcquisitionChannelDef[] = BUILTIN_CRM_CONFIG.acquisitionChannels): RowEvaluation {
   const issues: RowIssue[] = [];
   const val: Partial<Record<ImportFieldKey, string>> = {};
   let anyValue = false;
@@ -191,7 +206,7 @@ export function evaluateRow(cells: string[], mapping: ColumnMapping, defaultType
   tooLong("notes", IMPORT_LIMITS_TEXT.notes);
   tooLong("source", IMPORT_LIMITS_TEXT.source);
 
-  const draft: ImportDraft = { type: type ?? "individual" };
+  const draft: ImportDraft = { type: type ?? "individual", acquisitionChannel: UNKNOWN_CHANNEL_KEY };
   const personName = val.fullName ?? [val.lastName, val.firstName].filter(Boolean).join(" ");
 
   if (type === "individual") {
@@ -238,6 +253,14 @@ export function evaluateRow(cells: string[], mapping: ColumnMapping, defaultType
     draft.contactPhone = phone("contactPhone");
   }
   if (val.source) draft.source = val.source;
+
+  // v1.2: érkezési csatorna. Hiányzó (üres vagy nem megfeleltetett) érték: csendben `ismeretlen`; felismerhetetlen érték: `ismeretlen` + figyelmeztetés.
+  if (val.acquisitionChannel !== undefined) {
+    const c = resolveChannel(channels, val.acquisitionChannel);
+    if ("key" in c) draft.acquisitionChannel = c.key;
+    else issues.push(issue("warning", c.problem === "archived" ? "channel_archived" : "unknown_channel",
+      c.problem === "archived" ? "Archivált érkezési csatorna: nem kerül átvételre, az ügyfél „Ismeretlen” csatornával jön létre." : "Ismeretlen érkezési csatorna: nem kerül átvételre, az ügyfél „Ismeretlen” csatornával jön létre.", "acquisitionChannel"));
+  }
 
   if (val.status !== undefined) {
     const s = parseStatus(val.status);

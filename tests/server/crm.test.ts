@@ -51,19 +51,19 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("magánszemély és cég létrehozása: csak a név kötelező; alapértelmezett státusz; a létrehozó a hitelesített felhasználó", async () => {
-    const p = await create(one, { type: "individual", name: "Fiktív Péter", recordedBy: "valaki-mas" });
+    const p = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Péter", recordedBy: "valaki-mas" });
     expect(p).toMatchObject({ type: "individual", displayName: "Fiktív Péter", crmStatus: "waiting_for_contact", ownerId: ids.a });
-    const co = await create(two, { type: "company", companyName: "Fiktív Kft.", contactName: "Kovács Anna", contactPosition: "ügyvezető", phone: "+36 30 123 4567", email: "anna@example.test", source: "ajánlás" });
+    const co = await create(two, { type: "company", acquisitionChannel: "egyeb", companyName: "Fiktív Kft.", contactName: "Kovács Anna", contactPosition: "ügyvezető", phone: "+36 30 123 4567", email: "anna@example.test", source: "ajánlás" });
     expect(co).toMatchObject({ type: "company", companyName: "Fiktív Kft.", ownerId: ids.b });
     const s = await snap(one);
     expect(s.contacts.find((k) => k.companyId === co.id)).toMatchObject({ lastName: "Kovács", firstName: "Anna", isPrimaryContact: true });
-    const bad = await one.op("customer.create", { input: { type: "individual", name: "" } });
+    const bad = await one.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "" } });
     expect(bad.body.result).toMatchObject({ ok: false, errors: { name: expect.any(String) } });
     expect((await snap(one)).customers.filter((c) => c.id === p.id)).toHaveLength(1);
   });
 
   it("két pilot felhasználó ugyanazt az adatot látja; a módosítás mindkét oldalon megjelenik, a módosító azonosítható", async () => {
-    const c = await create(one, { type: "individual", name: "Közös Katalin" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Közös Katalin" });
     expect((await snap(two)).customers.some((x) => x.id === c.id)).toBe(true);
     const task = await newTask(two, c.id);
     expect(task.assigneeId).toBe(ids.b);
@@ -77,9 +77,9 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("a rögzítő/felelős hamisítása hatástalan; az API nem enged régi, nem kitett vagy ismeretlen műveletet", async () => {
-    const c = await create(one, { type: "individual", name: "Hamis Hanna" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Hamis Hanna" });
     // A kliens nem adhat meg felelőst/rögzítőt/állapotot: az ilyen mező elutasítva, a tulajdonost mindig a munkamenet adja.
-    expect((await one.op("customer.create", { input: { type: "individual", name: "Más Tulaj", ownerId: ids.b } })).body.result.ok).toBe(false);
+    expect((await one.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Más Tulaj", ownerId: ids.b } })).body.result.ok).toBe(false);
     expect((await one.op("task.create", { input: { customerId: c.id, taskType: "phone_call", assigneeId: ids.b } })).status).toBe(400);
     expect((await one.op("task.create", { input: { customerId: c.id, taskType: "phone_call", status: "done" } })).status).toBe(400);
     const task = await newTask(one, c.id);
@@ -95,7 +95,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("ügyfél szerkesztése mentődik; kapcsolati adatok frissülnek; a típus nem módosítható", async () => {
-    const c = await create(one, { type: "company", companyName: "Szerk Kft.", contactName: "Nagy Béla" });
+    const c = await create(one, { type: "company", acquisitionChannel: "egyeb", companyName: "Szerk Kft.", contactName: "Nagy Béla" });
     const r = await two.op<Customer>("customer.update", { id: c.id, input: { type: "company", companyName: "Szerk Kft. (új)", contactName: "Nagy Béla", contactPosition: "pénzügyi vezető", phone: "+36 20 111 2222", email: "bela@example.test", source: "weboldal" } });
     expect(r.body.result.ok).toBe(true);
     const s = await snap(one);
@@ -110,7 +110,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("státuszváltás: egy ügyfél egy státusz; a feladatok a létrehozáskori státuszhoz tartoznak és megmaradnak; a pipeline szinkronban van", async () => {
-    const c = await create(one, { type: "individual", name: "Státusz Samu" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Státusz Samu" });
     const t1 = await newTask(one, c.id);
     expect(t1.crmStatus).toBe("waiting_for_contact");
     for (const to of ["contact", "relationship", "meeting"]) {
@@ -129,7 +129,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("ügyféljegyzet: közös, tartós, idempotens, a rögzítőt a munkamenet adja", async () => {
-    const c = await create(one, { type: "individual", name: "Jegyzet Júlia" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Jegyzet Júlia" });
     const requestId = randomUUID();
     const args = { customerId: c.id, text: "  Pénteken visszahívást kért.\nA kérdéseit összegyűjti.  " };
     const first = await one.op("note.create", args, requestId);
@@ -148,7 +148,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("„Tőke elhelyezve” igazolás nélkül nem rögzíthető; igazolással igen (szimulált)", async () => {
-    const c = await create(one, { type: "individual", name: "Tőke Tamás" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Tőke Tamás" });
     const no = await one.op("customer.changeStatus", { customerId: c.id, input: { toStatus: "capital_placed" } });
     expect(no.body.result.ok).toBe(false);
     expect((await snap(one)).customers.find((x) => x.id === c.id)!.crmStatus).toBe("waiting_for_contact");
@@ -159,7 +159,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("feladat (v0.9): Sikeres/Sikertelen + kötelező szöveges Output; ügyfélstátusz nem változik; újranyitás után az előzmény megmarad", async () => {
-    const c = await create(one, { type: "individual", name: "Feladat Ferenc" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Feladat Ferenc" });
     const task = await newTask(one, c.id, { inputKey: "callback", dueAt: "2026-11-02T00:00:00.000Z" });
     expect(task).toMatchObject({ title: "Telefonhívás", inputKey: "callback" });
     expect((await snap(one)).tasks.find((x) => x.id === task.id)!.dueAt).toBe("2026-11-02T00:00:00.000Z");
@@ -208,7 +208,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("átidőzítés (C1-C5): új határidő mentődik, a feladat nyitott marad, az előzmény a korábbi/új határidőt és a munkatársat őrzi", async () => {
-    const c = await create(one, { type: "individual", name: "Átidőzítés Anna" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Átidőzítés Anna" });
     const task = await newTask(one, c.id, { dueAt: "2026-10-20T10:00:00.000Z" });
     const r = await two.op<Task>("task.setDue", { taskId: task.id, dueAt: "2026-10-23T10:00:00.000Z" });
     expect(r.body.result.ok).toBe(true);
@@ -227,7 +227,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("adatbázis-szintű védelem: minősített lezárás üres Outputtal és ismeretlen minősítés a CRM-rétegen kívül sem írható", async () => {
-    const c = await create(one, { type: "individual", name: "Kényszer Kornél" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Kényszer Kornél" });
     const task = await newTask(one, c.id);
     const insert = (outcome: string, text: string) => t.db.asUser(ids.a, (tx) => tx.query("insert into task_results (task_id, seq, outcome, output_text, closed_at, closed_by) values ($1, 0, $2, $3, now(), $4)", [task.id, outcome, text, ids.a]));
     await expect(insert("success", "  \n ")).rejects.toThrow();
@@ -237,19 +237,19 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
 
   it("idempotencia: ugyanaz a kérés-azonosító nem hoz létre duplikátumot, és ugyanazt az eredményt adja", async () => {
     const rid = randomUUID();
-    const a = await one.op<{ customer: Customer }>("customer.create", { input: { type: "individual", name: "Ismétlődő Imre" } }, rid);
-    const b = await one.op<{ customer: Customer }>("customer.create", { input: { type: "individual", name: "Ismétlődő Imre" } }, rid);
+    const a = await one.op<{ customer: Customer }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Ismétlődő Imre" } }, rid);
+    const b = await one.op<{ customer: Customer }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Ismétlődő Imre" } }, rid);
     expect(a.body.replayed).toBe(false);
     expect(b.body.replayed).toBe(true);
     expect(b.body.result.value!.customer.id).toBe(a.body.result.value!.customer.id);
     expect((await snap(one)).customers.filter((c) => customerName(c) === "Ismétlődő Imre")).toHaveLength(1);
-    const other = await two.op("customer.create", { input: { type: "individual", name: "Más" } }, rid);
+    const other = await two.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Más" } }, rid);
     expect(other.status).toBe(400);
   });
 
   it("egyidejű, azonos azonosítójú kérésekből is egyetlen rekord lesz", async () => {
     const rid = randomUUID();
-    const rs = await Promise.all([1, 2, 3].map(() => one.op("customer.create", { input: { type: "individual", name: "Párhuzamos Pál" } }, rid)));
+    const rs = await Promise.all([1, 2, 3].map(() => one.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Párhuzamos Pál" } }, rid)));
     expect(rs.map((r) => r.status)).toEqual([200, 200, 200]);
     expect((await snap(one)).customers.filter((c) => customerName(c) === "Párhuzamos Pál")).toHaveLength(1);
   });
@@ -262,7 +262,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
   });
 
   it("adatbázis-hiba kezelt: általános 500, részletek és személyes adat nélkül; a korábbi adat érintetlen", async () => {
-    const c = await create(one, { type: "individual", name: "Hiba Henrik", email: "henrik@example.test" });
+    const c = await create(one, { type: "individual", acquisitionChannel: "egyeb", name: "Hiba Henrik", email: "henrik@example.test" });
     await t.db.system((tx) => tx.exec("alter table tasks add constraint test_break check (title <> 'Telefonhívás') not valid"));
     const res = await one.post("/api/crm/op", { requestId: randomUUID(), op: "task.create", args: { input: { customerId: c.id, taskType: "phone_call" } } });
     await t.db.system((tx) => tx.exec("alter table tasks drop constraint test_break"));
@@ -277,7 +277,7 @@ describe.each(DRIVERS)("CRM szerveroldali műveletek (%s)", (kind) => {
 
   it("a mentés tranzakciós: hiba esetén a részben végrehajtott írás (ügyfél + kapcsolattartó) visszagördül", async () => {
     await t.db.system((tx) => tx.exec("alter table company_contacts add constraint test_break2 check (last_name <> 'Bukó') not valid"));
-    const res = await one.op("customer.create", { input: { type: "company", companyName: "Visszagördülő Kft.", contactName: "Bukó Béla" } });
+    const res = await one.op("customer.create", { input: { type: "company", acquisitionChannel: "egyeb", companyName: "Visszagördülő Kft.", contactName: "Bukó Béla" } });
     await t.db.system((tx) => tx.exec("alter table company_contacts drop constraint test_break2"));
     expect(res.status).toBe(500);
     expect((await snap(one)).customers.some((x) => x.type === "company" && x.companyName === "Visszagördülő Kft.")).toBe(false);
@@ -295,7 +295,7 @@ describe.each(DRIVERS)("tartósság (%s)", (kind) => {
       await addPilotUsers(t.db);
       let c = client(makeApi(t.db));
       await c.login("pilot.egy@example.test", PASSWORD_A);
-      const cust = (await c.op<{ customer: Customer }>("customer.create", { input: { type: "company", companyName: "Tartós Kft.", contactName: "Szabó Géza", phone: "+36 1 234 5678" } })).body.result.value!.customer;
+      const cust = (await c.op<{ customer: Customer }>("customer.create", { input: { type: "company", acquisitionChannel: "egyeb", companyName: "Tartós Kft.", contactName: "Szabó Géza", phone: "+36 1 234 5678" } })).body.result.value!.customer;
       const task = (await c.op<Task>("task.create", { input: { customerId: cust.id, taskType: "email", inputKey: "information" } })).body.result.value!;
       await c.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Információ elküldve e-mailben." } });
       await c.op("customer.changeStatus", { customerId: cust.id, input: { toStatus: "relationship" } });

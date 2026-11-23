@@ -162,6 +162,7 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
   it("dokumentált séma-visszagörgetés (2. szint): v1.0 sémára áll vissza; egyedi státusz használatánál megtagadva, semmi nem változik", async () => {
     const t = await makeTestDb(kind, { migrate: false });
     const sql = readFileSync(join(__dirname, "../../scripts/sql/v1.1-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
+    const sql12 = readFileSync(join(__dirname, "../../scripts/sql/v1.2-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
     try {
       await migrate(t.db, { env: "local", migrations: V10 });
       await seedV10(t);
@@ -170,8 +171,11 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
       await t.db.system((tx) => tx.query("insert into user_permissions (user_id, permission, granted_by) values ('u-2','crm.users.manage','Teszt')"));
       await t.db.system((tx) => tx.query("insert into crm_pipeline_statuses (key, label, sort_order) values ('egyedi','Egyedi',90)"));
       await t.db.system((tx) => tx.query("update customers set crm_status = 'egyedi' where id = 'c-0'"));
+      // A v1.1 visszagörgetés csak a v1.2 (0011) visszagörgetése UTÁN futtatható (a katalógus-triggerek a közös függvényekre épülnek).
+      await t.db.system((tx) => tx.exec(sql12));
+      expect(await checkSchema(t.db, "local")).toEqual({ ok: false, reason: "schema_outdated" });
       await expect(t.db.system((tx) => tx.exec(sql))).rejects.toThrow(/egyedi \(v1\.1\) státuszban/);
-      expect(await checkSchema(t.db, "local")).toEqual({ ok: true });
+      expect(await checkSchema(t.db, "local", MIGRATIONS.slice(0, 10))).toEqual({ ok: true });
       await t.db.system((tx) => tx.query("update customers set crm_status = 'waiting_for_contact' where id = 'c-0'"));
       await t.db.system((tx) => tx.exec(sql));
       expect(await checkSchema(t.db, "local", V10)).toEqual({ ok: true });
@@ -183,7 +187,7 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
       expect(after.customers.find((c) => c.id === "c-0")!.crm_status).toBe("waiting_for_contact");
       // Ezután a v1.1 migráció újra alkalmazható (előre-visszalépés).
       expect((await migrate(t.db, { env: "local" })).applied).toEqual(MIGRATIONS.slice(6).map((m) => m.id));
-      expect(LATEST_MIGRATION).toBe("0010_crm_customer_delete_permission");
+      expect(LATEST_MIGRATION).toBe("0011_crm_acquisition_channels");
     } finally {
       await t.cleanup();
     }

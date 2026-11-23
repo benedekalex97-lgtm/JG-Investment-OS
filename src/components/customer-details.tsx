@@ -1,11 +1,12 @@
 "use client";
 
 import { useId, useState, type FormEvent, type ReactNode } from "react";
-import { RestrictedBadge, TypeBadge } from "@/components/common";
+import { optionLabel, RestrictedBadge, TypeBadge, useCrmConfig } from "@/components/common";
 import { StatusSelect } from "@/components/status-select";
-import { TextInput } from "@/components/ui/form";
+import { SelectInput, TextInput } from "@/components/ui/form";
 import { Button, Card } from "@/components/ui/primitives";
 import { useCrmData } from "@/data/store";
+import { ACQUISITION_DETAIL_MAX, channelLabel, ordered } from "@/domain/config";
 import { contactName, customerName, otherContactsOf, primaryContactOf, quickActions, type QuickChannel } from "@/domain/logic";
 import { buttonStyles } from "@/components/ui/primitives";
 import type { CompanyContact, Customer, DataSnapshot } from "@/domain/types";
@@ -109,6 +110,8 @@ export function ContactSidebar({ data, customer, className }: { data: DataSnapsh
                 { label: "Telefonszám", value: phone },
                 { label: "E-mail", value: email },
                 { label: "Adatforrás", value: customer.source },
+                { label: "Érkezési csatorna", value: channelLabel(data.config, customer.acquisitionChannel) },
+                { label: "Érkezési csatorna részlete", value: customer.acquisitionDetail },
               ]}
             />
             <OtherContacts others={others} />
@@ -127,7 +130,9 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
     name: customer.type === "individual" ? customer.displayName : "", companyName: customer.type === "company" ? customer.companyName : "",
     contactName: primary ? contactName(primary) : "", contactPosition: primary?.position ?? "",
     phone: customer.phone ?? primary?.phone ?? "", email: customer.email ?? primary?.email ?? "", source: customer.source,
+    acquisitionChannel: customer.acquisitionChannel, acquisitionDetail: customer.acquisitionDetail ?? "",
   });
+  const config = useCrmConfig();
   const [errors, setErrors] = useState<Errors>({});
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
 
@@ -138,8 +143,8 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
     const r = await repo.updateCustomer(
       customer.id,
       customer.type === "individual"
-        ? { type: "individual", name: f.name, phone: f.phone, email: f.email, source: f.source }
-        : { type: "company", companyName: f.companyName, contactName: f.contactName, contactPosition: f.contactPosition, phone: f.phone, email: f.email, source: f.source },
+        ? { type: "individual", name: f.name, phone: f.phone, email: f.email, source: f.source, acquisitionChannel: f.acquisitionChannel, acquisitionDetail: f.acquisitionDetail }
+        : { type: "company", companyName: f.companyName, contactName: f.contactName, contactPosition: f.contactPosition, phone: f.phone, email: f.email, source: f.source, acquisitionChannel: f.acquisitionChannel, acquisitionDetail: f.acquisitionDetail },
     );
     setBusy(false);
     if (!r.ok) return setErrors(r.errors);
@@ -161,7 +166,12 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
         )}
         <TextInput label="Telefonszám" type="tel" value={f.phone} error={errors.phone} onChange={set("phone")} />
         <TextInput label="E-mail" type="email" value={f.email} error={errors.email} onChange={set("email")} />
-        <TextInput label="Adatforrás" value={f.source} error={errors.source} onChange={set("source")} />
+        <TextInput label="Adatforrás" value={f.source} error={errors.source} onChange={set("source")} hint="Az adat eredete; nem azonos az érkezési csatornával." />
+        <SelectInput label="Érkezési csatorna" required value={f.acquisitionChannel} error={errors.acquisitionChannel} onChange={set("acquisitionChannel")} hint="A módosítás bekerül az ügyféltörténetbe (ki, mikor, régi → új).">
+          {/* Az aktuális érték (akár archivált) látszik; új hozzárendelésre csak aktív elem választható. */}
+          {ordered(config.acquisitionChannels).filter((c) => c.isActive || c.key === customer.acquisitionChannel).map((c) => <option key={c.key} value={c.key}>{optionLabel(c)}</option>)}
+        </SelectInput>
+        <TextInput label="Érkezési csatorna részlete (opcionális)" value={f.acquisitionDetail} error={errors.acquisitionDetail} onChange={set("acquisitionDetail")} maxLength={ACQUISITION_DETAIL_MAX} autoComplete="off" />
       </div>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={busy} aria-busy={busy}>Mentés</Button>

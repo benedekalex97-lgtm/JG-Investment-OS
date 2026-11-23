@@ -11,7 +11,7 @@ interface Overview {
   permissions: string[];
   users: { active: number; inactive: number; settingsAdmins: number; userAdmins: number; auditReaders: number } | null;
   lastChangeAt: string | null;
-  catalogs: Record<"pipeline" | "taskTypes" | "taskInputs", { active: number; archived: number }>;
+  catalogs: Record<"pipeline" | "taskTypes" | "taskInputs" | "acquisitionChannels", { active: number; archived: number }>;
   imports: { commitEnabled: boolean; visible: boolean; last: { at: string | null; status: string } | null };
 }
 
@@ -27,6 +27,7 @@ function Stats({ o }: { o: Overview }) {
   }
   stats.push({ label: "Aktív Pipeline-státuszok", value: String(o.catalogs.pipeline.active), hint: o.catalogs.pipeline.archived ? `${o.catalogs.pipeline.archived} archivált` : undefined });
   stats.push({ label: "Aktív feladattípusok", value: String(o.catalogs.taskTypes.active), hint: o.catalogs.taskTypes.archived ? `${o.catalogs.taskTypes.archived} archivált` : undefined });
+  stats.push({ label: "Aktív érkezési csatornák", value: String(o.catalogs.acquisitionChannels.active), hint: o.catalogs.acquisitionChannels.archived ? `${o.catalogs.acquisitionChannels.archived} archivált` : undefined });
   if (o.users) stats.push({ label: "Utolsó konfigurációmódosítás", value: o.lastChangeAt ? formatDateTime(o.lastChangeAt) : "Még nem volt" });
   stats.push({
     label: "Adatimport",

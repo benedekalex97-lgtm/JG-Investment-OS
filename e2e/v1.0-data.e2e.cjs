@@ -148,7 +148,7 @@ async function wizard(page, file, label, opts = {}) {
     watch(pageA);
     await login(pageA, EMAIL_A, PW_A);
     // Meglévő ügyfél az erős egyezéshez (a CRM normál útján).
-    await pageA.request.post(BASE + "/api/crm/op", { headers: { origin: BASE }, data: { requestId: require("crypto").randomUUID(), op: "customer.create", args: { input: { type: "individual", name: "Meglévő Melinda", email: "melinda@example.test" } } } });
+    await pageA.request.post(BASE + "/api/crm/op", { headers: { origin: BASE }, data: { requestId: require("crypto").randomUUID(), op: "customer.create", args: { input: { type: "individual", acquisitionChannel: "egyeb", name: "Meglévő Melinda", email: "melinda@example.test" } } } });
     log("P03/P04: CRM-admin: az Adatkezelés (v1.1: Beállítások) menüpont látszik", (await pageA.locator('nav a:has-text("Beállítások")').count()) > 0);
     await pageA.goto(BASE + "/data", { waitUntil: "networkidle" });
     await pageA.waitForURL("**/data/import");

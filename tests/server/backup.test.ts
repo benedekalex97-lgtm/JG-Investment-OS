@@ -15,7 +15,7 @@ describe.each(DRIVERS)("mentés és visszaállítás (%s)", (kind) => {
     await src.db.system((tx) => tx.query("insert into oauth_identities (issuer, subject, user_id) select 'https://accounts.google.com', 'fictitious-backup-subject', id from users where email = 'pilot.egy@example.test'"));
     const c = client(makeApi(src.db));
     await c.login("pilot.egy@example.test", PASSWORD_A);
-    const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", companyName: "Mentett Kft.", contactName: "Mentő Márta", phone: "+36 1 999 8888" } })).body.result.value!.customer;
+    const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", acquisitionChannel: "egyeb", companyName: "Mentett Kft.", contactName: "Mentő Márta", phone: "+36 1 999 8888" } })).body.result.value!.customer;
     const task = (await c.op<{ id: string }>("task.create", { input: { customerId: cust.id, taskType: "email", inputKey: "other", inputNote: "Fiktív megjegyzés" } })).body.result.value!;
     await c.op("task.close", { taskId: task.id, input: { outcome: "failure", output: "Fiktív eredmény\nmásodik sor" } });
     await c.op("task.reopen", { taskId: task.id });
@@ -46,7 +46,7 @@ describe.each(DRIVERS)("mentés és visszaállítás (%s)", (kind) => {
     expect(s.customers[0]).toMatchObject({ companyName: "Mentett Kft.", crmStatus: "meeting" });
     expect(s.customers[0].restriction).toMatchObject({ kind: "restriction", note: "fiktív korlátozás" });
     expect(s.tasks[0].outputs!.map((o) => [o.outcome, o.key, o.text])).toEqual([["failure", undefined, "Fiktív eredmény\nmásodik sor"], ["success", undefined, "Fiktív második lezárás"]]);
-    expect((await c.op("customer.create", { input: { type: "individual", name: "Visszaállítás utáni" } })).body.result.ok).toBe(true);
+    expect((await c.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Visszaállítás utáni" } })).body.result.ok).toBe(true);
     const [{ id }] = await dst.db.system((tx) => tx.query<{ id: string }>("select id::text as id from audit_events order by id desc limit 1"));
     expect(Number(id)).toBeGreaterThan(b.counts.audit_events);
   });

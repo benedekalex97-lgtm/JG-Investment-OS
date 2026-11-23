@@ -8,7 +8,7 @@ import { SelectInput, TextInput } from "@/components/ui/form";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { useCrmData } from "@/data/store";
 import { CUSTOMER_TYPE_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
-import { activeOf } from "@/domain/config";
+import { activeOf, ACQUISITION_DETAIL_MAX } from "@/domain/config";
 import { useCrmConfig } from "@/components/common";
 import { findDuplicates, type DuplicateCandidate } from "@/domain/duplicates";
 import { isCrmMilestone } from "@/domain/workflow";
@@ -26,7 +26,7 @@ export default function NewCustomerPage() {
   const config = useCrmConfig();
   const [busy, setBusy] = useState(false);
   const [type, setType] = useState<"individual" | "company">("individual");
-  const [f, setF] = useState({ name: "", companyName: "", contactName: "", contactPosition: "", phone: "", email: "", source: "", crmStatus: DEFAULT_CRM_STATUS as string });
+  const [f, setF] = useState({ name: "", companyName: "", contactName: "", contactPosition: "", phone: "", email: "", source: "", crmStatus: DEFAULT_CRM_STATUS as string, acquisitionChannel: "", acquisitionDetail: "" });
   const [vSource, setVSource] = useState("");
   const [vAck, setVAck] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
@@ -53,6 +53,7 @@ export default function NewCustomerPage() {
     }
     const common = {
       phone: f.phone, email: f.email, source: f.source, crmStatus: f.crmStatus,
+      acquisitionChannel: f.acquisitionChannel || undefined, acquisitionDetail: f.acquisitionDetail,
       verification: milestone && (vSource || vAck) ? { sourceCategory: vSource || undefined, complianceAcknowledged: vAck } : undefined,
     };
     setBusy(true);
@@ -77,7 +78,7 @@ export default function NewCustomerPage() {
 
   return (
     <>
-      <PageHeader title="Új ügyfél" description="Válaszd ki az ügyfél típusát. Csak a név kötelező; a többi adat később is megadható." />
+      <PageHeader title="Új ügyfél" description="Válaszd ki az ügyfél típusát. A név és az érkezési csatorna kötelező; a többi adat később is megadható." />
       <form onSubmit={submit} noValidate className="space-y-6">
         <fieldset>
           <legend className="mb-2 text-sm font-medium">Ügyféltípus</legend>
@@ -107,7 +108,12 @@ export default function NewCustomerPage() {
             )}
             <TextInput label="Telefonszám (ha ismert)" type="tel" value={f.phone} error={errors.phone} onChange={set("phone")} autoComplete="off" />
             <TextInput label="E-mail (ha ismert)" type="email" value={f.email} error={errors.email} onChange={set("email")} autoComplete="off" />
-            <TextInput label="Adatforrás (ha ismert)" value={f.source} onChange={set("source")} hint="Pl. weboldali érdeklődés, ajánlás, kontaktadatbázis." />
+            <TextInput label="Adatforrás (ha ismert)" value={f.source} onChange={set("source")} hint="Az adat eredete (pl. import forrása, kontaktadatbázis) - nem azonos az érkezési csatornával." />
+            <SelectInput label="Érkezési csatorna" required value={f.acquisitionChannel} error={errors.acquisitionChannel} onChange={set("acquisitionChannel")} hint="Honnan érkezett az ügyfél? Az „Ismeretlen” is választható, de tudatosan.">
+              <option value="">— válassz —</option>
+              {activeOf(config.acquisitionChannels).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </SelectInput>
+            <TextInput label="Érkezési csatorna részlete (opcionális)" value={f.acquisitionDetail} error={errors.acquisitionDetail} onChange={set("acquisitionDetail")} maxLength={ACQUISITION_DETAIL_MAX} hint="Pl. TBSZ-útmutató; bemutatkozó levél, 2026. nov.; ajánlotta: meglévő ügyfél." autoComplete="off" />
             <SelectInput label="Kapcsolati státusz" value={f.crmStatus} error={errors.toStatus} onChange={set("crmStatus")}>
               {activeOf(config.statuses).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
             </SelectInput>

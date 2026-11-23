@@ -114,7 +114,7 @@ describe.each(DRIVERS)("0004_test_customer_soft_delete (%s)", (kind) => {
     const before = await t.db.system((tx) => tx.query("select * from customers"));
     expect((await migrate(t.db, { env: "local" })).applied).toEqual(MIGRATIONS.slice(3).map((m) => m.id));
     const after = await t.db.system((tx) => tx.query<Record<string, unknown>>("select * from customers"));
-    expect(after.map(({ deleted_at, deleted_by, ...rest }) => { expect([deleted_at, deleted_by]).toEqual([null, null]); return rest; })).toEqual(before);
+    expect(after.map(({ deleted_at, deleted_by, acquisition_channel, acquisition_detail, ...rest }) => { expect([deleted_at, deleted_by]).toEqual([null, null]); expect([acquisition_channel, acquisition_detail]).toEqual(["ismeretlen", null]); return rest; })).toEqual(before);
     await expect(t.db.system((tx) => tx.query("update customers set deleted_at = now() where id = 'c-1'"))).rejects.toThrow();
     await t.db.system((tx) => tx.query("update customers set deleted_at = now(), deleted_by = 'u-1' where id = 'c-1'"));
     await t.db.system((tx) => tx.query("update customers set deleted_at = null, deleted_by = null where id = 'c-1'"));

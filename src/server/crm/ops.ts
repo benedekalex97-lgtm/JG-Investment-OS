@@ -70,14 +70,15 @@ export const OPS = {
     run: (repo, a, u) => repo.createCustomerFromForm({ ...a.input, recordedBy: u.id }),
     audit: (a, v) => ({
       action: "customer.create", entityType: "customer", entityId: v.customer.id, customerId: v.customer.id,
-      detail: { type: v.customer.type, crmStatus: v.customer.crmStatus, ...(a.confirmDuplicates ? { duplicateConfirmed: true } : {}) },
+      detail: { type: v.customer.type, crmStatus: v.customer.crmStatus, acquisitionChannel: v.customer.acquisitionChannel, ...(a.confirmDuplicates ? { duplicateConfirmed: true } : {}) },
     }),
   }),
   "customer.update": defineOp({
     args: z.object({ id, input: record }).strict(),
     scope: (a) => ({ customerId: a.id }),
     replayCustomer: byId,
-    run: (repo, a) => repo.updateCustomer(a.id, a.input),
+    // v1.2: az érkezési csatorna módosítása az ügyféltörténetbe kerül; a módosítót mindig a munkamenetből állítjuk be.
+    run: (repo, a, u) => repo.updateCustomer(a.id, a.input, u.id),
     audit: (a, v, b, af) => ({
       action: "customer.update", entityType: "customer", entityId: v.id, customerId: v.id,
       // Csak a módosított mezők nevei kerülnek az auditba (személyes adat értéke nem).

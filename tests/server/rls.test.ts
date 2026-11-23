@@ -44,7 +44,7 @@ describe.each(DRIVERS)("RLS és jogosultságok (%s)", (kind) => {
     for (const table of ["customers", "tasks", "task_results", "activities", "customer_restrictions", "audit_events", "company_contacts"]) {
       expect(await asApp(null, async (tx) => (await tx.query(`select 1 from ${table}`)).length), table).toBe(0);
     }
-    expect(await denied(null, "insert into customers (id, type, display_name, owner_id, created_at, updated_at) values ('c2','individual','X',$1,now(),now())", [a])).toMatch(/row-level security|policy/i);
+    expect(await denied(null, "insert into customers (id, type, display_name, owner_id, created_at, updated_at) values ('c2','individual','X',$1,now(),now())", [a])).toMatch(/row-level security|policy|inactive_channel/i); // v1.2: az aktív-csatorna őr is megtagadja (a katalógus kontextus nélkül nem látható)
   });
   it("ismeretlen vagy letiltott felhasználó azonosítóval sem lát adatot", async () => {
     expect(await asApp("u-nincs", async (tx) => (await tx.query("select 1 from customers")).length)).toBe(0);

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DemoRepository } from "@/data/repository";
 import { loadConfig } from "../crm/store";
+import type { CrmConfig } from "@/domain/config";
 import { CUSTOMER_TYPE_LABELS } from "@/domain/constants";
 import {
   canImportExplicitly, evaluateRow, importsByDefault, IMPORT_FIELD_KEYS, mappingProblems, ROW_STATE_SEVERITY, SOURCE_VERIFICATION, suggestMapping,
@@ -190,7 +191,7 @@ class FileIndex {
 
 /** A CRM ügyfélűrlapjának bemenete az importált sorból (a felelős és rögzítő a hitelesített felhasználó). */
 function formInput(d: ImportDraft, source: string, userId: string): Record<string, unknown> {
-  const base: Record<string, unknown> = { type: d.type, source: d.source ?? source, recordedBy: userId };
+  const base: Record<string, unknown> = { type: d.type, source: d.source ?? source, acquisitionChannel: d.acquisitionChannel, recordedBy: userId };
   if (d.phone) base.phone = d.phone;
   if (d.email) base.email = d.email;
   if (d.type === "individual") {
@@ -241,10 +242,11 @@ function checkDeadline(deadline: number) {
   if (Date.now() > deadline) throw new ImportError("timeout", "A fájl feldolgozása túl sokáig tartott. Bontsd kisebb részekre.", 400);
 }
 
-function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, userId: string, deadline: number): Evaluated {
+function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, userId: string, deadline: number, config: CrmConfig): Evaluated {
   const mapping: ColumnMapping = upload.headers.map((_h, i) => opts.mapping[i] ?? null);
   const fileIdx = new FileIndex();
-  const scratch = () => new DemoRepository(emptySnapshot(), { idGen: newId });
+  // v1.2: a próbalétrehozás a tényleges (adatbázisból töltött) konfigurációval fut - egyedi csatornák is érvényesek.
+  const scratch = () => new DemoRepository(emptySnapshot(config), { idGen: newId });
   const rows: PreviewRow[] = [];
   const drafts = new Map<number, ImportDraft>();
   const states: RowState[] = [];
@@ -253,7 +255,7 @@ function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, user
   for (const { rowNo, cells } of upload.rows) {
     checkDeadline(deadline);
     order.push(rowNo);
-    const ev = evaluateRow(cells, mapping, opts.defaultType, (col) => ({ formula: upload.formulaCells.has(`${rowNo}:${col}`), error: upload.errorCells.has(`${rowNo}:${col}`) }));
+    const ev = evaluateRow(cells, mapping, opts.defaultType, (col) => ({ formula: upload.formulaCells.has(`${rowNo}:${col}`), error: upload.errorCells.has(`${rowNo}:${col}`) }), config.acquisitionChannels);
     if (ev.status === "empty") {
       // Üres sor: csak számoljuk (summary.empty); nem kerül az előnézeti válaszba és az import_results táblába.
       states.push("X");
@@ -346,7 +348,7 @@ export async function preview(tx: Tx, user: AuthUser, bytes: Buffer, rawOpts: un
   const problems = mappingProblems(opts.mapping, opts.defaultType);
   if (problems.length) throw new ImportError("bad_mapping", problems[0].message);
   const idx = await loadIndex(tx);
-  const ev = evaluate(upload, opts, idx, user.id, deadline);
+  const ev = evaluate(upload, opts, idx, user.id, deadline, await loadConfig(tx));
   const jobId = newId("imp");
   const expires = new Date(now.getTime() + limits.previewTtlMinutes * 60_000);
   const options = { fileType: opts.fileType, encoding: opts.encoding ?? null, sheetIndex: upload.sheetIndex, mapping: opts.mapping, defaultType: opts.defaultType };
@@ -420,13 +422,14 @@ export async function commit(tx: Tx, user: AuthUser, bytes: Buffer, rawBody: unk
     mapping: stored.mapping, defaultType: stored.defaultType, sourceName: String(job.source_name), purpose: String(job.purpose),
     sourceVerification: job.source_verification as ImportOptions["sourceVerification"], complianceDeclared: job.compliance_declared === true,
   };
-  const ev = evaluate(upload, opts, await loadIndex(tx), user.id, deadline);
+  const config = await loadConfig(tx);
+  const ev = evaluate(upload, opts, await loadIndex(tx), user.id, deadline, config);
   const previewStates = String(job.row_states);
   // Az előnézet besorolása sorszám szerint (a row_states a fájl összes adatsorát - az üreseket is - tartalmazza, sorrendben).
   if (previewStates.length !== ev.order.length) throw new ImportError("file_mismatch", "A fájl eltér az előnézetben használttól. Készíts új előnézetet.", 409);
   const beforeOf = new Map(ev.order.map((rowNo, i) => [rowNo, previewStates[i] as RowState]));
   // v1.1: a véglegesítés a tényleges (adatbázisból töltött) konfigurációval fut.
-  const repo = new DemoRepository(emptySnapshot(await loadConfig(tx)), { clock: () => now, idGen: newId });
+  const repo = new DemoRepository(emptySnapshot(config), { clock: () => now, idGen: newId });
   const results: { rowNo: number; outcome: string; customerId?: string }[] = [];
   ev.rows.forEach((row) => {
     checkDeadline(deadline);

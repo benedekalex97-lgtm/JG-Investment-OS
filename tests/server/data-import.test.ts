@@ -120,7 +120,7 @@ describe.each(DRIVERS)("ügyféladat-import (%s)", (kind) => {
   });
 
   it("D01-D08: fájlon belüli és meglévő ügyféllel való egyezés; kihagyás; explicit új rekord; nincs felülírás és nincs összevonás", async () => {
-    const existing = (await admin.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", name: "Meglévő Márta", email: "marta@example.test", phone: "+36 20 000 0010" } })).body.result.value!.customer;
+    const existing = (await admin.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Meglévő Márta", email: "marta@example.test", phone: "+36 20 000 0010" } })).body.result.value!.customer;
     const before = (await snapshot()).customers.find((c) => c.id === existing.id);
     const rows = [
       ["Magánszemély", "Másik Márta", "", "", "MARTA@example.test", "", ""],       // 2: erős (e-mail) a meglévővel
@@ -156,15 +156,15 @@ describe.each(DRIVERS)("ügyféladat-import (%s)", (kind) => {
     expect(await count("select count(*) as n from customers where email = 'pal@example.test'")).toBe(1);
     // Kifejezett „import” döntés sem elég, ha a sor besorolása az előnézet óta súlyosabb lett (V -> S).
     const p3 = await previewOf([["Magánszemély", "Párhuzamos Pál Kettő", "", "", "pal2@example.test", "", ""]]);
-    await admin.op("customer.create", { input: { type: "individual", name: "Közbejött Kázmér", email: "pal2@example.test" } });
+    await admin.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Közbejött Kázmér", email: "pal2@example.test" } });
     const c3 = await commitOf([["Magánszemély", "Párhuzamos Pál Kettő", "", "", "pal2@example.test", "", ""]], String(p3.body.jobId), { 2: "import" });
     expect(c3.body.outcomes).toEqual({ skipped_changed: 1 });
   });
 
   it("megkeresési korlátozás / tiltakozás: erős egyezés nem importálható kifejezett döntéssel sem; eltávolított ügyfél adatai nem jelennek meg", async () => {
-    const r = (await admin.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", name: "Tiltakozó Tódor", email: "todor@example.test" } })).body.result.value!.customer;
+    const r = (await admin.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Tiltakozó Tódor", email: "todor@example.test" } })).body.result.value!.customer;
     await t.db.system((tx) => tx.query("insert into customer_restrictions (customer_id, kind, note, recorded_at, recorded_by) values ($1, 'objection', 'fiktív tiltakozás', now(), $2)", [r.id, adminId]));
-    const gone = (await admin.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", name: "Eltávolított Etelka", email: "etelka@example.test" } })).body.result.value!.customer;
+    const gone = (await admin.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Eltávolított Etelka", email: "etelka@example.test" } })).body.result.value!.customer;
     await t.db.system((tx) => tx.query("update customers set deleted_at = now(), deleted_by = $2 where id = $1", [gone.id, adminId]));
     const rows = [["Magánszemély", "Tódor Újra", "", "", "todor@example.test", "", ""], ["Magánszemély", "Etelka Újra", "", "", "etelka@example.test", "", ""]];
     const pv = await previewOf(rows);
@@ -285,7 +285,7 @@ describe.each(DRIVERS)("ügyféladat-import (%s)", (kind) => {
     expect(ok.status).toBe(200);
     await revokePermission(t.db, { email: "pilot.ketto@example.test", permission: "crm.customer.import", operator: OPERATOR, env: "local" });
     expect((await W.upload("/api/data/import/inspect", csv([HEAD, ["Magánszemély", "X Y"]]), { fileType: "csv" })).status).toBe(403);
-    const created = await worker.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", name: "Munkatárs Mária" } });
+    const created = await worker.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Munkatárs Mária" } });
     expect(created.body.result.ok).toBe(true);
     expect((await worker.op("task.create", { input: { customerId: created.body.result.value!.customer.id, taskType: "phone_call" } })).body.result.ok).toBe(true);
     expect((await worker.get("/api/crm/snapshot")).status).toBe(200);

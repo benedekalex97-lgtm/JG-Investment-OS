@@ -15,7 +15,7 @@ import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, TONE_DOT } f
  * a szerver 409-et ad: a felület ezt kiírja, és frissítést kér - nincs csendes felülírás. Rendezés: húzással ÉS billentyűzettel
  * használható Feljebb/Lejjebb gombokkal; a sorrend csak a „Sorrend mentése” után tárolódik.
  */
-export type Kind = "pipeline" | "task-types" | "task-inputs";
+export type Kind = "pipeline" | "task-types" | "task-inputs" | "acquisition-channels";
 
 export interface Item {
   key: string; label: string; sortOrder: number; isActive: boolean; isSystem: boolean; version: number;
@@ -30,6 +30,7 @@ const TEXT: Record<Kind, { noun: string; add: string; empty: string; usage: (u: 
   },
   "task-types": { noun: "feladattípus", add: "Új feladattípus hozzáadása", empty: "Nincs feladattípus.", usage: (u) => `${u.tasks} feladat (${u.openTasks} nyitott)` },
   "task-inputs": { noun: "Input-opció", add: "Új Input-opció hozzáadása", empty: "Nincs Input-opció.", usage: (u) => `${u.tasks} feladat (${u.openTasks} nyitott)` },
+  "acquisition-channels": { noun: "érkezési csatorna", add: "Új érkezési csatorna hozzáadása", empty: "Nincs érkezési csatorna.", usage: (u) => `${u.customers ?? 0} ügyfél` },
 };
 
 const SAVED = "A beállítás mentve.";
@@ -209,9 +210,9 @@ function EditForm({ kind, item, onCancel, onDone, onConflict }: { kind: Kind; it
     setError("");
     const body: Record<string, unknown> = {};
     if (!item || label.trim() !== item.label) body.label = label;
-    if (kind === "pipeline") {
+    if (kind === "pipeline" || kind === "acquisition-channels") {
       if (!item || (description || "") !== (item.description ?? "")) body.description = item ? (description.trim() ? description : null) : (description.trim() || undefined);
-      if (!item || color !== item.color) body.color = color;
+      if (kind === "pipeline" && (!item || color !== item.color)) body.color = color;
     }
     if (kind === "task-inputs" && (!item || allowsNote !== item.allowsNote)) body.allowsNote = allowsNote;
     if (item && Object.keys(body).length === 0) { setBusy(false); return onCancel(); }
@@ -227,6 +228,9 @@ function EditForm({ kind, item, onCancel, onDone, onConflict }: { kind: Kind; it
       {item ? <p className="text-[13px] text-ink-muted">Technikai azonosító (nem módosítható): <span className="font-mono">{item.key}</span></p> : <p className="text-[13px] text-ink-muted">A technikai azonosító a megnevezésből készül, és később nem változik.</p>}
       <TextInput label="Megnevezés" required maxLength={60} value={label} onChange={(e) => setLabel(e.target.value)} disabled={item?.labelLocked}
         hint={item?.labelLocked ? "Compliance-releváns megnevezés: a felületről nem módosítható." : `${label.length} / 60 karakter`} autoFocus={!item?.labelLocked} />
+      {kind === "acquisition-channels" ? (
+        <TextArea label="Leírás (opcionális)" maxLength={300} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} hint={`${description.length} / 300 karakter`} />
+      ) : null}
       {kind === "pipeline" ? (
         <>
           <TextArea label="Leírás (opcionális)" maxLength={300} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} hint={`${description.length} / 300 karakter`} />

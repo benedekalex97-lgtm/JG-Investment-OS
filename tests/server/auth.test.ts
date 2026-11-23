@@ -59,7 +59,7 @@ describe.each(DRIVERS)("hitelesítés (%s)", (kind) => {
     const api = makeApi(t.db);
     const anon = client(api);
     for (const p of ["/api/auth/me", "/api/crm/snapshot"]) expect((await anon.get(p)).status, p).toBe(401);
-    expect((await anon.op("customer.create", { input: { type: "individual", name: "X" } })).status).toBe(401);
+    expect((await anon.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "X" } })).status).toBe(401);
     const forged = client(api);
     forged.cookie = "jg_session=hamis-token";
     expect((await forged.get("/api/crm/snapshot")).status).toBe(401);
@@ -121,7 +121,7 @@ describe.each(DRIVERS)("hitelesítés (%s)", (kind) => {
     const api = makeApi(t.db);
     const c = client(api);
     await c.login("pilot.egy@example.test", PASSWORD_A);
-    const cross = await c.post("/api/crm/op", { requestId: crypto.randomUUID(), op: "customer.create", args: { input: { type: "individual", name: "X" } } }, { origin: "https://evil.example" });
+    const cross = await c.post("/api/crm/op", { requestId: crypto.randomUUID(), op: "customer.create", args: { input: { type: "individual", acquisitionChannel: "egyeb", name: "X" } } }, { origin: "https://evil.example" });
     expect(cross.status).toBe(403);
     const noOrigin = await api(new Request("http://localhost:3000/api/crm/op", { method: "POST", headers: { "content-type": "application/json", cookie: c.cookie }, body: "{}" }));
     expect(noOrigin.status).toBe(403);

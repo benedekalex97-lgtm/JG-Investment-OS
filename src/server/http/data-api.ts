@@ -8,7 +8,7 @@ import { dataLimits } from "../data/limits";
 import { hasPermission, type DataPermission } from "../data/permissions";
 import { importTemplate } from "../data/template";
 import { loadConfig } from "../crm/store";
-import { defaultStatusKey, statusLabel } from "@/domain/config";
+import { activeOf, defaultStatusKey, statusLabel } from "@/domain/config";
 import { UploadError, uploadMessage } from "../data/upload";
 import { csrfProblem, readBodyLimited } from "./guards";
 
@@ -117,7 +117,7 @@ export async function handleData(req: Request, path: string, db: Db, user: AuthU
   try {
     if (path === "data/import/template") {
       const config = await withPermission(db, user, route.permission, path, (tx) => loadConfig(tx));
-      return new Response(new Uint8Array(importTemplate(now, statusLabel(config, defaultStatusKey(config)))), {
+      return new Response(new Uint8Array(importTemplate(now, statusLabel(config, defaultStatusKey(config)), activeOf(config.acquisitionChannels).map((c) => c.label))), {
         headers: { ...NO_STORE, "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": 'attachment; filename="JG_CRM_Import_Template.xlsx"' },
       });
     }

@@ -37,6 +37,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { href: "/settings", label: "Áttekintés", description: "A beállítások állapota és a szakaszok.", permissions: [], icon: HomeIcon },
   { href: "/settings/users", label: "Felhasználók és jogosultságok", description: "Meglévő felhasználók és a kiosztott CRM-jogosultságok kezelése.", permissions: ["crm.users.manage"], icon: UsersIcon },
   { href: "/settings/pipeline", label: "Pipeline-státuszok", description: "Státuszok neve, színe, sorrendje, archiválása.", permissions: ["crm.settings.manage"], icon: ColumnsIcon },
+  { href: "/settings/channels", label: "Érkezési csatornák", description: "Honnan érkezhet az ügyfél: csatornák neve, sorrendje, archiválása.", permissions: ["crm.settings.manage"], icon: ListIcon },
   { href: "/settings/tasks/types", label: "Feladattípusok", description: "Az új feladatnál választható típusok.", permissions: ["crm.settings.manage"], group: "Feladatkezelés", icon: ListIcon },
   { href: "/settings/tasks/inputs", label: "Input-opciók", description: "Az új feladat választható Input-értékei.", permissions: ["crm.settings.manage"], group: "Feladatkezelés", icon: ListIcon },
   { href: "/settings/data/import", label: "Importálás", description: "Ügyféladatok ellenőrzött importja Excel- vagy CSV-fájlból.", permissions: ["crm.customer.import"], group: "Adatkezelés", icon: DatabaseIcon },

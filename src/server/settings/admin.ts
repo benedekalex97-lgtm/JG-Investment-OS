@@ -94,7 +94,7 @@ export async function changePermissions(tx: Tx, callerId: string, body: unknown)
 }
 
 /** Elutasított adminisztratív kísérlet naplózása (a hívó nevében; saját, külön tranzakcióban hívandó, hogy megmaradjon). */
-export async function logRejection(tx: Tx, action: string, entityType: "pipeline_status" | "task_type" | "task_input" | "user_permission" | "settings", entityKey: string, reason: string) {
+export async function logRejection(tx: Tx, action: string, entityType: "pipeline_status" | "task_type" | "task_input" | "acquisition_channel" | "user_permission" | "settings", entityKey: string, reason: string) {
   await tx.query("select app_settings_audit_reject($1, $2, $3, $4)", [action, entityType, entityKey.slice(0, 200), reason.slice(0, 200)]);
 }
 
@@ -108,7 +108,7 @@ export interface AuditEntry {
 export const auditQuery = z.object({
   before: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
-  entityType: z.enum(["pipeline_status", "task_type", "task_input", "user_permission", "settings"]).optional(),
+  entityType: z.enum(["pipeline_status", "task_type", "task_input", "acquisition_channel", "user_permission", "settings"]).optional(),
 }).strict();
 
 /**
@@ -124,7 +124,7 @@ export async function listAudit(tx: Tx, q: z.infer<typeof auditQuery>, users: { 
   const nameOf = new Map(users.map((u) => [u.id, u.name]));
   const page = rows.slice(0, q.limit);
   const labels = new Map<string, string>();
-  for (const [type, table] of [["pipeline_status", "crm_pipeline_statuses"], ["task_type", "crm_task_types"], ["task_input", "crm_task_input_options"]] as const) {
+  for (const [type, table] of [["pipeline_status", "crm_pipeline_statuses"], ["task_type", "crm_task_types"], ["task_input", "crm_task_input_options"], ["acquisition_channel", "crm_acquisition_channels"]] as const) {
     for (const r of await tx.query<{ key: string; label: string }>(`select key, label from ${table}`)) labels.set(`${type}:${r.key}`, r.label);
   }
   return {

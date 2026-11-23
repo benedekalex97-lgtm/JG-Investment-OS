@@ -5,11 +5,11 @@ import { U, newRepo, val } from "./helpers";
 
 const build = () => {
   const r = newRepo(emptySnapshot());
-  const anna = val(r.createCustomerFromForm({ type: "individual", name: "Kovács Anna", phone: "+36 30 123 4567", email: "Anna.Kovacs@Example.test", recordedBy: U })).customer;
-  const co = val(r.createCustomerFromForm({ type: "company", companyName: "Minta Kft.", contactName: "Szabó Géza", recordedBy: U })).customer;
+  const anna = val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Kovács Anna", phone: "+36 30 123 4567", email: "Anna.Kovacs@Example.test", recordedBy: U })).customer;
+  const co = val(r.createCustomerFromForm({ type: "company", acquisitionChannel: "egyeb", companyName: "Minta Kft.", contactName: "Szabó Géza", recordedBy: U })).customer;
   const contact = r.getSnapshot().contacts.find((k) => k.companyId === co.id)!;
   val(r.updateContact(contact.id, { firstName: "Géza", lastName: "Szabó", phone: "06 (1) 234-5678", email: "geza@minta.test", isPrimaryContact: true }));
-  const bare = val(r.createCustomerFromForm({ type: "individual", name: "Adat Nélküli", recordedBy: U })).customer;
+  const bare = val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Adat Nélküli", recordedBy: U })).customer;
   return { r, anna, co, bare };
 };
 const ids = (s: DataSnapshot, q: string) => searchCustomerHits(s, q).map((h) => h.customer.id);

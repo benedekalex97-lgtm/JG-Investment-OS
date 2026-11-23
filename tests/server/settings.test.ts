@@ -133,15 +133,15 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
   it("S09/S14/S15: új státusszal ügyfél hozható létre és arra váltható; a snapshot konfigurációja azonnal frissül", async () => {
     const s = await snap(worker);
     expect(s.config.statuses.map((x) => x.key)).toContain("ajanlatkeres");
-    const created = await createCustomer(worker, { type: "individual", name: "Fiktív Státusz Elek", crmStatus: "ajanlatkeres" });
+    const created = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Státusz Elek", crmStatus: "ajanlatkeres" });
     expect(created.ok, JSON.stringify(created)).toBe(true);
     const id = created.value!.customer.id;
     expect(created.value!.customer.crmStatus).toBe("ajanlatkeres");
-    const other = await createCustomer(worker, { type: "individual", name: "Fiktív Váltó Vera" });
+    const other = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Váltó Vera" });
     const ch = await worker.op<Customer>("customer.changeStatus", { customerId: other.value!.customer.id, input: { toStatus: "ajanlatkeres" } });
     expect(ch.body.result.ok).toBe(true);
     expect(ch.body.snapshot.activities.find((a) => a.customerId === other.value!.customer.id && a.type === "crm_status_change")!.summary).toBe("Kapcsolati státusz: Feldolgozásra vár → Ajánlatkérés");
-    const unknown = await createCustomer(worker, { type: "individual", name: "Fiktív Ismeretlen", crmStatus: "nincs_ilyen" });
+    const unknown = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Ismeretlen", crmStatus: "nincs_ilyen" });
     expect(unknown.ok).toBe(false);
     // S16/S18: szűrés és státusz szerinti feladatcsoportosítás az új státusszal.
     const task = await worker.op<Task>("task.create", { input: { customerId: id, taskType: "phone_call" } });
@@ -183,7 +183,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     expect(locked.status).toBe(400);
     expect((await body<{ error: string }>(locked)).error).toBe("label_locked");
     await expect(t.db.asUser(ids.a, (tx) => tx.query("update crm_pipeline_statuses set label = 'Pénz megjött' where key = 'capital_placed'"))).rejects.toThrow(/label_locked/);
-    const c = await createCustomer(worker, { type: "individual", name: "Fiktív Mérföldkő" });
+    const c = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Mérföldkő" });
     const noVerify = await worker.op("customer.changeStatus", { customerId: c.value!.customer.id, input: { toStatus: "capital_placed" } });
     expect(noVerify.body.result.errors).toHaveProperty("verification");
     const ok = await worker.op("customer.changeStatus", { customerId: c.value!.customer.id, input: { toStatus: "capital_placed", verification: VERIFY } });
@@ -194,7 +194,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
   it("S13: átnevezés után is érvényes a megkeresési korlátozás a kimenő megkeresési státuszokra", async () => {
     const contact = (await list(admin, "pipeline")).find((i) => i.key === "contact")!;
     expect((await admin.patch("/api/settings/pipeline", { key: "contact", version: contact.version, label: "Első hívás" })).status).toBe(200);
-    const c = await createCustomer(worker, { type: "individual", name: "Fiktív Tiltakozó" });
+    const c = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Tiltakozó" });
     const id = c.value!.customer.id;
     await t.db.system((tx) => tx.query("insert into customer_restrictions (customer_id, kind, note, recorded_at, recorded_by) values ($1,'objection','Fiktív tiltakozás',now(),$2)", [id, ids.b]));
     const r = await worker.op("customer.changeStatus", { customerId: id, input: { toStatus: "contact" } });
@@ -233,8 +233,8 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     const inArchived = s.customers.filter((c) => c.crmStatus === "ajanlatkeres");
     expect(inArchived).toHaveLength(2);
     expect(crmPipeline(s).find((c) => c.status === "ajanlatkeres")!.customers).toHaveLength(2);
-    expect((await createCustomer(worker, { type: "individual", name: "Fiktív Archív", crmStatus: "ajanlatkeres" })).errors?.toStatus).toMatch(/archivált/);
-    const other = await createCustomer(worker, { type: "individual", name: "Fiktív Másik" });
+    expect((await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Archív", crmStatus: "ajanlatkeres" })).errors?.toStatus).toMatch(/archivált/);
+    const other = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Másik" });
     expect((await worker.op("customer.changeStatus", { customerId: other.value!.customer.id, input: { toStatus: "ajanlatkeres" } })).body.result.errors?.toStatus).toMatch(/archivált/);
     // Az archivált státuszban lévő ügyfél adatai menthetők, feladat hozható létre és zárható le.
     const id = inArchived[0].id;
@@ -265,7 +265,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     expect(items.map((i) => [i.key, i.label])).toEqual([["phone_call", "Telefonhívás"], ["email", "E-mail"], ["online_meeting", "Online tárgyalás"], ["in_person_meeting", "Személyes tárgyalás"], ["follow_up", "Utánkövetés"], ["other", "Egyéb"]]);
     const created = (await body<{ item: Item }>(await admin.post("/api/settings/task-types", { label: "Videóhívás" }))).item;
     expect(created).toMatchObject({ key: "videohivas", isActive: true, isSystem: false });
-    const c = await createCustomer(worker, { type: "individual", name: "Fiktív Feladatos" });
+    const c = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Feladatos" });
     const tk = await worker.op<Task>("task.create", { input: { customerId: c.value!.customer.id, taskType: "videohivas" } });
     expect(tk.body.result.value!.title).toBe("Videóhívás");
     expect((await admin.patch("/api/settings/task-types", { key: "videohivas", version: 1, label: "Videós egyeztetés" })).status).toBe(200);
@@ -296,7 +296,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     const plain = (await body<{ item: Item }>(await admin.post("/api/settings/task-inputs", { label: "Ajánlás" }))).item;
     const noted = (await body<{ item: Item }>(await admin.post("/api/settings/task-inputs", { label: "Rendezvény", allowsNote: true }))).item;
     expect([plain.allowsNote, noted.allowsNote]).toEqual([false, true]);
-    const c = await createCustomer(worker, { type: "individual", name: "Fiktív Inputos" });
+    const c = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Inputos" });
     const cid = c.value!.customer.id;
     expect((await worker.op("task.create", { input: { customerId: cid, taskType: "email", inputKey: plain.key, inputNote: "nem engedett" } })).body.result.errors?.inputNote).toBeTruthy();
     const ok = await worker.op<Task>("task.create", { input: { customerId: cid, taskType: "email", inputKey: noted.key, inputNote: "Fiktív rendezvény" } });
@@ -439,7 +439,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     expect((await admin.post("/api/data/export", { format: "csv", filters: {} })).status).toBe(403); // az adminjog nem ad exportjogot
   });
   it("v1.1.1: az ügyféltörlési jog (crm.customer.delete) a felhasználókezelő adminnál kiosztható/visszavonható, és csak vele lehet ügyfelet törölni", async () => {
-    const created = await createCustomer(worker, { type: "individual", name: "Fiktív Törlendő Tamás" });
+    const created = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Törlendő Tamás" });
     const id = created.value!.customer.id;
     const denied = await worker.op("customer.delete", { customerId: id, confirmation: "TÖRLÉS" });
     expect(denied.body.result).toMatchObject({ ok: false, errors: { _form: expect.stringMatching(/ügyféltörlési joggal/) } });
@@ -450,7 +450,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     expect(ok.body.result).toEqual({ ok: true, value: { id } });
     expect(ok.body.snapshot.customers.some((c) => c.id === id)).toBe(false);
     expect((await admin.patch("/api/settings/users/permissions", { userId: ids.b, expected: [...before, "crm.customer.delete"], revoke: ["crm.customer.delete"] })).status).toBe(200);
-    const other = await createCustomer(worker, { type: "individual", name: "Fiktív Maradó Márta" });
+    const other = await createCustomer(worker, { type: "individual", acquisitionChannel: "egyeb", name: "Fiktív Maradó Márta" });
     expect((await worker.op("customer.delete", { customerId: other.value!.customer.id, confirmation: "TÖRLÉS" })).body.result.ok).toBe(false);
     const log = (await audit()).filter((a) => a.entity_key === `${ids.b}:crm.customer.delete`).map((a) => a.action);
     expect(log).toEqual(["permission.grant", "permission.revoke"]);

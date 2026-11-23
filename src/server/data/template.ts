@@ -10,16 +10,16 @@ const BUILTIN_DEFAULT_LABEL = CRM_STATUS_LABELS[DEFAULT_CRM_STATUS];
  */
 export const TEMPLATE_HEADERS = [
   "Ügyféltípus", "Vezetéknév", "Keresztnév", "Cégnév", "Telefonszám", "E-mail",
-  "Kapcsolattartó neve", "Kapcsolattartó beosztása", "Kapcsolattartó telefonszáma", "Kapcsolattartó e-mail-címe", "Megjegyzés", "Adatforrás",
+  "Kapcsolattartó neve", "Kapcsolattartó beosztása", "Kapcsolattartó telefonszáma", "Kapcsolattartó e-mail-címe", "Megjegyzés", "Adatforrás", "Érkezési csatorna",
 ];
 
 export const TEMPLATE_EXAMPLES = [
-  ["Magánszemély", "Minta", "Anna", "", "+36 30 000 0001", "minta.anna@example.test", "", "", "", "", "Fiktív példasor - töröld importálás előtt.", ""],
-  ["Cég", "", "", "Példa Kft.", "+36 1 000 0002", "info@pelda-kft.example.test", "Teszt Elek", "ügyvezető", "+36 20 000 0003", "teszt.elek@pelda-kft.example.test", "", "Fiktív rendezvény (példa)"],
-  ["Magánszemély", "Próba", "Béla", "", "06 70 000 0004", "", "", "", "", "", "", ""],
+  ["Magánszemély", "Minta", "Anna", "", "+36 30 000 0001", "minta.anna@example.test", "", "", "", "", "Fiktív példasor - töröld importálás előtt.", "", "Weboldal (közvetlen kapcsolatfelvétel)"],
+  ["Cég", "", "", "Példa Kft.", "+36 1 000 0002", "info@pelda-kft.example.test", "Teszt Elek", "ügyvezető", "+36 20 000 0003", "teszt.elek@pelda-kft.example.test", "", "Fiktív rendezvény (példa)", "Ajánlás (ügyfél vagy ismerős)"],
+  ["Magánszemély", "Próba", "Béla", "", "06 70 000 0004", "", "", "", "", "", "", "", ""],
 ];
 
-const guide = (defaultLabel: string) => [
+const guide = (defaultLabel: string, channels: readonly string[]) => [
   ["Mező", "Kötelező", "Leírás", "Elfogadott értékek / formátum"],
   ["Ügyféltípus", "Igen (ha az importnál nincs alapértelmezett típus)", "Magánszemély vagy Cég.", "Magánszemély, Cég"],
   ["Vezetéknév", "Magánszemélynél igen", "A magánszemély vezetékneve.", "Szöveg, legfeljebb 200 karakter"],
@@ -33,15 +33,16 @@ const guide = (defaultLabel: string) => [
   ["Kapcsolattartó e-mail-címe", "Nem (csak cégnél)", "Csak a kapcsolattartó vezeték- és keresztnevével együtt adható meg.", "pl. nev@ceg.example.test"],
   ["Megjegyzés", "Nem (csak magánszemélynél)", "Rövid megjegyzés. Különleges (pl. egészségügyi) adatot ne tartalmazzon.", "Szöveg, legfeljebb 2000 karakter"],
   ["Adatforrás", "Nem", "Soronkénti adatforrás. Ha üres, az importnál megadott adatforrás-megnevezés kerül az ügyfélhez.", "Szöveg, legfeljebb 200 karakter"],
+  ["Érkezési csatorna", "Nem", "Honnan érkezett az ügyfél (NEM azonos az Adatforrással). Ha üres, ismeretlen vagy archivált csatornát tartalmaz, az ügyfél „Ismeretlen” csatornával jön létre.", channels.length ? channels.join(", ") : "A Beállításokban felvett aktív csatornák megnevezése"],
   ["", "", "", ""],
   ["Fontos", "", `Minden importált ügyfél „${defaultLabel}” státusszal jön létre; a fájlban megadott más státusz nem kerül átvételre.`, ""],
   ["Fontos", "", "Az import nem jelöl ügyfelet megkereshetőnek, nem minősül hozzájárulásnak, és nem módosít meglévő ügyfelet, tiltakozást vagy megkeresési korlátozást.", ""],
   ["Fontos", "", "Képletet tartalmazó cella nem importálható. Makrós (.xlsm) munkafüzet nem tölthető fel.", ""],
 ];
 
-export function importTemplate(now = new Date(), defaultLabel = BUILTIN_DEFAULT_LABEL): Buffer {
+export function importTemplate(now = new Date(), defaultLabel = BUILTIN_DEFAULT_LABEL, channels: readonly string[] = []): Buffer {
   return writeXlsx([
-    { name: "Ügyfelek", rows: [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLES], boldHeader: true, widths: [14, 16, 16, 24, 18, 30, 22, 22, 24, 32, 36, 26] },
-    { name: "Útmutató", rows: guide(defaultLabel), boldHeader: true, widths: [28, 34, 80, 34] },
+    { name: "Ügyfelek", rows: [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLES], boldHeader: true, widths: [14, 16, 16, 24, 18, 30, 22, 22, 24, 32, 36, 26, 30] },
+    { name: "Útmutató", rows: guide(defaultLabel, channels), boldHeader: true, widths: [28, 34, 80, 34] },
   ], now);
 }

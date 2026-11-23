@@ -3,7 +3,7 @@ import {
   CALL_OUTCOMES, CONTACT_STATUSES, TASK_NOTE_MAX, TASK_OUTCOMES, TASK_OUTPUT_REQUIRED, TASK_TEXT_MAX, DEFAULT_CRM_STATUS, MANUAL_ACTIVITY_TYPES, NO_RESULT_REASONS, OUTREACH_CHANNELS, PROCESS_SOURCES, PROCESS_STATUSES,
   PROCESS_TYPES, RESTRICTION_KINDS, VERIFICATION_SOURCES,
 } from "./constants";
-import { CONFIG_KEY_RE } from "./config";
+import { ACQUISITION_DETAIL_MAX, CONFIG_KEY_RE } from "./config";
 
 const req = (label: string) => z.string({ message: `${label} megadása kötelező` }).trim().min(1, `${label} megadása kötelező`);
 const optText = z.string().trim().optional().transform((v) => (v ? v : undefined));
@@ -19,6 +19,12 @@ const isoDate = z.string().trim().min(1, "Dátum megadása kötelező").refine((
  * (szerveren: adatbázisból töltött) konfiguráció alapján dönti el - a séma nem tartalmaz rögzített listát.
  */
 const configKey = (message: string) => z.string({ message }).trim().regex(CONFIG_KEY_RE, message);
+
+/** Érkezési csatorna részlete (v1.2): legfeljebb 200 karakter, vezérlőkarakter (sortörés, tabulátor) nélkül; szabad szöveg, nem értelmeződik. */
+const detailText = z.string({ message: "Érvénytelen részlet" }).trim()
+  .max(ACQUISITION_DETAIL_MAX, `Az érkezési csatorna részlete legfeljebb ${ACQUISITION_DETAIL_MAX} karakter lehet.`)
+  .refine((v) => !/[\u0000-\u001f\u007f]/.test(v), "Az érkezési csatorna részlete nem tartalmazhat vezérlőkaraktert.");
+const acquisitionChannelKey = configKey("Az érkezési csatorna kiválasztása kötelező");
 
 const optIsoDate = z
   .string().trim().optional().transform((v) => (v ? v : undefined))
@@ -64,6 +70,9 @@ export const verificationInput = z
 const formCommon = {
   source: z.string().trim().optional().transform((v) => (v ? v : "")),
   crmStatus: configKey("Válassz státuszt").default(DEFAULT_CRM_STATUS),
+  /** v1.2: az érkezési csatorna kötelező (kézi felvételnél nincs alapértelmezés); az aktív voltát a tartományi réteg ellenőrzi a katalógus alapján. */
+  acquisitionChannel: acquisitionChannelKey,
+  acquisitionDetail: detailText.optional().transform((v) => (v ? v : undefined)),
   verification: verificationInput.optional(),
   recordedBy: req("Rögzítő"),
 };
@@ -72,10 +81,13 @@ export const newCustomerForm = z.discriminatedUnion("type", [
   z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, email: optEmail, contactName: optText, contactPosition: optText, ...formCommon }).strict(),
 ]);
 
+/** v1.2: szerkesztésnél a hiányzó mező = változatlan; üres részlet = törlés. */
+const acquisitionUpdate = { acquisitionChannel: acquisitionChannelKey.optional(), acquisitionDetail: detailText.optional() };
+
 /** Ügyfél szerkesztése: a kapcsolati státusz és a korlátozás NEM itt módosul (külön, naplózott műveletek). */
 export const customerUpdateInput = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, email: optEmail, notes: optText, source: optText }).strict(),
-  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, email: optEmail, contactName: optText, contactPosition: optText, source: optText }).strict(),
+  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, email: optEmail, notes: optText, source: optText, ...acquisitionUpdate }).strict(),
+  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, email: optEmail, contactName: optText, contactPosition: optText, source: optText, ...acquisitionUpdate }).strict(),
 ]);
 
 /** Kapcsolati státusz váltása (v0.5): nincs kötelező sorrend, indoklás; a „Tőke elhelyezve” igazolást kér. */

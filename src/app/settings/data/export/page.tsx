@@ -14,13 +14,13 @@ import { cn } from "@/lib/cn";
  * Ügyfelek exportálása (v1.0, CRM-017): formátum, szűrők, várható rekordszám, letöltés. A szerver minden kérésnél újra ellenőrzi a
  * jogosultságot és a szűrőket; a keresőkifejezés POST-törzsben megy (nem kerül URL-be), és az auditnaplóba sem kerül a szövege.
  */
-type Filters = { query: string; type: string; crmStatus: string; source: string };
+type Filters = { query: string; type: string; crmStatus: string; source: string; acquisitionChannel: string };
 const clean = (f: Filters) => Object.fromEntries(Object.entries(f).filter(([, v]) => v.trim() !== "")) as Partial<Filters>;
 
 function ExportForm() {
   const config = useCrmConfig();
   const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
-  const [f, setF] = useState<Filters>({ query: "", type: "", crmStatus: "", source: "" });
+  const [f, setF] = useState<Filters>({ query: "", type: "", crmStatus: "", source: "", acquisitionChannel: "" });
   const [count, setCount] = useState<number | null>(null);
   const [sources, setSources] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -80,7 +80,11 @@ function ExportForm() {
             <option value="">Összes</option>
             {CUSTOMER_TYPES.map((t) => <option key={t} value={t}>{CUSTOMER_TYPE_LABELS[t]}</option>)}
           </FilterSelect>
-          <FilterSelect label="Adatforrás" value={f.source} onChange={set("source")} className="sm:col-span-2">
+          <FilterSelect label="Érkezési csatorna" value={f.acquisitionChannel} onChange={set("acquisitionChannel")}>
+            <option value="">Összes</option>
+            {ordered(config.acquisitionChannels).map((c) => <option key={c.key} value={c.key}>{optionLabel(c)}</option>)}
+          </FilterSelect>
+          <FilterSelect label="Adatforrás" value={f.source} onChange={set("source")}>
             <option value="">Összes</option>
             {sources.map((s) => <option key={s} value={s}>{s}</option>)}
           </FilterSelect>

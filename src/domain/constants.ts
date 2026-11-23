@@ -100,7 +100,7 @@ export const OUTREACH_COMPLIANCE_NOTICE =
 export const MANUAL_ACTIVITY_TYPES = ["call", "note", "meeting", "follow_up"] as const;
 export const SYSTEM_ACTIVITY_TYPES = [
   "status_change", "provider_milestone", "process_created", "process_closed", "process_reopened",
-  "task_created", "task_completed", "task_updated", "contact_status_change", "restriction_change", "crm_status_change",
+  "task_created", "task_completed", "task_updated", "contact_status_change", "restriction_change", "crm_status_change", "acquisition_change",
 ] as const;
 export const ACTIVITY_TYPES = [...MANUAL_ACTIVITY_TYPES, ...SYSTEM_ACTIVITY_TYPES] as const;
 export const ACTIVITY_LABELS = {
@@ -109,6 +109,7 @@ export const ACTIVITY_LABELS = {
   process_created: "Folyamat létrehozva", process_closed: "Folyamat lezárva", process_reopened: "Folyamat újranyitva",
   task_created: "Feladat létrehozva", task_completed: "Feladat elvégezve", task_updated: "Feladat módosítva",
   contact_status_change: "Régi kapcsolati státusz módosítva", restriction_change: "Megkeresési korlátozás", crm_status_change: "Kapcsolati státusz módosítva",
+  acquisition_change: "Érkezési csatorna módosítva",
 } as const;
 
 export const CALL_OUTCOMES = [

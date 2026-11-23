@@ -31,7 +31,7 @@ describe("CRM-010 — napi feladatlista", () => {
   const due = (d: string) => noonIsoOfDay(d);
   const setup = () => {
     const r = tickRepo(emptySnapshot());
-    const c = val(r.createCustomerFromForm({ type: "individual", name: "Napi Nóra", recordedBy: U })).customer;
+    const c = val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Napi Nóra", recordedBy: U })).customer;
     const mk = (taskType: string, dueAt?: string, assigneeId = U) => val(r.createTask({ customerId: c.id, taskType, assigneeId, recordedBy: assigneeId, ...(dueAt ? { dueAt } : {}) }));
     const t = {
       old: mk("email", due("2026-10-10")),
@@ -85,7 +85,7 @@ describe("CRM-010 — napi feladatlista", () => {
 describe("CRM-009 — a következő feladat nem jön létre automatikusan", () => {
   it("F8: a lezárás (bármely minősítéssel) nem hoz létre új feladatot és nem másolja az Outputot Inputba", () => {
     const r = tickRepo(emptySnapshot());
-    const c = val(r.createCustomerFromForm({ type: "individual", name: "Követő Kata", recordedBy: U })).customer;
+    const c = val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Követő Kata", recordedBy: U })).customer;
     const t = val(r.createTask({ customerId: c.id, taskType: "phone_call", assigneeId: U, recordedBy: U }));
     closeIt(r, t.id, "failure", "Nem vette fel, csütörtökön újra.");
     expect(r.getSnapshot().tasks).toHaveLength(1);

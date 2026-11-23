@@ -17,6 +17,7 @@ export async function loadConfig(tx: Tx): Promise<CrmConfig> {
   const st = await tx.query<Row>("select * from crm_pipeline_statuses order by sort_order, key");
   const tt = await tx.query<Row>("select * from crm_task_types order by sort_order, key");
   const ti = await tx.query<Row>("select * from crm_task_input_options order by sort_order, key");
+  const ac = await tx.query<Row>("select * from crm_acquisition_channels order by sort_order, key");
   const base = (r: Row) => ({ key: String(r.key), label: String(r.label), sortOrder: num(r.sort_order), isActive: r.is_active === true, isSystem: r.is_system === true, version: num(r.version) });
   return {
     statuses: st.map((r) => ({
@@ -27,6 +28,7 @@ export async function loadConfig(tx: Tx): Promise<CrmConfig> {
     })),
     taskTypes: tt.map(base),
     taskInputs: ti.map((r) => ({ ...base(r), allowsNote: r.allows_note === true })),
+    acquisitionChannels: ac.map((r) => ({ ...base(r), ...optText(r.description) })),
   };
 }
 
