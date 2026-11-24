@@ -7,7 +7,7 @@ import {
 import {
   CONTACT_STATUS_LABELS, TASK_OUTCOME_LABELS, DEFAULT_CRM_STATUS, NO_RESULT_REASON_LABELS, PROCESS_STATUS_LABELS, RESTRICTION_LABELS, VERIFICATION_SOURCE_LABELS,
 } from "@/domain/constants";
-import { findTaskInput, findTaskType, isSelectableStatus, statusLabel } from "@/domain/config";
+import { channelLabel, findTaskInput, findTaskType, isSelectableChannel, isSelectableStatus, statusLabel, UNKNOWN_CHANNEL_KEY } from "@/domain/config";
 import { buildDisplayName, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
 import type {
   Activity, CompanyContact, Contactability, ContactabilityStatus, ContactChannel, ContactPurpose, Customer, CustomerProcess,
@@ -40,7 +40,7 @@ export interface DataRepository {
   /** Új ügyfél az egyszerű űrlapból (üzleti minimum: név); cégnél a kapcsolati személlyel együtt, mindent vagy semmit alapon. */
   createCustomerFromForm(input: unknown): Result<{ customer: Customer; contact?: CompanyContact }>;
   /** Ügyféladatok szerkesztése (a kapcsolati státusz és a korlátozás külön, naplózott művelet). */
-  updateCustomer(id: string, input: unknown): Result<Customer>;
+  updateCustomer(id: string, input: unknown, recordedBy?: string): Result<Customer>;
   /** v0.5: az ügyfél egyetlen aktuális kapcsolati státuszának kézi módosítása (nem érinti a feladatokat). */
   changeCrmStatus(customerId: string, input: unknown): Result<Customer>;
   updateCustomerOwner(id: string, ownerId: string): Result<Customer>;
@@ -121,7 +121,7 @@ export class DemoRepository implements DataRepository {
     const d = parsed.data;
     const t = this.now();
     const base = {
-      id: this.nextId("cust"), contactStatus: "prospect" as const, ownerId: d.ownerId, source: d.source, verificationStatus: "demo" as const,
+      id: this.nextId("cust"), contactStatus: "prospect" as const, ownerId: d.ownerId, source: d.source, acquisitionChannel: UNKNOWN_CHANNEL_KEY, verificationStatus: "demo" as const,
       email: d.email, phone: d.phone, createdAt: t, updatedAt: t,
     };
     const customer: Customer =
@@ -144,8 +144,11 @@ export class DemoRepository implements DataRepository {
     const t = this.now();
     const base = {
       id: this.nextId("cust"), contactStatus: "prospect" as const, crmStatus: DEFAULT_CRM_STATUS, ownerId: d.recordedBy, source: d.source,
+      acquisitionChannel: d.acquisitionChannel, ...(d.acquisitionDetail ? { acquisitionDetail: d.acquisitionDetail } : {}),
       verificationStatus: "demo" as const, email: d.email, phone: d.phone, createdAt: t, updatedAt: t,
     };
+    // v1.2: az érkezési csatorna kötelező, és csak aktív katalóguselem lehet (az `ismeretlen` is választható, de nem alapértelmezett).
+    if (!isSelectableChannel(this.snap.config, d.acquisitionChannel)) return fail({ acquisitionChannel: "Az érkezési csatorna nem választható (nem létezik vagy archivált)." });
     const draft: Customer =
       d.type === "individual"
         ? { ...base, type: "individual", ...splitName(d.name), displayName: d.name, notes: d.notes }
@@ -182,7 +185,7 @@ export class DemoRepository implements DataRepository {
   }
 
   /** Ügyféladatok szerkesztése; a kapcsolati státusz külön művelet (`changeCrmStatus`). Egy lépésben, mindent vagy semmit. */
-  updateCustomer(id: string, input: unknown): Result<Customer> {
+  updateCustomer(id: string, input: unknown, recordedBy?: string): Result<Customer> {
     const cur = this.snap.customers.find((c) => c.id === id);
     if (!cur) return fail({ _form: "Az ügyfél nem található." });
     const parsed = customerUpdateInput.safeParse(input);
@@ -190,14 +193,35 @@ export class DemoRepository implements DataRepository {
     const d = parsed.data;
     if (d.type !== cur.type) return fail({ _form: "Az ügyfél típusa nem módosítható." });
     const source = d.source ?? cur.source;
+    // v1.2: érkezési csatorna és részlet. Hiányzó mező = változatlan; üres részlet = törlés. A csatorna csak aktív elemre cserélhető
+    // (a már archivált csatornán lévő ügyfél többi adata változatlan csatornával továbbra is menthető).
+    const channel = d.acquisitionChannel ?? cur.acquisitionChannel;
+    const detail = d.acquisitionDetail === undefined ? cur.acquisitionDetail : d.acquisitionDetail || undefined;
+    const channelChanged = channel !== cur.acquisitionChannel;
+    const detailChanged = (detail ?? null) !== (cur.acquisitionDetail ?? null);
+    if (channelChanged && !isSelectableChannel(this.snap.config, channel)) return fail({ acquisitionChannel: "Az érkezési csatorna nem választható (nem létezik vagy archivált)." });
+    if ((channelChanged || detailChanged) && !recordedBy) return fail({ _form: "Az érkezési csatorna módosításához a rögzítő megadása kötelező." });
+    const acquisition = { acquisitionChannel: channel, acquisitionDetail: detail };
+    const logAcquisition = () => {
+      if (!channelChanged && !detailChanged) return;
+      const cfg = this.snap.config;
+      this.log({
+        customerId: id, recordedBy: recordedBy as string, type: "acquisition_change",
+        summary: `Érkezési csatorna: ${channelLabel(cfg, cur.acquisitionChannel)}${cur.acquisitionDetail ? ` (${cur.acquisitionDetail})` : ""} → ${channelLabel(cfg, channel)}${detail ? ` (${detail})` : ""}`,
+        meta: { fromAcquisitionChannel: cur.acquisitionChannel, toAcquisitionChannel: channel, fromAcquisitionDetail: cur.acquisitionDetail ?? null, toAcquisitionDetail: detail ?? null },
+      });
+    };
     if (d.type === "individual") {
-      return this.patchCustomer(id, { ...splitName(d.name), displayName: d.name, phone: d.phone, email: d.email, notes: d.notes, source });
+      const r = this.patchCustomer(id, { ...splitName(d.name), displayName: d.name, phone: d.phone, email: d.email, notes: d.notes, source, ...acquisition });
+      logAcquisition();
+      return r;
     }
     const primary = primaryContactOf(this.snap, id);
     // A meglévő kapcsolattartói rekord nem veszhet el: üres névvel nem üríthető ki.
     if (!d.contactName && primary) return fail({ contactName: "A kapcsolati személy neve nem üríthető ki (a meglévő kapcsolattartói rekord megmarad)." });
-    const res = this.patchCustomer(id, { companyName: d.companyName, phone: d.phone, email: d.email, source });
+    const res = this.patchCustomer(id, { companyName: d.companyName, phone: d.phone, email: d.email, source, ...acquisition });
     if (d.contactName) this.putContactPerson(id, d.contactName, d.contactPosition);
+    logAcquisition();
     return res;
   }
 

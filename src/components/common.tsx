@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCrmData } from "@/data/store";
 import { RESTRICTION_LABELS } from "@/domain/constants";
-import { findStatus, type CrmConfig } from "@/domain/config";
+import { findChannel, findStatus, type CrmConfig } from "@/domain/config";
 import { customerName, statusOf } from "@/domain/logic";
 import type { CrmStatus, Customer, DataSnapshot } from "@/domain/types";
 import { Badge, LoadingState } from "./ui/primitives";
@@ -23,7 +23,7 @@ export function useUserName(): (id: string) => string {
 }
 
 /** Üres konfiguráció: amíg a szerver konfigurációja nem töltődött be, a felület nem talál ki státuszt/típust. */
-const NO_CONFIG: CrmConfig = { statuses: [], taskTypes: [], taskInputs: [] };
+const NO_CONFIG: CrmConfig = { statuses: [], taskTypes: [], taskInputs: [], acquisitionChannels: [] };
 
 /**
  * A CRM aktuális konfigurációja (v1.1): a szerver snapshotjával együtt érkezik az adatbázisból, így a kliens ugyanazt használja, mint
@@ -38,6 +38,12 @@ export function useCrmConfig(): CrmConfig {
 export function CrmStatusBadge({ status, config }: { status: CrmStatus; config: CrmConfig }) {
   const def = findStatus(config, status);
   return <Badge tone={def?.color ?? "neutral"}>{def?.label ?? status}{def && !def.isActive ? <span className="ml-1 font-normal">(archivált)</span> : null}</Badge>;
+}
+
+/** Érkezési csatorna jelvénye a katalógus nevével; archivált csatornánál jelzéssel, ismeretlen kulcsnál maga a kulcs. Az „Ismeretlen” visszafogott. */
+export function ChannelBadge({ channel, config }: { channel: string; config: CrmConfig }) {
+  const def = findChannel(config, channel);
+  return <Badge tone={channel === "ismeretlen" ? "neutral" : "indigo"}>{def?.label ?? channel}{def && !def.isActive ? <span className="ml-1 font-normal">(archivált)</span> : null}</Badge>;
 }
 
 /** Választólista-felirat: archivált elemnél jelzéssel. */

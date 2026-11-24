@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CUSTOMER_TYPE_LABELS, RESTRICTION_LABELS } from "@/domain/constants";
-import { CONFIG_KEY_RE, findStatus, statusLabel, type CrmConfig } from "@/domain/config";
+import { channelLabel, CONFIG_KEY_RE, findChannel, findStatus, statusLabel, type CrmConfig } from "@/domain/config";
 import { contactName, customerName, otherContactsOf, primaryContactOf, searchCustomers, statusOf } from "@/domain/logic";
 import type { Customer, DataSnapshot } from "@/domain/types";
 import { loadSnapshot } from "../crm/store";
@@ -24,6 +24,8 @@ export const exportFilters = z.object({
   /** A katalógus kulcsa (archivált státusz szerint is szűrhető: az ügyfelei továbbra is exportálhatók). Ismeretlen kulcs: 0 találat. */
   crmStatus: z.string().regex(CONFIG_KEY_RE).optional(),
   source: z.string().max(200).optional(),
+  /** v1.2: az érkezési csatorna katalógus-kulcsa (archivált csatorna szerint is szűrhető). Ismeretlen kulcs: érvénytelen kérés. */
+  acquisitionChannel: z.string().regex(CONFIG_KEY_RE).optional(),
 }).strict();
 export type ExportFilters = z.infer<typeof exportFilters>;
 export const exportBody = z.object({ format: z.enum(["csv", "xlsx"]), filters: exportFilters }).strict();
@@ -35,7 +37,8 @@ export class ExportFilterError extends Error {}
 
 export function filterCustomers(snap: DataSnapshot, f: ExportFilters): Customer[] {
   if (f.crmStatus && !findStatus(snap.config, f.crmStatus)) throw new ExportFilterError("Ismeretlen státusz a szűrőben.");
-  const list = searchCustomers(snap, { query: f.query, type: f.type ?? "", crmStatus: f.crmStatus ?? "" });
+  if (f.acquisitionChannel && !findChannel(snap.config, f.acquisitionChannel)) throw new ExportFilterError("Ismeretlen érkezési csatorna a szűrőben.");
+  const list = searchCustomers(snap, { query: f.query, type: f.type ?? "", crmStatus: f.crmStatus ?? "", acquisitionChannel: f.acquisitionChannel ?? "" });
   const src = f.source ? foldSource(f.source) : "";
   return (src ? list.filter((c) => foldSource(c.source) === src) : list)
     .sort((a, b) => customerName(a).localeCompare(customerName(b), "hu") || a.id.localeCompare(b.id));
@@ -53,7 +56,7 @@ export const neutralizeCsv = (v: string) => (DANGEROUS.test(v) ? `'${v}` : v);
 export const CUSTOMER_COLUMNS = [
   "Ügyfélazonosító", "Ügyféltípus", "Ügyfélnév", "Vezetéknév", "Keresztnév", "Cégnév", "Telefonszám", "E-mail",
   "Elsődleges kapcsolattartó", "Kapcsolattartó beosztása", "Kapcsolattartó telefonszáma", "Kapcsolattartó e-mail-címe", "További kapcsolattartók száma",
-  "Pipeline-státusz", "Adatforrás", "Megkeresési korlátozás", "Létrehozva",
+  "Pipeline-státusz", "Adatforrás", "Érkezési csatorna", "Érkezési csatorna részlete", "Megkeresési korlátozás", "Létrehozva",
 ] as const;
 export const CONTACT_COLUMNS = ["Ügyfélazonosító", "Cégnév", "Kapcsolattartó azonosító", "Vezetéknév", "Keresztnév", "Beosztás", "Telefonszám", "E-mail", "Elsődleges"] as const;
 
@@ -66,7 +69,7 @@ export function customerRows(snap: DataSnapshot, list: Customer[]): string[][] {
       c.type === "individual" ? c.lastName : "", c.type === "individual" ? c.firstName : "", c.type === "company" ? c.companyName : "",
       c.phone ?? "", c.email ?? "",
       primary ? contactName(primary) : "", primary?.position ?? "", primary?.phone ?? "", primary?.email ?? "", c.type === "company" ? String(others) : "",
-      statusLabel(snap.config, statusOf(c)), c.source, c.restriction ? RESTRICTION_LABELS[c.restriction.kind] : "", c.createdAt.slice(0, 10),
+      statusLabel(snap.config, statusOf(c)), c.source, channelLabel(snap.config, c.acquisitionChannel), c.acquisitionDetail ?? "", c.restriction ? RESTRICTION_LABELS[c.restriction.kind] : "", c.createdAt.slice(0, 10),
     ];
   });
 }
@@ -85,6 +88,7 @@ export function describeFilters(f: ExportFilters, config?: CrmConfig): string {
   if (f.crmStatus) parts.push(`Pipeline-státusz: ${config ? statusLabel(config, f.crmStatus) : f.crmStatus}`);
   if (f.type) parts.push(`Ügyféltípus: ${CUSTOMER_TYPE_LABELS[f.type]}`);
   if (f.source) parts.push(`Adatforrás: ${f.source}`);
+  if (f.acquisitionChannel) parts.push(`Érkezési csatorna: ${config ? channelLabel(config, f.acquisitionChannel) : f.acquisitionChannel}`);
   if (f.query?.trim()) parts.push("Szöveges keresés: igen");
   return parts.length ? parts.join("; ") : "Minden aktív ügyfél";
 }
@@ -114,7 +118,7 @@ export async function buildExport(tx: Tx, format: "csv" | "xlsx", filters: Expor
     ["Figyelmeztetés", "A fájl személyes adatot tartalmaz. Csak jogosult célra használd, ne továbbítsd, és a felhasználás után töröld."],
   ];
   const body = writeXlsx([
-    { name: "Ügyfelek", rows: [header, ...rows], boldHeader: true, widths: [22, 14, 28, 16, 16, 28, 18, 28, 26, 20, 20, 28, 12, 22, 22, 18, 12] },
+    { name: "Ügyfelek", rows: [header, ...rows], boldHeader: true, widths: [22, 14, 28, 16, 16, 28, 18, 28, 26, 20, 20, 28, 12, 22, 22, 26, 30, 18, 12] },
     { name: "Kapcsolattartók", rows: [[...CONTACT_COLUMNS], ...contactRows(snap, list)], boldHeader: true, widths: [22, 28, 22, 16, 16, 20, 18, 28, 10] },
     { name: "Exportinformáció", rows: info, boldHeader: true, widths: [20, 90] },
   ], now);

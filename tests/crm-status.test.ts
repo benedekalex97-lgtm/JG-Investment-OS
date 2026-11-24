@@ -7,7 +7,7 @@ import { emptySnapshot } from "@/domain/types";
 import { U, VERIFY, closeIt, errs, newRepo, seed, val } from "./helpers";
 
 const newCustomer = (r: ReturnType<typeof newRepo>, name = "Státusz Teszt") =>
-  val(r.createCustomerFromForm({ type: "individual", name, recordedBy: U })).customer;
+  val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name, recordedBy: U })).customer;
 const change = (r: ReturnType<typeof newRepo>, id: string, toStatus: string, extra: object = {}) => r.changeCrmStatus(id, { toStatus, recordedBy: U, ...extra });
 
 describe("a hét jóváhagyott kapcsolati státusz", () => {

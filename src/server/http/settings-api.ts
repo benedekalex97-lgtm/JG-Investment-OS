@@ -57,6 +57,7 @@ const entityOf = (path: string) =>
   path.startsWith("settings/pipeline") ? "pipeline_status" as const
     : path.startsWith("settings/task-types") ? "task_type" as const
       : path.startsWith("settings/task-inputs") ? "task_input" as const
+        : path.startsWith("settings/acquisition-channels") ? "acquisition_channel" as const
         : path.startsWith("settings/users") ? "user_permission" as const : "settings" as const;
 
 const logError = (where: string, e: unknown) => {
@@ -115,7 +116,8 @@ export async function handleSettings(req: Request, path: string, db: Db, user: A
         const catalogs = await tx.query<{ t: string; active: string; archived: string }>(
           `select 'pipeline' as t, count(*) filter (where is_active) as active, count(*) filter (where not is_active) as archived from crm_pipeline_statuses
            union all select 'taskTypes', count(*) filter (where is_active), count(*) filter (where not is_active) from crm_task_types
-           union all select 'taskInputs', count(*) filter (where is_active), count(*) filter (where not is_active) from crm_task_input_options`,
+           union all select 'taskInputs', count(*) filter (where is_active), count(*) filter (where not is_active) from crm_task_input_options
+           union all select 'acquisitionChannels', count(*) filter (where is_active), count(*) filter (where not is_active) from crm_acquisition_channels`,
         );
         const canSeeImports = permissions.includes("crm.customer.import") || permissions.includes("crm.import.history.read");
         const lastImport = canSeeImports

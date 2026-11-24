@@ -5,8 +5,8 @@ import { U, newRepo, val } from "./helpers";
 
 const build = () => {
   const r = newRepo(emptySnapshot());
-  const anna = val(r.createCustomerFromForm({ type: "individual", name: "Kovács Anna", phone: "+36 30 123 4567", email: "Anna.Kovacs@Example.test", recordedBy: U })).customer;
-  const co = val(r.createCustomerFromForm({ type: "company", companyName: "Minta Kft.", contactName: "Szabó Géza", recordedBy: U })).customer;
+  const anna = val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Kovács Anna", phone: "+36 30 123 4567", email: "Anna.Kovacs@Example.test", recordedBy: U })).customer;
+  const co = val(r.createCustomerFromForm({ type: "company", acquisitionChannel: "egyeb", companyName: "Minta Kft.", contactName: "Szabó Géza", recordedBy: U })).customer;
   const k = r.getSnapshot().contacts.find((x) => x.companyId === co.id)!;
   val(r.updateContact(k.id, { firstName: "Géza", lastName: "Szabó", phone: "06 1 234 5678", email: "geza@minta.test", isPrimaryContact: true }));
   return { r, anna, co };
@@ -58,7 +58,7 @@ describe("CRM-013 — duplikált ügyfelek felismerése", () => {
 describe("maskRemoved — eltávolított rekord egyezése személyes adat nélkül", () => {
   const mk = (contact: string, opts: { email?: string; phone?: string } = {}) => {
     const r = newRepo(emptySnapshot());
-    const co = val(r.createCustomerFromForm({ type: "company", companyName: "Rejtett (Holding) Kft.", contactName: "Ideiglenes Név", recordedBy: U })).customer;
+    const co = val(r.createCustomerFromForm({ type: "company", acquisitionChannel: "egyeb", companyName: "Rejtett (Holding) Kft.", contactName: "Ideiglenes Név", recordedBy: U })).customer;
     const k = r.getSnapshot().contacts.find((x) => x.companyId === co.id)!;
     const [lastName, ...rest] = contact.split(" ");
     val(r.updateContact(k.id, { firstName: rest.join(" "), lastName, email: opts.email ?? "eva@rejtett.test", phone: opts.phone ?? "+36 1 777 8899", isPrimaryContact: true }));
@@ -97,7 +97,7 @@ describe("maskRemoved — eltávolított rekord egyezése személyes adat nélk�
     const [hit] = findDuplicates(r.getSnapshot(), { type: "company", companyName: "Rejtett (Holding) Kft.", contactName: "Minta (belső) Éva", email: "eva@rejtett.test", phone: "+36 1 777 8899" });
     expect(maskRemoved(hit)).toEqual({ customerId: null, name: "Eltávolított ügyfélrekord", typeLabel: "Cég", level: "strong", reasons: ["Azonos e-mail-cím", "Azonos telefonszám", "Azonos cégnév", "Azonos kapcsolati személy neve"], codes: ["contact_email", "contact_phone", "company_name", "contact_name"] });
     const r2 = newRepo(emptySnapshot());
-    val(r2.createCustomerFromForm({ type: "individual", name: "Titok (Teszt) Tamás", phone: "+36 30 222 3344", email: "t@titok.test", recordedBy: U }));
+    val(r2.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Titok (Teszt) Tamás", phone: "+36 30 222 3344", email: "t@titok.test", recordedBy: U }));
     const [ind] = findDuplicates(r2.getSnapshot(), { type: "company", companyName: "Bármi", contactName: "Titok (Teszt) Tamás", email: "t@titok.test", phone: "06302223344" });
     expect(maskRemoved(ind).reasons).toEqual(["Azonos e-mail-cím", "Azonos telefonszám", "Azonos név"]);
   });

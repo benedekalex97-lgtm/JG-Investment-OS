@@ -33,6 +33,7 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V1.2-ACQUISITION-CHANNELS.md` — **v1.2: érkezési csatorna az ügyfelekhez (katalógus, kötelező választás kézi felvételnél, szűrés, export/import, Csatornák kimutatás); a `source` és a csatorna különbsége; migráció és rollback; következő lépések**
 - `docs/V1.1-ADMIN-SETTINGS.md` — **v1.1: Beállítások - konfigurálható Pipeline-státuszok, feladattípusok, Input-opciók; felhasználói jogok; változásnapló; migráció, mentés, rollback**
 - `docs/V0.6.2-NEON-VERCEL.md` — **v0.6.2: Neon preview + Vercel előkészítés, környezeti változók, első admin, futási szerepkör, Vercel hozzáférés állapota**
 - `docs/V0.6.1-NEON-ACTIONS.md` — a Neon preview migráció GitHub Actionsből

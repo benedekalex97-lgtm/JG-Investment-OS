@@ -35,7 +35,7 @@ describe("kliensoldali repository", () => {
   });
   it("hálózati hiba érthető üzenet; az azonos művelet újrapróbálása ugyanazt a kérés-azonosítót használja (nincs duplikátum)", async () => {
     const { repo, calls, hooks } = mk([new TypeError("fetch failed"), okBody({})]);
-    const input = { type: "individual", name: "Teszt" };
+    const input = { type: "individual", acquisitionChannel: "egyeb", name: "Teszt" };
     expect(await repo.createCustomerFromForm(input)).toEqual({ ok: false, errors: { _form: MESSAGES.network } });
     expect(hooks.onSnapshot).not.toHaveBeenCalled();
     await repo.createCustomerFromForm(input);

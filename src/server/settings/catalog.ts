@@ -12,18 +12,19 @@ import type { Tx } from "../db/types";
  *
  * Párhuzamos módosítás: optimista - minden módosító kérés a kliens által látott verziót küldi; eltérésnél 409 és nincs írás.
  */
-export type CatalogKind = "pipeline" | "task-types" | "task-inputs";
-export const CATALOG_KINDS: readonly CatalogKind[] = ["pipeline", "task-types", "task-inputs"];
+export type CatalogKind = "pipeline" | "task-types" | "task-inputs" | "acquisition-channels";
+export const CATALOG_KINDS: readonly CatalogKind[] = ["pipeline", "task-types", "task-inputs", "acquisition-channels"];
 
 interface Spec {
   table: string;
-  entity: "pipeline_status" | "task_type" | "task_input";
+  entity: "pipeline_status" | "task_type" | "task_input" | "acquisition_channel";
   noun: string;
 }
 export const SPECS: Record<CatalogKind, Spec> = {
   pipeline: { table: "crm_pipeline_statuses", entity: "pipeline_status", noun: "státusz" },
   "task-types": { table: "crm_task_types", entity: "task_type", noun: "feladattípus" },
   "task-inputs": { table: "crm_task_input_options", entity: "task_input", noun: "Input-opció" },
+  "acquisition-channels": { table: "crm_acquisition_channels", entity: "acquisition_channel", noun: "érkezési csatorna" },
 };
 
 export class SettingsError extends Error {
@@ -49,11 +50,13 @@ export const createBodies = {
   pipeline: z.object({ label, description: description.optional(), color: color.default("neutral") }).strict(),
   "task-types": z.object({ label }).strict(),
   "task-inputs": z.object({ label, allowsNote: z.boolean().default(false) }).strict(),
+  "acquisition-channels": z.object({ label, description: description.optional() }).strict(),
 } as const;
 export const updateBodies = {
   pipeline: z.object({ key, version, label: label.optional(), description: description.nullable().optional(), color: color.optional(), isActive: z.boolean().optional(), confirmInUse: z.boolean().optional() }).strict(),
   "task-types": z.object({ key, version, label: label.optional(), isActive: z.boolean().optional(), confirmInUse: z.boolean().optional() }).strict(),
   "task-inputs": z.object({ key, version, label: label.optional(), isActive: z.boolean().optional(), allowsNote: z.boolean().optional(), confirmInUse: z.boolean().optional() }).strict(),
+  "acquisition-channels": z.object({ key, version, label: label.optional(), description: description.nullable().optional(), isActive: z.boolean().optional(), confirmInUse: z.boolean().optional() }).strict(),
 } as const;
 export const orderBody = z.object({ order: z.array(z.object({ key, version }).strict()).min(1).max(500) }).strict();
 
@@ -73,24 +76,28 @@ export async function listCatalog(tx: Tx, kind: CatalogKind): Promise<CatalogIte
   const { table } = SPECS[kind];
   const rows = await tx.query<Row>(`select * from ${table} order by sort_order, key`);
   const col = kind === "pipeline" ? "crm_status" : kind === "task-types" ? "task_type" : "input_key";
-  const taskUse = await tx.query<{ k: string; n: string; o: string }>(
+  // Az érkezési csatornához nem tartoznak feladatok: a használat az (aktív, nem törölt) ügyfelek száma.
+  const taskUse = kind === "acquisition-channels" ? [] : await tx.query<{ k: string; n: string; o: string }>(
     `select ${col} as k, count(*) as n, count(*) filter (where status <> 'done') as o from tasks where ${col} is not null group by ${col}`,
   );
   const custUse = kind === "pipeline"
     ? await tx.query<{ k: string; n: string }>("select coalesce(crm_status, $1) as k, count(*) as n from customers where deleted_at is null group by 1", [DEFAULT_STATUS_KEY])
-    : [];
+    : kind === "acquisition-channels"
+      ? await tx.query<{ k: string; n: string }>("select acquisition_channel as k, count(*) as n from customers where deleted_at is null group by 1")
+      : [];
   return rows.map((r) => {
     const k = String(r.key);
     const t = taskUse.find((x) => x.k === k);
     return {
       key: k, label: String(r.label), sortOrder: Number(r.sort_order), isActive: r.is_active === true, isSystem: r.is_system === true, version: Number(r.version),
+      ...(kind === "acquisition-channels" ? { description: (r.description as string | null) ?? null } : {}),
       ...(kind === "pipeline" ? {
         description: (r.description as string | null) ?? null, color: String(r.color), semantic: String(r.semantic_type),
         requiresVerification: r.requires_verification === true, labelLocked: r.label_locked === true,
       } : {}),
       ...(kind === "task-inputs" ? { allowsNote: r.allows_note === true } : {}),
       usage: {
-        ...(kind === "pipeline" ? { customers: Number(custUse.find((x) => x.k === k)?.n ?? 0) } : {}),
+        ...(kind === "pipeline" || kind === "acquisition-channels" ? { customers: Number(custUse.find((x) => x.k === k)?.n ?? 0) } : {}),
         tasks: Number(t?.n ?? 0), openTasks: Number(t?.o ?? 0),
       },
       updatedAt: iso(r.updated_at) as string, archivedAt: iso(r.archived_at),
@@ -133,6 +140,8 @@ export async function createCatalogItem(tx: Tx, kind: CatalogKind, body: unknown
   try {
     if (kind === "pipeline") {
       await tx.query(`insert into ${spec.table} (key, label, description, color, sort_order) values ($1, $2, $3, $4, $5)`, [k, d.label, d.description || null, d.color, sort]);
+    } else if (kind === "acquisition-channels") {
+      await tx.query(`insert into ${spec.table} (key, label, description, sort_order) values ($1, $2, $3, $4)`, [k, d.label, d.description || null, sort]);
     } else if (kind === "task-inputs") {
       await tx.query(`insert into ${spec.table} (key, label, sort_order, allows_note) values ($1, $2, $3, $4)`, [k, d.label, sort, d.allowsNote === true]);
     } else {
@@ -153,6 +162,7 @@ export async function updateCatalogItem(tx: Tx, kind: CatalogKind, body: unknown
   if (!cur) throw new SettingsError(404, "not_found", "A beállítás nem található.");
   if (Number(cur.version) !== d.version) throw new SettingsError(409, "conflict", CONFLICT_MESSAGE);
   // Érthető üzenetek a védett szabályokra (az adatbázis ettől függetlenül is tiltja).
+  if (d.isActive === false && cur.is_system === true && kind === "acquisition-channels") throw new SettingsError(400, "system_archive", "Az „Ismeretlen” rendszerelem nem archiválható: a régi és az importált ügyfelek alapértéke.");
   if (d.isActive === false && cur.is_system === true) throw new SettingsError(400, "system_archive", `Rendszer${spec.noun === "státusz" ? "státusz" : "elem"} nem archiválható: a működéséhez kötött szabályok (pl. alapértelmezett státusz, megkeresési korlátozás, igazolási követelmény) miatt védett.`);
   if (d.label !== undefined && d.label !== cur.label && cur.label_locked === true) throw new SettingsError(400, "label_locked", "Ennek a státusznak a megnevezése compliance-okból nem módosítható a felületről.");
   if (d.isActive === false && cur.is_active === true) {

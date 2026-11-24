@@ -1,4 +1,5 @@
 import { DEFAULT_CRM_STATUS } from "@/domain/constants";
+import { UNKNOWN_CHANNEL_KEY } from "@/domain/config";
 import type {
   Activity, CompanyContact, Contactability, Customer, CustomerProcess, DataSnapshot, Task, TaskOutput,
 } from "@/domain/types";
@@ -19,6 +20,8 @@ export function customerFromRow(r: Row, restriction?: Row): Customer {
     ...(r.crm_status ? { crmStatus: r.crm_status as Customer["crmStatus"] } : {}),
     ownerId: strict(r.owner_id),
     source: strict(r.source),
+    acquisitionChannel: strict(r.acquisition_channel) || UNKNOWN_CHANNEL_KEY,
+    ...(str(r.acquisition_detail) !== undefined ? { acquisitionDetail: str(r.acquisition_detail) } : {}),
     verificationStatus: r.verification_status as Customer["verificationStatus"],
     ...(str(r.email) !== undefined ? { email: str(r.email) } : {}),
     ...(str(r.phone) !== undefined ? { phone: str(r.phone) } : {}),
@@ -40,6 +43,7 @@ export function customerToRow(c: Customer): Row {
     display_name: c.type === "individual" ? c.displayName : null, company_name: c.type === "company" ? c.companyName : null,
     notes: c.type === "individual" ? (c.notes ?? null) : null,
     contact_status: c.contactStatus, crm_status: c.crmStatus ?? null, owner_id: c.ownerId, source: c.source,
+    acquisition_channel: c.acquisitionChannel, acquisition_detail: c.acquisitionDetail ?? null,
     verification_status: c.verificationStatus, email: c.email ?? null, phone: c.phone ?? null, created_at: c.createdAt, updated_at: c.updatedAt,
   };
 }

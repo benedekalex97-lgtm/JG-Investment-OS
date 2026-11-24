@@ -9,6 +9,8 @@
 -- adminjog-sorokat törli). A settings_audit naplót eldobja - előtte a mentés tartalmazza.
 -- Előfeltétel (ellenőrzi, különben megszakad, és semmi nem változik): nincs ügyfél/feladat a hét eredeti státuszon kívüli státuszban,
 -- és nincs feladat a v1.1-ben felvett (nem rendszer, nem a migrációkor megőrzött) feladattípussal vagy Input-opcióval.
+-- FIGYELEM (v1.2): ha a 0011 (érkezési csatornák) már alkalmazva van, ELŐTTE a scripts/sql/v1.2-schema-rollback.sql futtatandó (a katalógus-triggerek
+-- a crm_catalog_guard() / crm_catalog_audit() függvényekre épülnek, ezek addig nem dobhatók el).
 begin;
 
 do $$

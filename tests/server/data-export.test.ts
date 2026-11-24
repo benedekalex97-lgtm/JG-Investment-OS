@@ -27,10 +27,10 @@ describe.each(DRIVERS)("ügyfélexport (%s)", (kind) => {
       ids[key] = (await admin.op<{ customer: { id: string } }>("customer.create", { input, confirmDuplicates: true })).body.result.value!.customer.id;
     };
     ids = {};
-    await mk("anna", { type: "individual", name: "Export Anna", phone: "+36 30 000 0201", email: "anna@example.test", source: "Rendezvény", notes: "BIZALMAS JEGYZET" });
-    await mk("bela", { type: "individual", name: "=HYPERLINK(\"http://tamado.example.test\")", email: "bela@example.test", source: "Ajánlás" });
-    await mk("ceg", { type: "company", companyName: "Export Kft.", phone: "+36 1 000 0202", contactName: "Elsődleges Elek", contactPosition: "ügyvezető", source: "Rendezvény" });
-    await mk("torolt", { type: "individual", name: "Törölt Tóbiás", email: "tobias@example.test", source: "Rendezvény" });
+    await mk("anna", { type: "individual", acquisitionChannel: "egyeb", name: "Export Anna", phone: "+36 30 000 0201", email: "anna@example.test", source: "Rendezvény", notes: "BIZALMAS JEGYZET" });
+    await mk("bela", { type: "individual", acquisitionChannel: "egyeb", name: "=HYPERLINK(\"http://tamado.example.test\")", email: "bela@example.test", source: "Ajánlás" });
+    await mk("ceg", { type: "company", acquisitionChannel: "egyeb", companyName: "Export Kft.", phone: "+36 1 000 0202", contactName: "Elsődleges Elek", contactPosition: "ügyvezető", source: "Rendezvény" });
+    await mk("torolt", { type: "individual", acquisitionChannel: "egyeb", name: "Törölt Tóbiás", email: "tobias@example.test", source: "Rendezvény" });
     await admin.op("customer.changeStatus", { customerId: ids.anna, input: { toStatus: "meeting" } });
     await t.db.system(async (tx) => {
       await tx.query("insert into company_contacts (id, company_id, first_name, last_name, position, email, phone, is_primary, created_at, updated_at) values ('kont-masodik', $1, 'Kata', 'Második', 'pénzügy', 'kata@export-kft.example.test', '+36 1 000 0203', false, now(), now())", [ids.ceg]);
@@ -62,7 +62,7 @@ describe.each(DRIVERS)("ügyfélexport (%s)", (kind) => {
     for (const banned of ["Törölt Tóbiás", "BIZALMAS JEGYZET", "fiktív tiltakozás szövege", "fiktiv-oauth-subject", "scrypt", "password", "pilot.egy@example.test"]) expect(text).not.toContain(banned);
     const bela = rows.find((r) => r[0] === ids.bela)!;
     expect(bela[2]).toBe("'=HYPERLINK(\"http://tamado.example.test\")");
-    expect(bela[15]).toBe("Tiltakozás");
+    expect(bela[CUSTOMER_COLUMNS.indexOf("Megkeresési korlátozás")]).toBe("Tiltakozás");
     const anna = rows.find((r) => r[0] === ids.anna)!;
     expect(anna.slice(1, 8)).toEqual(["Magánszemély", "Export Anna", "Export", "Anna", "", "'+36 30 000 0201", "anna@example.test"]);
     expect(anna[13]).toBe("Online/Személyes tárgyalás");

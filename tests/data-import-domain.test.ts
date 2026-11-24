@@ -53,7 +53,7 @@ describe("V03-V07: soronkénti validáció", () => {
   it("érvényes magánszemély és cég: normalizált tervezet", () => {
     const a = evaluateRow(row({ type: "Magánszemély", name: "Teszt  Elek", phone: "06301234567", email: " TESZT@Example.TEST " }), M, null);
     expect(a.status).toBe("valid");
-    expect(a.draft).toEqual({ type: "individual", name: "Teszt Elek", phone: "+36 30 123 4567", email: "teszt@example.test" });
+    expect(a.draft).toEqual({ type: "individual", acquisitionChannel: "ismeretlen", name: "Teszt Elek", phone: "+36 30 123 4567", email: "teszt@example.test" });
     const b = evaluateRow(row({ type: "cég", company: "Fiktív Kft.", contact: "Kapcsoló Klára", contactPhone: "+36 1 000 0000" }), M, null);
     expect(b.status).toBe("valid");
     expect(b.draft).toMatchObject({ type: "company", companyName: "Fiktív Kft.", contactName: "Kapcsoló Klára", contactPhone: "+36 1 000 0000" });

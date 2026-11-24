@@ -120,6 +120,8 @@ async function newCustomer(page, fields) {
   if (fields.phone) await page.getByLabel(/^Telefonszám/).fill(fields.phone);
   if (fields.email) await page.getByLabel(/^E-mail/).fill(fields.email);
   if (fields.source) await page.getByLabel(/^Adatforrás/).fill(fields.source);
+  // v1.2: az érkezési csatorna kötelező választás.
+  await page.getByLabel(/^Érkezési csatorna\s*\*?$/).selectOption({ label: fields.channel || "Egyéb" });
   await page.getByRole("button", { name: "Ügyfél létrehozása", exact: true }).click();
   await page.waitForURL("**/customers/cust-*");
   await page.waitForSelector(`main h1:has-text("${fields.name || fields.companyName}")`);
@@ -233,7 +235,7 @@ async function checkPage(page, label, tag) {
       await newCustomer(pageA, { name: "Minta Mária" });
       L("magánszemély létrejött csak névvel; az adatlap fejléce: név + státusz egymás mellett", (await pageA.locator("h1:has-text('Minta Mária')").isVisible()) && (await statusSelect(pageA).inputValue()) === "waiting_for_contact");
       const side = pageA.locator(SIDE);
-      L("jobb oldali sáv „Kapcsolati adatok”: hiányzó adat visszafogottan „Nincs megadva”", (await side.getByRole("heading", { name: "Kapcsolati adatok" }).isVisible()) && (await side.locator("text=Nincs megadva").count()) === 3, String(await side.locator("text=Nincs megadva").count()));
+      L("jobb oldali sáv „Kapcsolati adatok”: hiányzó adat visszafogottan „Nincs megadva”", (await side.getByRole("heading", { name: "Kapcsolati adatok" }).isVisible()) && (await side.locator("text=Nincs megadva").count()) === 4 /* telefon, e-mail, adatforrás + v1.2: érkezési csatorna részlete */, String(await side.locator("text=Nincs megadva").count()));
       L("magánszemélynél nincs „Kapcsolati személy” mező", (await side.locator("dt:has-text('Kapcsolati személy')").count()) === 0);
       await newCustomer(pageA, { company: true, companyName: "Minta Kft.", contact: "Kovács Anna", phone: "+36 30 123 4567", email: "anna@example.test", source: "ajánlás" });
       const sideText = await pageA.locator('aside[aria-labelledby="kapcsolati-adatok-cim"]').innerText();
@@ -641,6 +643,7 @@ async function checkPage(page, label, tag) {
       L("U3: azonos név (szórendtől függetlenül): lehetséges egyezés", (await warn.innerText()).includes("Minta Mária") && (await warn.innerText()).includes("Lehetséges egyezés"));
       await pageA.getByLabel(/^Név/).fill("Duplikátum Dénes");
       await pageA.getByLabel(/^Telefonszám/).fill("06209998888");
+      await pageA.getByLabel(/^Érkezési csatorna\s*\*?$/).selectOption({ label: "Egyéb" });
       L("U2: azonos telefonszám más formátumban: erős egyezés", (await warn.innerText()).includes("Azonos telefonszám"));
       const openLink = warn.getByRole("link", { name: /^Meglévő ügyfél megnyitása/ });
       L("U5: a meglévő ügyfél adatlapja megnyitható", (await openLink.getAttribute("href")) === `/customers/${cust.id}`);

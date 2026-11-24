@@ -13,7 +13,7 @@ interface Entry {
   outcome: "success" | "rejected"; changes: Record<string, { from: unknown; to: unknown }> | null; reason: string | null;
 }
 
-const ENTITY: Record<string, string> = { pipeline_status: "Pipeline-státusz", task_type: "Feladattípus", task_input: "Input-opció", user_permission: "Jogosultság", settings: "Beállítások" };
+const ENTITY: Record<string, string> = { pipeline_status: "Pipeline-státusz", task_type: "Feladattípus", task_input: "Input-opció", acquisition_channel: "Érkezési csatorna", user_permission: "Jogosultság", settings: "Beállítások" };
 const ACTION: Record<string, string> = {
   create: "Létrehozva", rename: "Átnevezve", recolor: "Szín módosítva", reorder: "Sorrend módosítva", archive: "Archiválva", reactivate: "Újraaktiválva", update: "Módosítva",
   "permission.grant": "Jogosultság kiosztva", "permission.revoke": "Jogosultság visszavonva", "permission.change": "Jogosultság-módosítás", "settings.denied": "Hozzáférés megtagadva",

@@ -8,7 +8,7 @@ const fmt = (iso?: string) => (iso ? iso.slice(0, 10) : "—");
 describe("Előzmények (v0.9) — időrendi lista az aktivitásnaplóból", () => {
   const scenario = () => {
     const r = tickRepo(emptySnapshot());
-    const c = val(r.createCustomerFromForm({ type: "individual", name: "Előzmény Elek", recordedBy: U })).customer;
+    const c = val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Előzmény Elek", recordedBy: U })).customer;
     const t = val(r.createTask({ customerId: c.id, taskType: "phone_call", dueAt: "2026-10-20T10:00:00.000Z", assigneeId: U, recordedBy: U }));
     val(r.updateTask(t.id, { dueAt: "2026-10-23T10:00:00.000Z" }, "user-2"));
     closeIt(r, t.id, "failure", "Nem sikerült elérni az ügyfelet.");
@@ -49,7 +49,7 @@ describe("Előzmények (v0.9) — időrendi lista az aktivitásnaplóból", () =
   it("D7: a régi (v0.8-ig) naplóbejegyzések változatlanul, kitalált minősítés nélkül jelennek meg", () => {
     const base = emptySnapshot();
     const r = newRepo(base);
-    const c = val(r.createCustomerFromForm({ type: "individual", name: "Régi Napló", recordedBy: U })).customer;
+    const c = val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name: "Régi Napló", recordedBy: U })).customer;
     const legacy: Activity[] = [
       { id: "act-a", customerId: c.id, type: "task_completed", occurredAt: "2026-05-02T10:00:00.000Z", summary: "Feladat lezárva: Telefonhívás — Nem sikerült elérni", recordedBy: U, meta: { taskId: "task-x", output: "Nem sikerült elérni" } },
       { id: "act-b", customerId: c.id, type: "task_updated", occurredAt: "2026-05-01T10:00:00.000Z", summary: "Feladat újranyitva: Telefonhívás", recordedBy: U, meta: { taskId: "task-x" } },

@@ -5,7 +5,7 @@ import { nextTask, overdueTasks, tasksByStatus, tasksDueToday } from "@/domain/l
 import { NOW, U, byName, closeIt, errs, newRepo, seed, tickRepo, val } from "./helpers";
 
 type Repo = ReturnType<typeof newRepo>;
-const mk = (r: Repo, name = "Feladat Teszt") => val(r.createCustomerFromForm({ type: "individual", name, recordedBy: U })).customer;
+const mk = (r: Repo, name = "Feladat Teszt") => val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name, recordedBy: U })).customer;
 const add = (r: Repo, customerId: string, title: string, extra: object = {}) => val(r.createTask({ customerId, title, assigneeId: U, recordedBy: U, ...extra }));
 const to = (r: Repo, id: string, toStatus: string) => val(r.changeCrmStatus(id, { toStatus, recordedBy: U }));
 const view = (r: Repo, id: string) => tasksByStatus(r.getSnapshot(), r.getSnapshot().customers.find((c) => c.id === id)!);

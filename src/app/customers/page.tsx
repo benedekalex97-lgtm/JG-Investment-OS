@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { CrmStatusBadge, DataGate, optionLabel, RestrictedBadge, TypeBadge } from "@/components/common";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { ChannelBadge, CrmStatusBadge, DataGate, optionLabel, RestrictedBadge, TypeBadge } from "@/components/common";
 import { FilterSelect } from "@/components/ui/form";
 import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui/primitives";
 import { CUSTOMER_TYPES, CUSTOMER_TYPE_LABELS } from "@/domain/constants";
@@ -12,7 +13,12 @@ import type { DataSnapshot } from "@/domain/types";
 import { formatDate } from "@/lib/format";
 
 function CustomerTable({ data }: { data: DataSnapshot }) {
-  const [f, setF] = useState<Required<CustomerFilter>>({ query: "", type: "", crmStatus: "" });
+  // A Csatornák kimutatás hivatkozása (?csatorna=kulcs) előre beállítja a szűrőt; ismeretlen kulcs nem választható ki, ezért üres szűrő lesz.
+  const params = useSearchParams();
+  const [f, setF] = useState<Required<CustomerFilter>>(() => {
+    const k = params.get("csatorna") ?? "";
+    return { query: "", type: "", crmStatus: "", acquisitionChannel: data.config.acquisitionChannels.some((c) => c.key === k) ? k : "" };
+  });
   const rows = useMemo(() => searchCustomers(data, f).sort((a, b) => customerName(a).localeCompare(customerName(b), "hu")), [data, f]);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
   return (
@@ -30,16 +36,20 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
           <option value="">Összes</option>
           {ordered(data.config.statuses).map((s) => <option key={s.key} value={s.key}>{optionLabel(s)}</option>)}
         </FilterSelect>
+        <FilterSelect label="Érkezési csatorna" value={f.acquisitionChannel} onChange={(e) => set("acquisitionChannel", e.target.value)}>
+          <option value="">Összes</option>
+          {ordered(data.config.acquisitionChannels).map((s) => <option key={s.key} value={s.key}>{optionLabel(s)}</option>)}
+        </FilterSelect>
       </div>
       <p className="px-4 pt-3 text-[13px] text-ink-muted" role="status" aria-live="polite">{rows.length} találat</p>
       {rows.length === 0 ? (
         <EmptyState title="Nincs a szűrésnek megfelelő ügyfél" hint="Módosítsd a keresést vagy a szűrőket." />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] text-left text-sm">
+          <table className="w-full min-w-[50rem] text-left text-sm">
             <caption className="sr-only">Ügyfelek</caption>
             <thead className="text-xs uppercase tracking-wide text-ink-subtle">
-              <tr>{["Név", "Típus", "Kapcsolati státusz", "Következő feladat"].map((h) => <th key={h} scope="col" className="px-4 py-2 font-medium">{h}</th>)}</tr>
+              <tr>{["Név", "Típus", "Kapcsolati státusz", "Érkezési csatorna", "Következő feladat"].map((h) => <th key={h} scope="col" className="px-4 py-2 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-line">
               {rows.map((c) => {
@@ -50,10 +60,16 @@ function CustomerTable({ data }: { data: DataSnapshot }) {
                     <td className="max-w-xs px-4 py-3">
                       <Link href={`/customers/${c.id}`} className="break-words font-medium text-accent hover:underline">{customerName(c)}</Link>
                       {c.restriction ? <p className="mt-1"><RestrictedBadge customer={c} /></p> : null}
+                      {/* Mobilon az Érkezési csatorna oszlop a vízszintes görgetésen túl van: a név alatt is látszik. */}
+                      <p className="mt-1 sm:hidden"><ChannelBadge channel={c.acquisitionChannel} config={data.config} /></p>
                       {why.length ? <p className="break-all text-xs text-ink-muted">Egyezés — {why.slice(0, 2).map((m) => `${m.label}: ${m.value}`).join(" · ")}</p> : null}
                     </td>
                     <td className="px-4 py-3"><TypeBadge type={c.type} /></td>
                     <td className="px-4 py-3"><CrmStatusBadge status={statusOf(c)} config={data.config} /></td>
+                    <td className="max-w-[14rem] px-4 py-3">
+                      <ChannelBadge channel={c.acquisitionChannel} config={data.config} />
+                      {c.acquisitionDetail ? <p className="mt-1 break-words text-xs text-ink-muted">{c.acquisitionDetail}</p> : null}
+                    </td>
                     <td className="px-4 py-3 text-ink-muted">{task ? <>{task.title}{task.dueAt ? <><br /><span className="text-xs">{formatDate(task.dueAt)}</span></> : null}</> : "—"}</td>
                   </tr>
                 );
@@ -84,7 +100,7 @@ export default function CustomersPage() {
   return (
     <>
       <RemovedNotice />
-      <PageHeader title="Ügyfelek" description="Magánszemélyek és cégek. Minden ügyfélnek egy aktuális kapcsolati státusza és státuszhoz tartozó feladatai vannak." actions={<LinkButton href="/customers/new">+ Új ügyfél</LinkButton>} />
+      <PageHeader title="Ügyfelek" description="Magánszemélyek és cégek. Minden ügyfélnek egy aktuális kapcsolati státusza és státuszhoz tartozó feladatai vannak." actions={<><LinkButton href="/pipeline/channels" variant="secondary">Csatornák</LinkButton><LinkButton href="/customers/new">+ Új ügyfél</LinkButton></>} />
       <DataGate>
         {(data) =>
           data.customers.length === 0 ? (
@@ -92,7 +108,7 @@ export default function CustomersPage() {
               <EmptyState title="Még nincs rögzített ügyfél." hint="Az adatbázis még üres. Az adat mentése tartós; fiktív/előnézeti környezetben ne rögzíts valós ügyféladatot." action={<LinkButton href="/customers/new">+ Első ügyfél hozzáadása</LinkButton>} />
             </Card>
           ) : (
-            <CustomerTable data={data} />
+            <Suspense fallback={null}><CustomerTable data={data} /></Suspense>
           )
         }
       </DataGate>

@@ -187,7 +187,7 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: legkiseb
   it("a teljes alkalmazás-folyamat működik a futási szerepkörrel: belépés, ügyfél, feladat, lezárás, pillanatkép, kijelentkezés", async () => {
     const c = client(makeApi(rt));
     expect((await c.login("pilot.egy@example.test", PASSWORD_A)).status).toBe(200);
-    const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", companyName: "Futási Kft.", contactName: "Teszt Béla" } })).body.result.value!.customer;
+    const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", acquisitionChannel: "egyeb", companyName: "Futási Kft.", contactName: "Teszt Béla" } })).body.result.value!.customer;
     const task = (await c.op<{ id: string }>("task.create", { input: { customerId: cust.id, taskType: "email", inputKey: "first_contact" } })).body.result.value!;
     expect((await c.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Futási szerepkörrel lezárva" } })).body.result.ok).toBe(true);
     expect((await c.op("customer.changeStatus", { customerId: cust.id, input: { toStatus: "contact" } })).body.result.ok).toBe(true);

@@ -5,7 +5,7 @@ import { emptySnapshot } from "@/domain/types";
 import { U, byName, newRepo, seed, val } from "./helpers";
 
 type Repo = ReturnType<typeof newRepo>;
-const mk = (r: Repo, name: string) => val(r.createCustomerFromForm({ type: "individual", name, recordedBy: U })).customer;
+const mk = (r: Repo, name: string) => val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name, recordedBy: U })).customer;
 const cardsOf = (r: Repo, id: string) => crmPipeline(r.getSnapshot()).flatMap((c) => c.customers).filter((c) => c.id === id);
 const columnOf = (r: Repo, id: string) => crmPipeline(r.getSnapshot()).find((c) => c.customers.some((x) => x.id === id))!.status;
 

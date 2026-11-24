@@ -57,11 +57,23 @@ export interface TaskInputDef extends CatalogBase {
   allowsNote: boolean;
 }
 
+/** Érkezési csatorna (v1.2): honnan érkezett az ügyfél. Független az adatforrástól (`customers.source`). */
+export interface AcquisitionChannelDef extends CatalogBase {
+  description?: string;
+}
+
 export interface CrmConfig {
   statuses: PipelineStatusDef[];
   taskTypes: TaskTypeDef[];
   taskInputs: TaskInputDef[];
+  /** v1.2: érkezési csatornák katalógusa (`crm_acquisition_channels`, 0011). */
+  acquisitionChannels: AcquisitionChannelDef[];
 }
+
+/** A rendszer-csatorna kulcsa: a régi és az importált ügyfelek alapértéke; nem archiválható. */
+export const UNKNOWN_CHANNEL_KEY = "ismeretlen";
+/** Az érkezési csatorna részletének (`acquisition_detail`) legnagyobb hossza. */
+export const ACQUISITION_DETAIL_MAX = 200;
 
 const sys = { isActive: true, isSystem: true, version: 1 } as const;
 
@@ -92,6 +104,21 @@ export const BUILTIN_CRM_CONFIG: CrmConfig = {
     { ...sys, key: "follow_up", label: "Utánkövetés", sortOrder: 50, allowsNote: false },
     { ...sys, key: "other", label: "Egyéb", sortOrder: 60, allowsNote: true },
   ],
+  /** v1.2 kezdő elemek (a 0011 migráció ezekkel tölti fel a katalógust; csak az `ismeretlen` rendszerelem). */
+  acquisitionChannels: [
+    { isActive: true, isSystem: false, version: 1, key: "weboldal", label: "Weboldal (közvetlen kapcsolatfelvétel)", sortOrder: 10 },
+    { isActive: true, isSystem: false, version: 1, key: "google_kereses", label: "Google-keresés", sortOrder: 20 },
+    { isActive: true, isSystem: false, version: 1, key: "google_cegprofil", label: "Google Cégprofil", sortOrder: 30 },
+    { isActive: true, isSystem: false, version: 1, key: "facebook", label: "Facebook", sortOrder: 40 },
+    { isActive: true, isSystem: false, version: 1, key: "linkedin", label: "LinkedIn", sortOrder: 50 },
+    { isActive: true, isSystem: false, version: 1, key: "bemutatkozo_level", label: "Bemutatkozó levél", sortOrder: 60 },
+    { isActive: true, isSystem: false, version: 1, key: "ajanlas", label: "Ajánlás (ügyfél vagy ismerős)", sortOrder: 70 },
+    { isActive: true, isSystem: false, version: 1, key: "szemelyes_ismeretseg", label: "Személyes ismeretség", sortOrder: 80 },
+    { isActive: true, isSystem: false, version: 1, key: "kh_ertekpapir", label: "K&H Értékpapír közvetítése", sortOrder: 90 },
+    { isActive: true, isSystem: false, version: 1, key: "rendezveny", label: "Rendezvény, előadás", sortOrder: 100 },
+    { isActive: true, isSystem: false, version: 1, key: "egyeb", label: "Egyéb", sortOrder: 110 },
+    { isActive: true, isSystem: true, version: 1, key: "ismeretlen", label: "Ismeretlen", sortOrder: 120, description: "A régi és az importált ügyfelek alapértéke; rendszerelem, nem archiválható." },
+  ],
 };
 
 /** A v1.0 alapértelmezett státuszkulcsa: a régi, státusz nélküli ügyfél olvasáskor ebben a státuszban látszik (nem íródik át). */
@@ -103,12 +130,17 @@ export const activeOf = <T extends CatalogBase>(list: readonly T[]): T[] => orde
 
 export const findStatus = (cfg: CrmConfig, key: string | undefined) => (key ? cfg.statuses.find((s) => s.key === key) : undefined);
 export const findTaskType = (cfg: CrmConfig, key: string | undefined) => (key ? cfg.taskTypes.find((s) => s.key === key) : undefined);
+export const findChannel = (cfg: CrmConfig, key: string | undefined) => (key ? cfg.acquisitionChannels.find((s) => s.key === key) : undefined);
 export const findTaskInput = (cfg: CrmConfig, key: string | undefined) => (key ? cfg.taskInputs.find((s) => s.key === key) : undefined);
 
 /** A megjelenítendő név; ismeretlen (pl. kivezetett) kulcsnál maga a kulcs - nincs adatvesztés, nincs kitalált név. */
 export const statusLabel = (cfg: CrmConfig, key: string): string => findStatus(cfg, key)?.label ?? key;
 export const taskTypeLabel = (cfg: CrmConfig, key: string): string => findTaskType(cfg, key)?.label ?? key;
 export const taskInputLabel = (cfg: CrmConfig, key: string): string => findTaskInput(cfg, key)?.label ?? key;
+/** Az érkezési csatorna megjelenítendő neve; ismeretlen kulcsnál maga a kulcs (nincs kitalált név). */
+export const channelLabel = (cfg: CrmConfig, key: string): string => findChannel(cfg, key)?.label ?? key;
+/** Új ügyfélhez / módosításhoz csak aktív, a katalógusban szereplő csatorna választható. */
+export const isSelectableChannel = (cfg: CrmConfig, key: string) => findChannel(cfg, key)?.isActive === true;
 export const statusColor = (cfg: CrmConfig, key: string): StatusColor => findStatus(cfg, key)?.color ?? "neutral";
 
 /** Az alapértelmezett (új ügyfél) státusz kulcsa a katalógusból; a rendszerstátusz kulcsa nem változhat. */

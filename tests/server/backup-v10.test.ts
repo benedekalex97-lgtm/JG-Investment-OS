@@ -31,10 +31,10 @@ async function seed(db: Db) {
     const handle = makeApi(db);
     const c = client(handle);
     await c.login("pilot.egy@example.test", PASSWORD_A);
-    const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", companyName: "Mentett Kft.", contactName: "Mentő Márta", phone: "+36 1 000 0301" } })).body.result.value!.customer;
+    const cust = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "company", acquisitionChannel: "egyeb", companyName: "Mentett Kft.", contactName: "Mentő Márta", phone: "+36 1 000 0301" } })).body.result.value!.customer;
     const task = (await c.op<{ id: string }>("task.create", { input: { customerId: cust.id, taskType: "email" } })).body.result.value!;
     await c.op("task.close", { taskId: task.id, input: { outcome: "success", output: "Fiktív Output szöveg" } });
-    const gone = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", name: "Eltávolított Edit" } })).body.result.value!.customer;
+    const gone = (await c.op<{ customer: { id: string } }>("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Eltávolított Edit" } })).body.result.value!.customer;
     await db.system((tx) => tx.query("update customers set deleted_at = now(), deleted_by = $2 where id = $1", [gone.id, a.id]));
     await db.system((tx) => tx.query("insert into customer_restrictions (customer_id, kind, note, recorded_at, recorded_by) values ($1, 'restriction', 'fiktív korlátozás', now(), $2)", [cust.id, a.id]));
     const U = uploader(handle, c);
@@ -129,7 +129,7 @@ describe.each(DRIVERS)("v1.0 mentés és visszaállítás (%s)", (kind) => {
       expect((await w.login("pilot.ketto@example.test", PASSWORD_B)).status).toBe(200);
       expect((await w.get("/api/data/import/jobs")).status).toBe(403);
       // Az audit-sorszám folytatódik (nincs ütközés az új bejegyzéssel).
-      expect((await c.op("customer.create", { input: { type: "individual", name: "Visszaállítás Utáni" } })).body.result.ok).toBe(true);
+      expect((await c.op("customer.create", { input: { type: "individual", acquisitionChannel: "egyeb", name: "Visszaállítás Utáni" } })).body.result.ok).toBe(true);
       const g = await dst.db.system((tx) => tx.query<{ n: string }>("select count(*) as n from oauth_identities where subject = 'fiktiv-mentes-subject'"));
       expect(Number(g[0].n)).toBe(1);
     } finally { await dst.cleanup(); }

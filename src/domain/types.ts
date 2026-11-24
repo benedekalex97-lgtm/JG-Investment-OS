@@ -53,6 +53,13 @@ interface CustomerBase {
   crmStatus?: CrmStatus;
   ownerId: string;
   source: string;
+  /**
+   * v1.2: az érkezési csatorna katalógus-kulcsa (`crm_acquisition_channels`). Az adat EREDETÉTŐL (`source`) független; a régi és az
+   * importált ügyfelek alapértéke `ismeretlen`.
+   */
+  acquisitionChannel: string;
+  /** v1.2: opcionális szabad szavas részlet (legfeljebb 200 karakter), pl. „TBSZ-útmutató”. */
+  acquisitionDetail?: string;
   verificationStatus: DataVerificationStatus;
   email?: string;
   phone?: string;
@@ -143,6 +150,11 @@ export interface ActivityMeta {
   toDueAt?: string | null;
   fromCrmStatus?: CrmStatus;
   toCrmStatus?: CrmStatus;
+  /** v1.2: érkezési csatorna / részlet módosítása (régi -> új); a részlet `null` = nem volt / törölve. */
+  fromAcquisitionChannel?: string;
+  toAcquisitionChannel?: string;
+  fromAcquisitionDetail?: string | null;
+  toAcquisitionDetail?: string | null;
   taskId?: string;
   restrictionKind?: RestrictionKind | null;
 }

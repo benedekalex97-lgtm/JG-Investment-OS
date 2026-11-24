@@ -1,5 +1,5 @@
 import { ACTIVITY_LABELS, CALL_OUTCOME_LABELS, TASK_OUTCOME_LABELS, VERIFICATION_SOURCE_LABELS } from "./constants";
-import { BUILTIN_CRM_CONFIG, statusLabel } from "./config";
+import { BUILTIN_CRM_CONFIG, channelLabel, statusLabel } from "./config";
 import type { Activity, DataSnapshot, TaskOutcome } from "./types";
 
 /**
@@ -72,6 +72,17 @@ export function historyEntry(a: Activity, snap: Pick<DataSnapshot, "tasks" | "pr
           ? [{ label: "Korábbi státusz", value: statusLabel(cfg, m.fromCrmStatus) }, { label: "Új státusz", value: statusLabel(cfg, m.toCrmStatus) }]
           : [{ label: "Összefoglaló", value: a.summary }],
       };
+    case "acquisition_change": {
+      // v1.2: érkezési csatorna / részlet módosítása (régi -> új), a katalógus aktuális nevével; a rögzítő és az idő a bejegyzésé.
+      const details: HistoryDetail[] = [];
+      if (m.fromAcquisitionChannel !== undefined && m.toAcquisitionChannel !== undefined && m.fromAcquisitionChannel !== m.toAcquisitionChannel) {
+        details.push({ label: "Korábbi érkezési csatorna", value: channelLabel(cfg, m.fromAcquisitionChannel) }, { label: "Új érkezési csatorna", value: channelLabel(cfg, m.toAcquisitionChannel) });
+      }
+      if (m.fromAcquisitionDetail !== undefined && m.toAcquisitionDetail !== undefined && m.fromAcquisitionDetail !== m.toAcquisitionDetail) {
+        details.push({ label: "Korábbi részlet", value: m.fromAcquisitionDetail ?? "nem volt megadva" }, { label: "Új részlet", value: m.toAcquisitionDetail ?? "törölve" });
+      }
+      return { ...base, kind: "other", title: ACTIVITY_LABELS.acquisition_change, details: details.length ? details : [{ label: "Összefoglaló", value: a.summary }] };
+    }
     default: {
       // Minden más (régi) naplózott esemény változatlan összefoglalóval, a megőrzött kiegészítő adatokkal.
       const details: HistoryDetail[] = [{ label: "Összefoglaló", value: a.summary, multiline: true }];

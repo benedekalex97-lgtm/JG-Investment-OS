@@ -5,7 +5,7 @@ import { emptySnapshot } from "@/domain/types";
 import { U, byName, closeIt, errs, newRepo, seed, tickRepo, val } from "./helpers";
 
 type Repo = ReturnType<typeof newRepo>;
-const mk = (r: Repo, name = "Input Output Teszt") => val(r.createCustomerFromForm({ type: "individual", name, recordedBy: U })).customer;
+const mk = (r: Repo, name = "Input Output Teszt") => val(r.createCustomerFromForm({ type: "individual", acquisitionChannel: "egyeb", name, recordedBy: U })).customer;
 const newTask = (r: Repo, customerId: string, taskType: string, extra: object = {}) => r.createTask({ customerId, taskType, assigneeId: U, recordedBy: U, ...extra });
 
 describe("új feladat — feladattípus, Input, határidő", () => {

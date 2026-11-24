@@ -137,7 +137,7 @@ const rowLabels = (page) => page.locator('[data-testid="catalog-row"] [data-test
     log("SET-001: áttekintés valós adatokkal (3 aktív felhasználó, 7 státusz, 6 típus, import kikapcsolva)",
       stats.some((s) => s.startsWith("Aktív felhasználók3")) && stats.some((s) => s.startsWith("Aktív Pipeline-státuszok7")) && stats.some((s) => s.startsWith("Aktív feladattípusok6")) && stats.some((s) => s.includes("Véglegesítés kikapcsolva")), stats.join(" | "));
     const navItems = await pageA.locator('nav[aria-label="Beállítások"] a').allTextContents();
-    log("N05: admin: a működő aloldalak elérhetők, az adatkezelési jog nélküliek nem", navItems.join("|") === "Áttekintés|Felhasználók és jogosultságok|Pipeline-státuszok|Feladattípusok|Input-opciók|Változásnapló", navItems.join("|"));
+    log("N05: admin: a működő aloldalak elérhetők, az adatkezelési jog nélküliek nem", navItems.join("|") === "Áttekintés|Felhasználók és jogosultságok|Pipeline-státuszok|Érkezési csatornák|Feladattípusok|Input-opciók|Változásnapló", navItems.join("|"));
     await checkPage(pageA, "desktop", "beallitasok attekintes");
 
     await pageA.goto(BASE + "/settings/pipeline", { waitUntil: "networkidle" });
@@ -182,6 +182,7 @@ const rowLabels = (page) => page.locator('[data-testid="catalog-row"] [data-test
     log("S14: új ügyfélnél választható az új státusz", options.includes("E2E Ajánlatkérés"));
     await pageA.getByLabel(/^Név/).fill("E2E Fiktív Ügyfél");
     await pageA.getByLabel("Kapcsolati státusz").selectOption({ label: "E2E Ajánlatkérés" });
+    await pageA.getByLabel(/^Érkezési csatorna\s*\*?$/).selectOption({ label: "Egyéb" });
     await pageA.getByRole("button", { name: "Ügyfél létrehozása" }).click();
     await pageA.waitForURL("**/customers/cust-*");
     log("S15: az ügyféladatlapon az új státusz látszik", (await pageA.getByLabel("Kapcsolati státusz").inputValue()) === "e2e_ajanlat");

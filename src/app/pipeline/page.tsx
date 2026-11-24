@@ -72,7 +72,7 @@ function Board({ data }: { data: DataSnapshot }) {
 export default function PipelinePage() {
   return (
     <>
-      <PageHeader title="Pipeline" description="Az ügyfelek kapcsolati státusz szerint: egy ügyfél egy kártya. A kártyára kattintva az ügyféladatlap nyílik meg, ahol a státusz módosítható." actions={<LinkButton href="/customers/new" variant="secondary">+ Új ügyfél</LinkButton>} />
+      <PageHeader title="Pipeline" description="Az ügyfelek kapcsolati státusz szerint: egy ügyfél egy kártya. A kártyára kattintva az ügyféladatlap nyílik meg, ahol a státusz módosítható." actions={<><LinkButton href="/pipeline/channels" variant="secondary">Csatornák</LinkButton><LinkButton href="/customers/new" variant="secondary">+ Új ügyfél</LinkButton></>} />
       <DataGate>{(data) => <Board data={data} />}</DataGate>
     </>
   );
