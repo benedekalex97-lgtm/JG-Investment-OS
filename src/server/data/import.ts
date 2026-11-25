@@ -15,6 +15,7 @@ import type { AuthUser } from "../auth/service";
 import { customerFromRow, contactFromRow, contactToRow, customerToRow, type Row } from "../crm/rows";
 import { newId } from "../crm/ops";
 import type { Tx } from "../db/types";
+import { loadSuppressionSet, suppressionHashes } from "../privacy/privacy";
 import type { DataLimits } from "./limits";
 import { parseUpload, type FileType, type ParsedUpload } from "./upload";
 
@@ -83,6 +84,8 @@ interface DupIndex {
   contactsOf: Map<string, CompanyContact[]>;
   removed: Set<string>;
   restricted: Set<string>;
+  /** v1.3: a tiltólista lenyomatai (törölt vagy tiltakozó érintettek elérhetőségei). */
+  suppressed: Set<string>;
   byEmail: Map<string, Set<string>>;
   byPhone: Map<string, Set<string>>;
   byName: Map<string, Set<string>>;
@@ -100,7 +103,7 @@ async function loadIndex(tx: Tx): Promise<DupIndex> {
   const contactRows = await tx.query<Row>("select * from company_contacts");
   const restrictionRows = await tx.query<{ customer_id: string }>("select customer_id from customer_restrictions");
   const idx: DupIndex = {
-    customers: new Map(), contactsOf: new Map(), removed: new Set(), restricted: new Set(restrictionRows.map((r) => String(r.customer_id))),
+    customers: new Map(), contactsOf: new Map(), removed: new Set(), restricted: new Set(restrictionRows.map((r) => String(r.customer_id))), suppressed: await loadSuppressionSet(tx),
     byEmail: new Map(), byPhone: new Map(), byName: new Map(),
   };
   for (const r of custRows) {
@@ -285,9 +288,12 @@ function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, user
     const fileMatches = fileIdx.match(d);
     fileIdx.add(d, rowNo);
     const strong = matches.some((m) => m.level === "strong") || fileMatches.some((m) => m.level === "strong");
-    const restricted = matches.some((m) => m.level === "strong" && m.restricted);
+    // v1.3: tiltólistás elérhetőség (korábban törölt vagy tiltakozó érintett) - a sor nem importálható, egyezés nélkül is.
+    const suppressed = suppressionHashes({ emails: [d.email, d.contactEmail], phones: [d.phone, d.contactPhone] }).some((h) => idx.suppressed.has(h.hash));
+    if (suppressed) issues.push({ level: "error", code: "suppressed", message: "Az elérhetőség az adatvédelmi tiltólistán szerepel (korábbi törlési kérelem vagy tiltakozás): a sor nem importálható." });
+    const restricted = suppressed || matches.some((m) => m.level === "strong" && m.restricted);
     const possible = !strong && (matches.length > 0 || fileMatches.length > 0);
-    if (restricted) issues.push({ level: "error", code: "restricted_match", message: "Az egyező ügyfélnél megkeresési korlátozás vagy tiltakozás van nyilvántartva: a sor nem importálható." });
+    if (restricted && !suppressed) issues.push({ level: "error", code: "restricted_match", message: "Az egyező ügyfélnél megkeresési korlátozás vagy tiltakozás van nyilvántartva: a sor nem importálható." });
     else if (matches.some((m) => m.restricted)) issues.push({ level: "warning", code: "restricted_similar", message: "Hasonló nevű ügyfélnél megkeresési korlátozás vagy tiltakozás van nyilvántartva: ellenőrizd, nem ugyanaz a személy-e." });
     const state: RowState = restricted ? "R" : strong ? "S" : possible ? "P" : ev.status === "warning" || issues.some((i) => i.level === "warning") ? "W" : "V";
     rows.push({ rowNo, state, issues, display, matches, fileMatches });

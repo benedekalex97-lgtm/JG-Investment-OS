@@ -14,6 +14,23 @@ npm run typecheck && npm run lint && npm test -- --run && npm run build
 npm run e2e          # Playwright E2E, saját szerverrel és ideiglenes adatbázissal (lásd e2e/README.md)
 ```
 
+## Adatvédelem és adatbiztonság (v1.3)
+Beállítások › **Adatvédelem** (`crm.privacy.manage`; végleges törléshez külön `crm.privacy.erase`), részletek: `docs/V1.3-DATA-PROTECTION.md`.
+- **Érintetti kérelmek** (GDPR 15-21. cikk) nyilvántartása 1 hónapos határidővel, egyszeri meghosszabbítással, azonosítás-jelöléssel; lezárt kérelem végleges.
+- **Adatkivonat** (hozzáférés / hordozhatóság): az érintett összes CRM-adata JSON-ban, adatkezelési tájékoztatóval; minden letöltés naplózott.
+- **Tiltakozás / korlátozás rögzítése**; **végleges törlés (anonimizálás)** minden táblában egy tranzakcióban, beírt megerősítéssel és **négy-szem elvvel** (a kérelmet rögzítő nem törölhet); az anonimizált ügyfél nem állítható vissza.
+- **Tiltólista**: a törölt / tiltakozó érintett elérhetőségének lenyomata — az import elutasítja, kézi felvitelt csak adatvédelmi jog mellett, naplózott megerősítéssel enged.
+- **Megőrzés**: felülvizsgálandó (inaktív / régen eltávolított) ügyfelek listája; technikai adatok törlése CLI-ből.
+- **Biztonsági fejlécek** (CSP, HSTS, COOP/CORP), Next.js 16.4.6 / Zod 4.6.7 (ismert sérülékenységek javítva).
+
+```bash
+npm run db -- retention:report                                          # lejárt technikai rekordok (előnézet)
+JG_OPERATOR="<üzemeltető>" npm run db -- retention:run                  # ... törlése (élesben JG_CONFIRM_PRODUCTION=yes)
+npm run db -- privacy:ledger <fájl>                                     # anonimizált ügyfelek azonosítói (a mentések mellé)
+JG_OPERATOR="<üzemeltető>" npm run db -- privacy:reapply <fájl> <e-mail> # régebbi mentés visszaállítása után: újra-anonimizálás
+npm run e2e:privacy                                                     # böngészős E2E (build után)
+```
+
 ## Stack és indoklás
 Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFlow OS-sel azonos, bevált stack,
 így a későbbi éles réteg (hitelesítés, szerveroldali jogosultság) ugyanazokkal a mintákkal építhető.
@@ -33,6 +50,9 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V1.3-PRIVACY-OPERATIONS-CHECKLIST.md` — **v1.3 bevezetési ellenőrzőlista: jogosultsági terv (négy-szem elv), adatfeldolgozói szerződések, mentések, működési rutin**
+- `docs/V1.3-LIA-JOGOS-ERDEK.md` — érdekmérlegelési teszt (jogos érdek, 6. cikk (1) f))
+- `docs/V1.3-DATA-PROTECTION.md` — **v1.3: adatvédelem (GDPR) - érintetti kérelmek, adatkivonat, tiltakozás, végleges törlés, tiltólista, megőrzés, biztonsági fejlécek; adatleltár, 30. cikk szerinti nyilvántartás-tervezet, incidenskezelés, nyitott DPO-döntések**
 - `docs/V1.2-ACQUISITION-CHANNELS.md` — **v1.2: érkezési csatorna az ügyfelekhez (katalógus, kötelező választás kézi felvételnél, szűrés, export/import, Csatornák kimutatás); a `source` és a csatorna különbsége; migráció és rollback; következő lépések**
 - `docs/V1.1-ADMIN-SETTINGS.md` — **v1.1: Beállítások - konfigurálható Pipeline-státuszok, feladattípusok, Input-opciók; felhasználói jogok; változásnapló; migráció, mentés, rollback**
 - `docs/V0.6.2-NEON-VERCEL.md` — **v0.6.2: Neon preview + Vercel előkészítés, környezeti változók, első admin, futási szerepkör, Vercel hozzáférés állapota**

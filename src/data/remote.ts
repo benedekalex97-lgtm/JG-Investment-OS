@@ -70,8 +70,11 @@ export class RemoteRepository {
   }
 
   /** CRM-013: `confirmDuplicates` csak a felhasználó kifejezett döntése után („Mégis új ügyfél létrehozása”). */
-  createCustomerFromForm(input: unknown, opts: { confirmDuplicates?: boolean } = {}) {
-    return this.call<{ customer: Customer; contact?: CompanyContact }>("customer.create", { input, ...(opts.confirmDuplicates ? { confirmDuplicates: true } : {}) });
+  /** v1.3: `confirmSuppression` csak adatvédelmi joggal hat (a szerver ellenőrzi): az érintett maga kezdeményezett új kapcsolatot. */
+  createCustomerFromForm(input: unknown, opts: { confirmDuplicates?: boolean; confirmSuppression?: boolean } = {}) {
+    return this.call<{ customer: Customer; contact?: CompanyContact }>("customer.create", {
+      input, ...(opts.confirmDuplicates ? { confirmDuplicates: true } : {}), ...(opts.confirmSuppression ? { confirmSuppression: true } : {}),
+    });
   }
   updateCustomer(id: string, input: unknown) {
     return this.call<Customer>("customer.update", { id, input });

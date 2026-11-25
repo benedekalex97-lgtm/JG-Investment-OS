@@ -12,15 +12,16 @@
     "e2e": "node e2e/v0.6.e2e.cjs && node e2e/v1.0-data.e2e.cjs",
     "db": "tsx --env-file-if-exists=.env.local scripts/db.ts",
     "e2e:data": "node e2e/v1.0-data.e2e.cjs",
-    "e2e:channels": "node e2e/v1.2-channels.e2e.cjs"
+    "e2e:channels": "node e2e/v1.2-channels.e2e.cjs",
+    "e2e:privacy": "node e2e/v1.3-privacy.e2e.cjs"
   },
   "dependencies": {
-    "next": "^16.4.0",
+    "next": "^16.4.6",
     "openid-client": "6.8.8",
     "pg": "^8.23.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.9",

@@ -18,6 +18,7 @@ export const BACKUP_TABLES = [
   "users", "oauth_identities", "user_permissions", "crm_pipeline_statuses", "crm_task_types", "crm_task_input_options", "crm_acquisition_channels",
   "customers", "customer_restrictions", "company_contacts", "processes", "activities", "tasks", "task_results",
   "contactability", "audit_events", "request_log", "import_jobs", "import_results", "ops_log", "settings_audit",
+  "privacy_requests", "privacy_suppressions",
 ] as const;
 /**
  * v1.1 konfigurációs katalógusok: a migráció (0008) a v1.0 értékekkel tölti fel őket, ezért egy frissen migrált céladatbázisban NEM
@@ -45,6 +46,8 @@ export const TABLE_SINCE: Partial<Record<BackupTable, string>> = {
   crm_task_types: "0008_crm_config_catalogs",
   crm_task_input_options: "0008_crm_config_catalogs",
   crm_acquisition_channels: "0011_crm_acquisition_channels",
+  privacy_requests: "0012_crm_privacy",
+  privacy_suppressions: "0012_crm_privacy",
 };
 
 export interface Backup {
@@ -62,6 +65,7 @@ const orderBy: Record<BackupTable, string> = {
   company_contacts: "created_at, id", processes: "created_at, id", activities: "occurred_at, id", tasks: "created_at, id", task_results: "task_id, seq", contactability: "id",
   audit_events: "id", request_log: "created_at, request_id", import_jobs: "created_at, id", import_results: "job_id, row_no", ops_log: "id",
   crm_pipeline_statuses: "key", crm_task_types: "key", crm_task_input_options: "key", crm_acquisition_channels: "key", settings_audit: "id",
+  privacy_requests: "created_at, id", privacy_suppressions: "created_at, hash",
 };
 
 /** Kanonikus JSON (rendezett kulcsok) - a tábla-lenyomatokhoz. */
@@ -183,7 +187,7 @@ export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise
     // A v1.1 őr-, napló- és aktív-elem triggerei a visszaállítás idejére (csak ebben a tranzakcióban) kikapcsolnak: a mentés a már
     // naplózott, korábban érvényes állapotot tartalmazza (pl. archivált státuszban lévő ügyfelet, a mentett verziószámokat). Az idegen
     // kulcsok és CHECK-ek érvényesek maradnak. Hiba esetén a tranzakció visszagördül, a triggerek is visszakapcsolnak.
-    const guarded = [...CATALOG_TABLES, "user_permissions", "customers", "tasks"];
+    const guarded = [...CATALOG_TABLES, "user_permissions", "customers", "tasks", "privacy_requests"];
     for (const t of guarded) await tx.exec(`alter table ${t} disable trigger user`);
     const derived: Partial<Record<CatalogTable, number>> = {};
     for (const t of BACKUP_TABLES) {

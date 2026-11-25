@@ -8,6 +8,7 @@ import type { Db, Tx } from "../db/types";
 import { DELETE_CONFIRMATION_WORD } from "../features";
 import { hasPermission } from "../data/permissions";
 import { findDuplicates, maskRemoved, type DuplicateCandidate } from "@/domain/duplicates";
+import { suppressedKinds } from "../privacy/privacy";
 import { contactFromRow, customerFromRow, type Row } from "./rows";
 import { loadConfig, loadSnapshot, saveDiff } from "./store";
 
@@ -58,11 +59,28 @@ export const OPS = {
     audit: (_a, v) => ({ action: "note.create", entityType: "activity", entityId: v.id, customerId: v.customerId }),
   }),
   // CRM-013: erős egyezés (azonos e-mail / telefonszám) esetén a létrehozáshoz explicit megerősítés kell (`confirmDuplicates`).
+  // v1.3: tiltólistás (korábban törölt vagy tiltakozó érintett) elérhetőséggel új ügyfél csak az adatvédelmi jogú felhasználó kifejezett
+  // megerősítésével vehető fel (pl. az érintett maga kezdeményezett új kapcsolatot) - a megerősítés naplózódik.
   "customer.create": defineOp({
-    args: z.object({ input: record, confirmDuplicates: z.boolean().optional() }).strict(),
+    args: z.object({ input: record, confirmDuplicates: z.boolean().optional(), confirmSuppression: z.boolean().optional() }).strict(),
     scope: () => null,
     replayCustomer: byCreatedCustomer,
-    precheck: async (tx, a) => {
+    precheck: async (tx, a): Promise<Result<never> | null> => {
+      const str = (k: string) => (typeof a.input[k] === "string" ? (a.input[k] as string) : undefined);
+      const hit = await suppressedKinds(tx, { emails: [str("email"), str("contactEmail")], phones: [str("phone"), str("contactPhone")] });
+      if (hit.length) {
+        const privileged = await hasPermission(tx, "crm.privacy.manage");
+        if (!(a.confirmSuppression === true && privileged)) {
+          return {
+            ok: false,
+            errors: {
+              _suppressed: privileged
+                ? "Ez az elérhetőség az adatvédelmi tiltólistán szerepel (korábbi törlési kérelem vagy tiltakozás). Csak akkor rögzítsd, ha az érintett maga kezdeményezett új kapcsolatfelvételt."
+                : "Ez az elérhetőség az adatvédelmi tiltólistán szerepel (korábbi törlési kérelem vagy tiltakozás), ezért nem rögzíthető. Fordulj az adatvédelmi felelőshöz.",
+            },
+          };
+        }
+      }
       if (a.confirmDuplicates === true) return null;
       const strong = (await strongDuplicates(tx, a.input)).filter((d) => d.level === "strong");
       return strong.length ? { ok: false, errors: { _duplicate: "Lehetséges, hogy ez az ügyfél már szerepel az adatbázisban. A létrehozáshoz megerősítés szükséges." }, duplicates: strong } : null;
@@ -70,7 +88,10 @@ export const OPS = {
     run: (repo, a, u) => repo.createCustomerFromForm({ ...a.input, recordedBy: u.id }),
     audit: (a, v) => ({
       action: "customer.create", entityType: "customer", entityId: v.customer.id, customerId: v.customer.id,
-      detail: { type: v.customer.type, crmStatus: v.customer.crmStatus, acquisitionChannel: v.customer.acquisitionChannel, ...(a.confirmDuplicates ? { duplicateConfirmed: true } : {}) },
+      detail: {
+        type: v.customer.type, crmStatus: v.customer.crmStatus, acquisitionChannel: v.customer.acquisitionChannel,
+        ...(a.confirmDuplicates ? { duplicateConfirmed: true } : {}), ...(a.confirmSuppression ? { suppressionConfirmed: true } : {}),
+      },
     }),
   }),
   "customer.update": defineOp({

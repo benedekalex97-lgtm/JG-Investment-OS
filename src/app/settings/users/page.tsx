@@ -10,7 +10,7 @@ import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
 interface AdminUser { id: string; name: string; email: string; active: boolean; createdAt: string; lastLoginAt: string | null; permissions: string[] }
-interface Perm { key: string; label: string; admin: boolean }
+interface Perm { key: string; label: string; admin: boolean; privacy?: boolean }
 interface UsersResponse { users: AdminUser[]; currentUserId: string; permissions: Perm[] }
 
 /**
@@ -119,7 +119,7 @@ function PermissionForm({ user, perms, onCancel, onDone }: { user: AdminUser; pe
       </div>
     );
   }
-  const groups: [string, Perm[]][] = [["Adatkezelés", perms.filter((p) => !p.admin)], ["Adminisztráció", perms.filter((p) => p.admin)]];
+  const groups: [string, Perm[]][] = [["Adatkezelés", perms.filter((p) => !p.admin && !p.privacy)], ["Adatvédelem (GDPR)", perms.filter((p) => p.privacy)], ["Adminisztráció", perms.filter((p) => p.admin)]];
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (grant.length || revoke.length) setStep("preview"); }} className="space-y-4">
       {!user.active ? <p className="rounded-md bg-warn-soft p-3 text-sm text-warn">Letiltott felhasználó: új jogosultság nem osztható ki, a meglévő visszavonható.</p> : null}
