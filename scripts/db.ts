@@ -17,6 +17,10 @@
  *   restore:check <fájl>       a visszaállítás minden előfeltételének ellenőrzése írás nélkül (integritás, séma, környezet, üres cél)
  *   restore <fájl>             visszaállítás ÜRES, migrált adatbázisba (éles célnál külön, a mentéshez kötött jóváhagyás kell)
  *   customer:list-removed | customer:restore <ügyfél-azonosító> <üzemeltető e-mail>   (CRM-006: logikailag eltávolított ügyfél visszaállítása)
+ *   retention:report | retention:run        (v1.3: lejárt technikai rekordok - munkamenetek, belépési folyamatok/kísérletek, régi
+ *       idempotencia-napló - előnézete / törlése; üzleti adatot nem töröl; a run-hoz JG_OPERATOR kell, élesben JG_CONFIRM_PRODUCTION=yes)
+ *   privacy:ledger <fájl> | privacy:reapply <fájl> <üzemeltető e-mail>   (v1.3: az anonimizált ügyfelek azonosítói (személyes adat nélkül);
+ *       régebbi mentés visszaállítása után az anonimizálás megismétlése, hogy a törölt adat ne éledjen fel)
  *   runtime-role:provision <szerepkör-név>   (legkisebb jogosultságú futási szerepkör; jelszó: JG_RUNTIME_PASSWORD;
  *       JG_RUNTIME_PASSWORD_MODE=scram (alapértelmezett) | plaintext (Neon: csak tiszta szöveges jelszót fogad el; TLS kötelező))
  * A jelszót a JG_USER_PASSWORD környezeti változó vagy interaktív (rejtett) bekérés adja - parancssori argumentum nem.
@@ -35,6 +39,8 @@ import { createPgliteDb } from "../src/server/db/pglite-driver";
 import { createUser, setActive, setPassword } from "../src/server/auth/service";
 import { PASSWORD_MODES, provisionRuntimeRole, type PasswordMode } from "../src/server/db/runtime-role";
 import { opsLog } from "../src/server/ops-log";
+import { retentionSettings } from "../src/server/privacy/privacy";
+import { erasureLedger, reapplyErasures, technicalRetention } from "../src/server/privacy/retention-ops";
 
 async function promptHidden(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
@@ -186,6 +192,36 @@ async function main() {
         console.log(r.restored ? `Visszaállítva: ${customerId}` : `Nincs ilyen eltávolított ügyfél: ${customerId}`);
         break;
       }
+      case "retention:report":
+      case "retention:run": {
+        const apply = cmd === "retention:run";
+        if (apply && env === "production" && process.env.JG_CONFIRM_PRODUCTION !== "yes") throw new Error("Éles törléshez JG_CONFIRM_PRODUCTION=yes szükséges.");
+        const settings = retentionSettings();
+        const r = await technicalRetention(db, { env, settings, apply, operator: process.env.JG_OPERATOR });
+        const c = r.counts;
+        console.log(`${r.applied ? "Törölve" : "Törölhető (előnézet, nem írtunk)"}: munkamenet ${c.sessions}, belépési folyamat ${c.oauthFlows}, belépési kísérlet ${c.loginAttempts}, idempotencia-napló (${settings.requestLogDays} napnál régebbi) ${c.requestLog}.`);
+        if (!r.applied) console.log("Végrehajtás: JG_OPERATOR=<üzemeltető> npm run db -- retention:run");
+        break;
+      }
+      case "privacy:ledger": {
+        const file = args[0];
+        if (!file) throw new Error("Használat: privacy:ledger <fájl>");
+        const ledger = await erasureLedger(db, env);
+        writeFileSync(file, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+        console.log(`Törlési napló kész: ${file} · ${ledger.customerIds.length} anonimizált ügyfél (csak azonosítók). Tárold a mentések mellett.`);
+        break;
+      }
+      case "privacy:reapply": {
+        const [file, operatorEmail] = args;
+        if (!file || !operatorEmail) throw new Error("Használat: JG_OPERATOR=<üzemeltető> privacy:reapply <törlési napló> <üzemeltető e-mail>");
+        if (env === "production" && process.env.JG_CONFIRM_PRODUCTION !== "yes") throw new Error("Éles művelethez JG_CONFIRM_PRODUCTION=yes szükséges.");
+        let ledger: { format?: string; customerIds?: unknown };
+        try { ledger = JSON.parse(readFileSync(file, "utf8")); } catch { throw new Error("A törlési napló sérült vagy ismeretlen formátumú."); }
+        if (ledger.format !== "jg-os-erasure-ledger" || !Array.isArray(ledger.customerIds)) throw new Error("A fájl nem törlési napló.");
+        const r = await reapplyErasures(db, { env, customerIds: ledger.customerIds as string[], operatorEmail, operator: process.env.JG_OPERATOR ?? "" });
+        console.log(`Anonimizálás megismételve: ${r.erased.length} · már anonimizált: ${r.alreadyErased} · nem található: ${r.missing}.`);
+        break;
+      }
       case "backup": {
         const file = args[0];
         if (!file) throw new Error("Használat: JG_OPERATOR=<üzemeltető> JG_BACKUP_KEY_FILE=<kulcsfájl> backup <fájl>");
@@ -225,7 +261,7 @@ async function main() {
         break;
       }
       default:
-        throw new Error("Ismeretlen parancs. Elérhető: status, migrate, runtime-role:provision, user:create, user:set-password, user:deactivate, user:activate, permission:grant, permission:revoke, permission:list, backup, backup:keygen, backup:inspect, backup:verify, restore:check, restore, customer:list-removed, customer:restore");
+        throw new Error("Ismeretlen parancs. Elérhető: status, migrate, runtime-role:provision, user:create, user:set-password, user:deactivate, user:activate, permission:grant, permission:revoke, permission:list, backup, backup:keygen, backup:inspect, backup:verify, restore:check, restore, customer:list-removed, customer:restore, retention:report, retention:run, privacy:ledger, privacy:reapply");
     }
   } finally {
     await db.close();

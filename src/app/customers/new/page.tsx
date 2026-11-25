@@ -22,7 +22,9 @@ type Errors = Record<string, string>;
  */
 export default function NewCustomerPage() {
   const router = useRouter();
-  const { repo, data } = useCrmData();
+  const { repo, data, permissions } = useCrmData();
+  const canConfirmSuppression = permissions.includes("crm.privacy.manage");
+  const [suppressionOk, setSuppressionOk] = useState(false);
   const config = useCrmConfig();
   const [busy, setBusy] = useState(false);
   const [type, setType] = useState<"individual" | "company">("individual");
@@ -61,7 +63,7 @@ export default function NewCustomerPage() {
       type === "individual"
         ? { type, name: f.name, ...common }
         : { type, companyName: f.companyName, contactName: f.contactName, contactPosition: f.contactPosition, ...common },
-      { confirmDuplicates },
+      { confirmDuplicates, confirmSuppression: suppressionOk },
     );
     if (!created.ok) {
       setBusy(false);
@@ -93,6 +95,17 @@ export default function NewCustomerPage() {
         </fieldset>
 
         {errors._form ? <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{errors._form}</p> : null}
+        {errors._suppressed ? (
+          <div role="alert" className="space-y-2 rounded-md bg-danger-soft p-3 text-sm text-danger" data-testid="suppression-warning">
+            <p>{errors._suppressed}</p>
+            {canConfirmSuppression ? (
+              <label className="flex items-start gap-2 text-ink">
+                <input type="checkbox" className="mt-1" checked={suppressionOk} onChange={(e) => setSuppressionOk(e.target.checked)} />
+                <span>Az érintett maga kezdeményezett új kapcsolatfelvételt; a rögzítést vállalom (naplózódik).</span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
 
         <Card>
           <CardHeader title={type === "company" ? "Cég" : "Magánszemély"} />

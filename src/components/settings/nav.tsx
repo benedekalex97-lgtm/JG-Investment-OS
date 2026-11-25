@@ -19,6 +19,7 @@ const ColumnsIcon = (p: SVGProps<SVGSVGElement>) => <Svg {...p}><rect x="3" y="4
 const ListIcon = (p: SVGProps<SVGSVGElement>) => <Svg {...p}><path d="M9 6h11M9 12h11M9 18h11" /><path d="m3.5 6 1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17" /></Svg>;
 const DatabaseIcon = (p: SVGProps<SVGSVGElement>) => <Svg {...p}><ellipse cx="12" cy="5.5" rx="7.5" ry="2.5" /><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5" /></Svg>;
 const HistoryIcon = (p: SVGProps<SVGSVGElement>) => <Svg {...p}><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" /><path d="M3 4v4h4M12 7.5V12l3 2" /></Svg>;
+const ShieldIcon = (p: SVGProps<SVGSVGElement>) => <Svg {...p}><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.2 7.5 9.5 4.4-1.3 7.5-4.9 7.5-9.5V6L12 3Z" /><path d="m9 12 2 2 4-4" /></Svg>;
 const HomeIcon = (p: SVGProps<SVGSVGElement>) => <Svg {...p}><rect x="3" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" /><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" /><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" /></Svg>;
 
 export interface SettingsSection {
@@ -31,7 +32,7 @@ export interface SettingsSection {
   icon: (p: SVGProps<SVGSVGElement>) => ReactNode;
 }
 
-export const CRM_PERMISSION_KEYS = ["crm.customer.import", "crm.customer.export", "crm.import.history.read", "crm.settings.manage", "crm.users.manage", "crm.settings.audit.read"] as const;
+export const CRM_PERMISSION_KEYS = ["crm.customer.import", "crm.customer.export", "crm.import.history.read", "crm.settings.manage", "crm.users.manage", "crm.settings.audit.read", "crm.privacy.manage"] as const;
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { href: "/settings", label: "Áttekintés", description: "A beállítások állapota és a szakaszok.", permissions: [], icon: HomeIcon },
@@ -43,6 +44,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { href: "/settings/data/import", label: "Importálás", description: "Ügyféladatok ellenőrzött importja Excel- vagy CSV-fájlból.", permissions: ["crm.customer.import"], group: "Adatkezelés", icon: DatabaseIcon },
   { href: "/settings/data/export", label: "Exportálás", description: "Szűrt ügyféllista letöltése (CSV/XLSX).", permissions: ["crm.customer.export"], group: "Adatkezelés", icon: DatabaseIcon },
   { href: "/settings/data/history", label: "Importelőzmények", description: "Az importok naplója személyes adat nélkül.", permissions: ["crm.import.history.read"], group: "Adatkezelés", icon: DatabaseIcon },
+  { href: "/settings/privacy", label: "Adatvédelem", description: "Érintetti kérelmek határidővel, adatkivonat, tiltakozás, végleges törlés, megőrzés.", permissions: ["crm.privacy.manage"], icon: ShieldIcon },
   { href: "/settings/audit", label: "Változásnapló", description: "Ki, mikor, milyen beállítást vagy jogosultságot módosított.", permissions: ["crm.settings.audit.read"], icon: HistoryIcon },
 ];
 

@@ -10,7 +10,7 @@ import { loadConfig } from "@/server/crm/store";
 import { decodeCsv, parseCsv } from "@/server/data/files/csv";
 import { XlsxWorkbook } from "@/server/data/files/xlsx";
 import { CUSTOMER_COLUMNS } from "@/server/data/export";
-import { checkSchema, migrate, MIGRATIONS } from "@/server/db/migrate";
+import { checkSchema, LATEST_MIGRATION, migrate, MIGRATIONS } from "@/server/db/migrate";
 import { baseOptions, csv, grant, uploader, type Uploader } from "./data-helpers";
 import { addPilotUsers, client, DRIVERS, makeApi, makeTestDb, PASSWORD_A, PASSWORD_B, type Client, type TestDb } from "./helpers";
 
@@ -22,6 +22,8 @@ import { addPilotUsers, client, DRIVERS, makeApi, makeTestDb, PASSWORD_A, PASSWO
 const T0 = "2026-05-01T08:00:00.000Z";
 const L = { maxRows: 1000, maxColumns: 50, maxCellChars: 5000, deadline: Date.now() + 60_000 };
 const V10_11 = MIGRATIONS.slice(0, 10);
+/** A v1.2 séma (0001-0011): a 0011 viselkedését a későbbi (v1.3+) migrációktól függetlenül vizsgáljuk. */
+const V12 = MIGRATIONS.slice(0, 11);
 const KEYS = ["weboldal", "google_kereses", "google_cegprofil", "facebook", "linkedin", "bemutatkozo_level", "ajanlas", "szemelyes_ismeretseg", "kh_ertekpapir", "rendezveny", "egyeb", "ismeretlen"];
 
 interface Item { key: string; label: string; version: number; isActive: boolean; isSystem: boolean; sortOrder: number; description?: string | null; usage: { customers?: number; tasks: number; openTasks: number } }
@@ -39,7 +41,7 @@ describe.each(DRIVERS)("v1.2 migráció és visszagörgetés (%s)", (kind) => {
       });
       const before = await t.db.system((tx) => tx.query<Record<string, unknown>>("select * from customers order by id"));
       expect(await checkSchema(t.db, "local")).toEqual({ ok: false, reason: "schema_outdated" });
-      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0011_crm_acquisition_channels"]);
+      expect((await migrate(t.db, { env: "local", migrations: V12 })).applied).toEqual(["0011_crm_acquisition_channels"]);
       const after = await t.db.system((tx) => tx.query<Record<string, unknown>>("select * from customers order by id"));
       expect(after.map(({ acquisition_channel, acquisition_detail, ...rest }) => { expect([acquisition_channel, acquisition_detail]).toEqual(["ismeretlen", null]); return rest; })).toEqual(before);
       const cat = await t.db.system((tx) => tx.query<{ key: string; label: string; is_system: boolean; is_active: boolean; sort_order: number; version: number }>("select * from crm_acquisition_channels order by sort_order"));
@@ -48,12 +50,12 @@ describe.each(DRIVERS)("v1.2 migráció és visszagörgetés (%s)", (kind) => {
       expect(cat.filter((c) => c.is_system).map((c) => c.key)).toEqual(["ismeretlen"]);
       expect(cat.every((c) => c.is_active && c.version === 1)).toBe(true);
       expect(await t.db.system((tx) => tx.query("select count(*)::int as n from settings_audit"))).toEqual([{ n: 0 }]);
-      expect(await migrate(t.db, { env: "local" })).toEqual({ applied: [], alreadyApplied: MIGRATIONS.map((m) => m.id) });
+      expect(await migrate(t.db, { env: "local", migrations: V12 })).toEqual({ applied: [], alreadyApplied: V12.map((m) => m.id) });
 
       // Rollback: adatvesztés ellen véd (nem alapértelmezett csatorna), és semmi nem változik.
       await t.db.system((tx) => tx.query("update customers set acquisition_channel = 'ajanlas', acquisition_detail = 'fiktív' where id = 'c-1'"));
       await expect(t.db.system((tx) => tx.exec(sql12))).rejects.toThrow(/érkezési csatorna\/részlet/);
-      expect(await checkSchema(t.db, "local")).toEqual({ ok: true });
+      expect(await checkSchema(t.db, "local", V12)).toEqual({ ok: true });
       // Tudatos vállalás (mentés után): a kapcsolat beállításával engedélyezhető.
       await t.db.system((tx) => tx.query("insert into crm_acquisition_channels (key, label, sort_order) values ('uj','Új fiktív',130)"));
       await t.db.system(async (tx) => { await tx.query("select set_config('jg.rollback_discard_channels', 'yes', true)"); await tx.exec(sql12); });
@@ -68,7 +70,7 @@ describe.each(DRIVERS)("v1.2 migráció és visszagörgetés (%s)", (kind) => {
       // A v1.1.x működés a visszagörgetett sémán: a katalógus-triggerek (pipeline) épek.
       await t.db.system((tx) => tx.query("insert into crm_pipeline_statuses (key, label, sort_order) values ('proba','Próba',80)"));
       // Újra előre: a migráció ismét alkalmazható, az ügyfelek ismét `ismeretlen` alapértéket kapnak.
-      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0011_crm_acquisition_channels"]);
+      expect((await migrate(t.db, { env: "local", migrations: V12 })).applied).toEqual(["0011_crm_acquisition_channels"]);
       expect(await t.db.system((tx) => tx.query("select distinct acquisition_channel from customers"))).toEqual([{ acquisition_channel: "ismeretlen" }]);
     } finally {
       await t.cleanup();
@@ -377,7 +379,7 @@ describe.each(DRIVERS)("v1.2 érkezési csatornák - API és adatbázis-védelme
 
   it("mentés és visszaállítás: a csatorna-katalógus és az ügyfél-mezők bájtra azonosan állnak vissza; a triggerek utána élnek; régi (0010) formátumú mentés is visszaállítható", async () => {
     const backup = JSON.parse(JSON.stringify(await exportBackup(t.db, "local"))) as Backup;
-    expect(backup.migration).toBe("0011_crm_acquisition_channels");
+    expect(backup.migration).toBe(LATEST_MIGRATION);
     expect(backup.counts.crm_acquisition_channels).toBeGreaterThanOrEqual(13);
     expect(backup.tables.customers.every((c) => "acquisition_channel" in c)).toBe(true);
     const dst = await makeTestDb(kind);

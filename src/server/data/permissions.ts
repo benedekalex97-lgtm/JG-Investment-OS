@@ -14,7 +14,7 @@ import type { JgEnv } from "../config";
  * - A régi `users.role = 'admin'` mező NEM ad jogot; senki nem kap automatikusan jogot.
  * - A teljes adatbázismentés/-visszaállítás, migráció, infrastruktúra és titkok NEM CRM-jogosultságok: kizárólag a tulajdonosi
  *   adatbázis-kapcsolattal és a mentési kulccsal rendelkező üzemeltető végezheti a CLI-ből (lásd backup.ts). HTTP-n nem érhetők el,
- *   és a felületen sem oszthatók ki (az adatbázis-függvény engedélyezőlistája csak az alábbi hat jogot ismeri).
+ *   és a felületen sem oszthatók ki (az adatbázis-függvény engedélyezőlistája csak az alábbi jogokat ismeri).
  */
 export const DATA_PERMISSIONS = ["crm.customer.import", "crm.customer.export", "crm.import.history.read"] as const;
 export type DataPermission = (typeof DATA_PERMISSIONS)[number];
@@ -23,7 +23,12 @@ export const ADMIN_PERMISSIONS = ["crm.settings.manage", "crm.users.manage", "cr
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];
 /** v1.1.1: ügyfél logikai (visszaállítható) eltávolítása az aktív CRM-ből - csak kifejezetten kiosztott joggal (adminfunkció). */
 export const CUSTOMER_ADMIN_PERMISSIONS = ["crm.customer.delete"] as const;
-export const CRM_PERMISSIONS = [...DATA_PERMISSIONS, ...ADMIN_PERMISSIONS, ...CUSTOMER_ADMIN_PERMISSIONS] as const;
+/**
+ * v1.3 adatvédelmi jogok (GDPR): érintetti kérelmek kezelése, hozzáférési kivonat, tiltakozás/korlátozás rögzítése, megőrzési
+ * felülvizsgálat (`crm.privacy.manage`), illetve a visszafordíthatatlan anonimizálás (`crm.privacy.erase`) - külön kiosztandó.
+ */
+export const PRIVACY_PERMISSIONS = ["crm.privacy.manage", "crm.privacy.erase"] as const;
+export const CRM_PERMISSIONS = [...DATA_PERMISSIONS, ...ADMIN_PERMISSIONS, ...CUSTOMER_ADMIN_PERMISSIONS, ...PRIVACY_PERMISSIONS] as const;
 export type CrmPermission = (typeof CRM_PERMISSIONS)[number];
 export const isDataPermission = (s: string): s is DataPermission => (DATA_PERMISSIONS as readonly string[]).includes(s);
 export const isCrmPermission = (s: string): s is CrmPermission => (CRM_PERMISSIONS as readonly string[]).includes(s);
@@ -36,6 +41,8 @@ export const PERMISSION_LABELS: Record<CrmPermission, string> = {
   "crm.users.manage": "Felhasználók és jogosultságok kezelése",
   "crm.settings.audit.read": "Beállítási változásnapló megtekintése",
   "crm.customer.delete": "Ügyfél törlése (eltávolítás az aktív CRM-ből, visszaállítható)",
+  "crm.privacy.manage": "Adatvédelem: érintetti kérelmek, hozzáférési kivonat, tiltakozás rögzítése, megőrzés",
+  "crm.privacy.erase": "Adatvédelem: végleges anonimizálás törlési kérelem alapján (visszafordíthatatlan)",
 };
 
 /** A kérés tranzakciójában (asUser) ellenőrzi a jogot. Bármilyen hiba esetén hamis. */

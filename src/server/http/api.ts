@@ -10,6 +10,7 @@ import { loadSnapshot, InvariantError } from "../crm/store";
 import { permissionsOf } from "../data/permissions";
 import { handleData } from "./data-api";
 import { handleSettings } from "./settings-api";
+import { handlePrivacy } from "./privacy-api";
 import { csrfProblem } from "./guards";
 
 /**
@@ -91,6 +92,9 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
 
       // v1.1 adminisztráció (beállítások, felhasználói jogok, változásnapló): műveletspecifikus jogosultsággal, lásd settings-api.ts.
       if (path.startsWith("settings/")) return handleSettings(req, path, db, user);
+
+      // v1.3 adatvédelem (érintetti kérelmek, kivonat, tiltakozás, anonimizálás, megőrzés): adatvédelmi joggal, lásd privacy-api.ts.
+      if (path.startsWith("privacy/")) return handlePrivacy(req, path, db, user, clock);
 
       if (path === "crm/snapshot") {
         if (req.method !== "GET") return json({ error: "method_not_allowed" }, 405);

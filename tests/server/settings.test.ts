@@ -320,7 +320,7 @@ describe.each(DRIVERS)("v1.1 Beállítások API (%s)", (kind) => {
     await setActive(t.db, EMAIL_C, false);
     const r = await body<{ users: { id: string; name: string; email: string; active: boolean; lastLoginAt: string | null; permissions: string[] }[]; currentUserId: string; permissions: { key: string }[] }>(await admin.get("/api/settings/users"));
     expect(r.currentUserId).toBe(ids.a);
-    expect(r.permissions.map((p) => p.key)).toEqual(["crm.customer.import", "crm.customer.export", "crm.import.history.read", "crm.settings.manage", "crm.users.manage", "crm.settings.audit.read", "crm.customer.delete"]);
+    expect(r.permissions.map((p) => p.key)).toEqual(["crm.customer.import", "crm.customer.export", "crm.import.history.read", "crm.settings.manage", "crm.users.manage", "crm.settings.audit.read", "crm.customer.delete", "crm.privacy.manage", "crm.privacy.erase"]);
     const byId = new Map(r.users.map((u) => [u.id, u]));
     expect(byId.get(ids.a)).toMatchObject({ name: "Teszt Pilot Egy", email: EMAIL_A, active: true, permissions: ["crm.settings.audit.read", "crm.settings.manage", "crm.users.manage"] });
     expect(byId.get(ids.a)!.lastLoginAt).not.toBeNull();
