@@ -1,7 +1,7 @@
 /**
  * Adatvédelem (v1.3, GDPR): az érintetti kérelmek típusai, határidői és a hozzáférési kivonat adatkezelési tájékoztató blokkja.
- * Tiszta tartományi kód (kliens és szerver közös). A jogi minősítéseket (jogalap, megőrzési idő) az adatvédelmi felelős véglegesíti:
- * a lenti szövegek a rendszer TÉNYLEGES technikai működését írják le, a jogi rész jóváhagyásig „egyeztetés alatt” jelölést kap.
+ * Tiszta tartományi kód (kliens és szerver közös). A jogalap és a megőrzési rend a tulajdonos által 2026-11-25-én jóváhagyott szöveg
+ * (docs/V1.3-DATA-PROTECTION.md 6. fejezet, docs/V1.3-LIA-JOGOS-ERDEK.md); módosítása csak az érdekmérlegelés és a dokumentáció frissítésével.
  */
 export const PRIVACY_REQUEST_KINDS = ["access", "portability", "rectification", "erasure", "restriction", "objection"] as const;
 export type PrivacyRequestKind = (typeof PRIVACY_REQUEST_KINDS)[number];
@@ -47,8 +47,7 @@ export function dueState(status: PrivacyRequestStatus, dueAt: string, now: Date)
 export const ERASE_CONFIRMATION_WORD = "VÉGLEGES TÖRLÉS";
 
 /**
- * A hozzáférési kivonat (15. cikk (1)-(2)) adatkezelési tájékoztató blokkja. A tényadatok (adatkategóriák, címzettek/adatfeldolgozók,
- * technikai megőrzés) a rendszer működését írják le; a jogalapot és a végleges megőrzési időt az adatvédelmi felelős hagyja jóvá.
+ * A hozzáférési kivonat (15. cikk (1)-(2)) adatkezelési tájékoztató blokkja (minden kivonatba bekerül).
  */
 export const PROCESSING_INFO = {
   controller: "JG Investment Plus Kft.",
@@ -56,7 +55,7 @@ export const PROCESSING_INFO = {
     "Kapcsolatfelvétel és üzleti kapcsolattartás leendő és meglévő ügyfelekkel (CRM).",
     "A kapcsolatfelvétel és az ügyfélút nyomon követése (Pipeline-státusz, feladatok, érkezési csatorna).",
   ],
-  legalBasis: "Egyeztetés alatt (adatvédelmi felelős): jogos érdek (6. cikk (1) f) és/vagy szerződéskötést megelőző lépések (6. cikk (1) b).",
+  legalBasis: "Jogos érdek (GDPR 6. cikk (1) f)): az üzleti kapcsolatfelvétel és -tartás a JG Investment Plus Kft. jogos érdeke, amely az elvégzett érdekmérlegelés szerint nem sérti aránytalanul az érintett érdekeit; szerződéses ügyfél esetén a szerződés megkötését megelőző lépések és a szerződés teljesítése (6. cikk (1) b)). Az érintett a jogos érdeken alapuló adatkezelés ellen bármikor tiltakozhat; közvetlen üzletszerzés elleni tiltakozás esetén az adatkezelés e célból megszűnik.",
   categories: [
     "Azonosító adatok: név, cégnév, kapcsolattartó neve és beosztása.",
     "Elérhetőség: telefonszám, e-mail-cím.",
@@ -64,10 +63,10 @@ export const PROCESSING_INFO = {
     "Adatvédelmi adatok: tiltakozás / megkeresési korlátozás ténye, az érintetti kérelmek nyilvántartása.",
   ],
   recipients: [
-    "Adatfeldolgozók (tárhely és infrastruktúra): Vercel Inc. (alkalmazás-futtatás), Neon (PostgreSQL adatbázis, EU - Frankfurt régió), Google (munkatársi bejelentkezés; ügyféladatot nem kap).",
+    "Adatfeldolgozók (tárhely és infrastruktúra): Vercel Inc. (alkalmazás-futtatás, EU - Frankfurt régió), Neon (PostgreSQL adatbázis, EU - Frankfurt régió), Google (munkatársi bejelentkezés; ügyféladatot nem kap).",
     "Harmadik félnek ügyféladat nem kerül továbbításra; marketingautomatizáció és profilalkotás nincs.",
   ],
-  retention: "Egyeztetés alatt (adatvédelmi felelős). Technikai működés: inaktív ügyfelek felülvizsgálata alapértelmezetten 24 hónap után; az eltávolított ügyfél végleges anonimizálása kérelemre vagy felülvizsgálat alapján; mentések a mentési megőrzési rend szerint.",
+  retention: "Érdeklődő / leendő ügyfél: az utolsó kapcsolattól számított 24 hónap; elvesztett / lezárt kapcsolat: 12 hónap; szerződéses ügyfél: a szerződéses viszony megszűnése után az irányadó elévülési, illetve ágazati megőrzési ideig; az eltávolított ügyféladat legfeljebb 6 hónapig, ezután végleges törlés. Az érintetti kérelmek nyilvántartása a lezárástól 5 évig; a tiltakozás / törlés tiszteletben tartásához szükséges tiltólista-lenyomat a szükségesség fennállásáig (évenkénti felülvizsgálattal). Mentések: legfeljebb 12 hónap.",
   source: "Az adat forrását az ügyfél „Adatforrás” mezője és - importnál - az importnapló (adatforrás megnevezése, célja, ellenőrzési státusza) rögzíti.",
   automatedDecisions: "Automatizált döntéshozatal és profilalkotás nincs.",
   rights: "Hozzáférés, helyesbítés, törlés, korlátozás, adathordozhatóság, tiltakozás; panasz a Nemzeti Adatvédelmi és Információszabadság Hatóságnál (NAIH, 1055 Budapest, Falk Miksa utca 9-11., ugyfelszolgalat@naih.hu).",

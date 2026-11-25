@@ -9,8 +9,7 @@ import type { Migration } from "../migrate";
  *  - `crm.privacy.manage`: érintetti kérelmek nyilvántartása, hozzáférési/hordozhatósági kivonat, tiltakozás és korlátozás rögzítése,
  *    megőrzési felülvizsgálat;
  *  - `crm.privacy.erase`: egy ügyfél és minden kapcsolódó szabad szöveges adatának VISSZAFORDÍTHATATLAN anonimizálása, kizárólag egy
- *    rögzített, azonosított érintettől érkezett, nyitott törlési kérelem alapján (külön jog: a nyilvántartás vezetése és a végleges
- *    törlés szétválasztható).
+ *    rögzített, azonosított érintettől érkezett, nyitott törlési kérelem alapján, NÉGY-SZEM ELVVEL (a kérelmet rögzítő nem törölhet).
  *
  * Táblák:
  *  - `privacy_requests`: a beérkezett érintetti kérelmek (hozzáférés, hordozhatóság, helyesbítés, törlés, korlátozás, tiltakozás) a
@@ -288,8 +287,10 @@ end $$;
 revoke all on function privacy_anonymize_customer(text, text) from public;
 
 -- Alkalmazásfüggvény. Feltételek: crm.privacy.erase jog; a megadott kérelem nyitott, törlési típusú, ehhez az ügyfélhez tartozik, és az
--- érintett személyazonossága ellenőrzött; az ügyfél még nem anonimizált. Tiltólistára veszi az elérhetőségek lenyomatát és lezárja a
--- kérelmet. Hibák: jg:forbidden, jg:not_found, jg:already_erased, jg:request_mismatch, jg:identity_unverified.
+-- érintett személyazonossága ellenőrzött; az ügyfél még nem anonimizált; NÉGY-SZEM ELV: a kérelmet rögzítő felhasználó nem hajthatja
+-- végre a törlést (a rögzítőt a privacy_requests_guard a munkamenetből állítja be, a kliens nem adhatja meg). Tiltólistára veszi az
+-- elérhetőségek lenyomatát és lezárja a kérelmet.
+-- Hibák: jg:forbidden, jg:not_found, jg:already_erased, jg:request_mismatch, jg:identity_unverified, jg:four_eyes.
 create or replace function app_privacy_erase_customer(p_customer text, p_request text, p_hashes jsonb) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare caller text := app_current_user_id(); r privacy_requests; res jsonb; n_supp int;
@@ -300,6 +301,7 @@ begin
     raise exception 'jg:request_mismatch' using errcode = '22023';
   end if;
   if not r.identity_verified then raise exception 'jg:identity_unverified' using errcode = '22023'; end if;
+  if r.created_by = caller then raise exception 'jg:four_eyes' using errcode = '42501'; end if;
   res := privacy_anonymize_customer(p_customer, caller);
   n_supp := privacy_add_suppressions(p_hashes, 'erasure', p_request, caller);
   res := res || jsonb_build_object('suppressions', n_supp);

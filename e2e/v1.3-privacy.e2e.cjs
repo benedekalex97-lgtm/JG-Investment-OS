@@ -36,6 +36,7 @@ const WORK = fs.mkdtempSync(path.join(process.env.E2E_TMP || os.tmpdir(), "jg-e2
 const DB_DIR = path.join(WORK, "pg");
 const DPO = { email: "adatvedelem@example.test", pw: "e2e-adatvedelem-12345", name: "Adatvédelmi Dóra" };
 const WORKER = { email: "munkatars@example.test", pw: "e2e-munkatars-67890", name: "Munkatárs Márk" };
+const HELPER = { email: "helyettes@example.test", pw: "e2e-helyettes-13579", name: "Helyettes Hédi" };
 const TZ = "Europe/Budapest";
 
 const results = [];
@@ -105,8 +106,9 @@ const op = (page, name, args) => page.evaluate(async ([n, a, id]) => {
   };
   try {
     cli(["migrate"]);
-    for (const u of [DPO, WORKER]) cli(["user:create", u.email, u.name], { JG_USER_PASSWORD: u.pw });
+    for (const u of [DPO, WORKER, HELPER]) cli(["user:create", u.email, u.name], { JG_USER_PASSWORD: u.pw });
     for (const p of ["crm.privacy.manage", "crm.privacy.erase"]) cli(["permission:grant", DPO.email, p]);
+    cli(["permission:grant", HELPER.email, "crm.privacy.manage"]);
     server = await startServer(baseEnv);
 
     // ============ H: biztonsági fejlécek ============
@@ -148,15 +150,15 @@ const op = (page, name, args) => page.evaluate(async ([n, a, id]) => {
     await checkPage(page, "desktop", "ures");
 
     // Hozzáférési kérelem a felületen.
-    const addRequest = async (kind, verified) => {
-      await page.getByRole("button", { name: "Új kérelem rögzítése" }).click();
-      const dlg = page.getByRole("dialog");
+    const addRequest = async (kind, verified, pg = page) => {
+      await pg.getByRole("button", { name: "Új kérelem rögzítése" }).click();
+      const dlg = pg.getByRole("dialog");
       await dlg.getByLabel("Kérelem típusa").selectOption(kind);
       await dlg.getByLabel("Ügyfél keresése (név, e-mail, telefonszám)").fill("Fiktív Érintett");
       await dlg.getByRole("button", { name: "Fiktív Érintett Kft." }).click();
       if (verified) await dlg.getByLabel(/személyazonossága ellenőrzött/).check();
       await dlg.getByRole("button", { name: "Kérelem rögzítése" }).click();
-      await page.getByText("A kérelem rögzítve.").waitFor();
+      await pg.getByText("A kérelem rögzítve.").waitFor();
     };
     await addRequest("access", true);
     const items = page.locator('[data-testid="privacy-request"]');
@@ -170,12 +172,29 @@ const op = (page, name, args) => page.evaluate(async ([n, a, id]) => {
     log("D3: az adatkivonat letölthető és teljes (név, elérhetőség, jegyzet, tájékoztató)", rep.format === "jg-os-gdpr-access-report" && rep.subject.name === "Fiktív Érintett Kft." && rep.subject.email === "erintett@example.test" && JSON.stringify(rep.history).includes("Fiktív jegyzet") && rep.processing.purposes.length > 0, JSON.stringify(rep.subject));
     log("D4: a kivonat fájlneve személyes adatot nem tartalmaz", /^JG_Adatkivonat_pr-[0-9a-f]{16}_\d{4}-\d{2}-\d{2}\.json$/.test(dl.suggestedFilename()), dl.suggestedFilename());
 
-    // Törlési kérelem: azonosítás, végleges törlés beírt megerősítéssel.
+    // Négy-szem elv: a saját maga által rögzített törlési kérelmet a vezető sem hajthatja végre.
     await addRequest("erasure", false);
-    const erase = items.filter({ hasText: "Törlés (17. cikk)" }).first();
-    await erase.getByRole("button", { name: "Személyazonosság ellenőrizve" }).click();
+    const own = items.filter({ hasText: "Törlés (17. cikk)" }).first();
+    await own.getByRole("button", { name: "Személyazonosság ellenőrizve" }).click();
     await page.getByText("Az azonosítás rögzítve.").waitFor();
-    await items.filter({ hasText: "Törlés (17. cikk)" }).first().getByRole("button", { name: "Végleges törlés…" }).click();
+    const ownItem = items.filter({ hasText: "Törlés (17. cikk)" }).first();
+    log("D4b: négy-szem elv - a saját törlési kérelemnél nincs törlés gomb, magyarázat látszik",
+      (await ownItem.getByTestId("four-eyes-note").count()) === 1 && (await ownItem.getByRole("button", { name: "Végleges törlés…" }).count()) === 0);
+
+    // A helyettes rögzíti (azonosítva) a törlési kérelmet, a törlési jogú vezető hajtja végre, beírt megerősítéssel.
+    {
+      const hctx = await browser.newContext(ctxOpts(VIEWS.desktop));
+      const hp = await hctx.newPage();
+      watch(hp);
+      await login(hp, HELPER);
+      await hp.goto(BASE + "/settings/privacy", { waitUntil: "networkidle" });
+      await addRequest("erasure", true, hp);
+      log("D4c: a törlési jog nélküli helyettesnél nincs végleges törlés gomb", (await hp.getByRole("button", { name: "Végleges törlés…" }).count()) === 0);
+      await hctx.close();
+    }
+    await page.reload({ waitUntil: "networkidle" });
+    await items.first().waitFor();
+    await items.filter({ hasText: "Helyettes Hédi" }).filter({ hasText: "Törlés (17. cikk)" }).first().getByRole("button", { name: "Végleges törlés…" }).click();
     const dlg = page.getByRole("dialog");
     const btn = dlg.getByRole("button", { name: "Végleges törlés", exact: true });
     log("D5: a végleges törlés gombja a megerősítő szó nélkül nem aktív", await btn.isDisabled());

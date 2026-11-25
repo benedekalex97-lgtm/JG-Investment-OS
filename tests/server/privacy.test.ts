@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { checkSchema, migrate, MIGRATIONS } from "@/server/db/migrate";
 import { restoreCustomer } from "@/server/admin";
+import { createUser } from "@/server/auth/service";
 import { exportBackup, restoreBackup } from "@/server/backup";
 import { revokePermission } from "@/server/data/permissions";
 import { suppressionHash } from "@/server/privacy/privacy";
@@ -38,7 +39,7 @@ describe("határidő-számítás (12. cikk (3))", () => {
 describe.each(DRIVERS)("adatvédelem (%s)", (kind) => {
   let t: TestDb;
   let handle: (r: Request) => Promise<Response>;
-  let dpo: Client, worker: Client;
+  let dpo: Client, worker: Client, helper: Client;
   let dpoId = "", workerId = "";
   const prevFlag = process.env.JG_CUSTOMER_IMPORT_ENABLED;
 
@@ -54,6 +55,11 @@ describe.each(DRIVERS)("adatvédelem (%s)", (kind) => {
     worker = client(handle);
     await dpo.login("pilot.egy@example.test", PASSWORD_A);
     await worker.login("pilot.ketto@example.test", PASSWORD_B);
+    // Négy-szem elv: az adatvédelmi helyettes rögzíti a törlési kérelmet, a törlési jogú vezető hajtja végre.
+    await createUser(t.db, { email: "pilot.harom@example.test", name: "Teszt Helyettes", password: PASSWORD_A });
+    await grant(t.db, "pilot.harom@example.test", "crm.privacy.manage");
+    helper = client(handle);
+    await helper.login("pilot.harom@example.test", PASSWORD_A);
   });
   afterAll(async () => {
     if (prevFlag === undefined) delete process.env.JG_CUSTOMER_IMPORT_ENABLED; else process.env.JG_CUSTOMER_IMPORT_ENABLED = prevFlag;
@@ -187,7 +193,14 @@ describe.each(DRIVERS)("adatvédelem (%s)", (kind) => {
 
   it("PV05: végleges anonimizálás - minden szabad szöveg és elérhetőség eltűnik, a szerkezet és a napló marad, tiltólista, visszaállíthatatlan", async () => {
     const { cust, task, phone: p, email } = await seedCompany("Törlendő Kft.");
-    const req = (await newRequest(dpo, { kind: "erasure", customerId: cust.id, subjectLabel: "Törlendő Kft. ügyvezetője" })).body.request!;
+    // Négy-szem elv: aki a törlési kérelmet rögzítette, az (törlési jog birtokában sem) hajthatja végre; a DB is kikényszeríti.
+    const own = (await newRequest(dpo, { kind: "erasure", customerId: cust.id, identityVerified: true })).body.request!;
+    const ownRes = await dpo.post("/api/privacy/erase", { requestId: own.id, confirmation: ERASE_CONFIRMATION_WORD });
+    expect(ownRes.status).toBe(409);
+    expect((await body(ownRes)).message).toMatch(/Négy-szem elv/);
+    await expect(t.db.asUser(dpoId, (tx) => tx.query("select app_privacy_erase_customer($1, $2, '[]'::jsonb)", [cust.id, own.id]))).rejects.toThrow(/jg:four_eyes/);
+    expect((await raw("select erased_at from customers where id = $1", [cust.id]))[0].erased_at).toBeNull();
+    const req = (await newRequest(helper, { kind: "erasure", customerId: cust.id, subjectLabel: "Törlendő Kft. ügyvezetője" })).body.request!;
     // Feltételek: azonosítás, megerősítő szó, jog.
     expect((await dpo.post("/api/privacy/erase", { requestId: req.id, confirmation: ERASE_CONFIRMATION_WORD })).status).toBe(409);
     await dpo.patch("/api/privacy/requests", { id: req.id, version: req.version, identityVerified: true });
@@ -251,12 +264,30 @@ describe.each(DRIVERS)("adatvédelem (%s)", (kind) => {
     await raw("update tasks set created_at = '2023-01-02', completed_at = '2023-01-03' where customer_id = $1", [old.cust.id]);
     const removed = await seedCompany("Régen Eltávolított Kft.");
     await raw("update customers set deleted_at = '2026-01-01', deleted_by = $2 where id = $1", [removed.cust.id, dpoId]);
+    // Státuszfüggő rend: „Elvesztett” 12 hónap után; a szerződéses (mérföldkő) ügyfél nem kerül az inaktivitási felülvizsgálatba.
+    const ageTo = async (id: string, at: string) => {
+      await raw("update customers set created_at = $2, updated_at = $2 where id = $1", [id, at]);
+      await raw("update activities set occurred_at = $2 where customer_id = $1", [id, at]);
+      await raw("update tasks set created_at = $2, completed_at = $2 where customer_id = $1", [id, at]);
+    };
+    const lostOld = await seedCompany("Régen Elvesztett Kft.");
+    await raw("update customers set crm_status = 'lost' where id = $1", [lostOld.cust.id]);
+    await ageTo(lostOld.cust.id, "2025-10-01");
+    const lostNew = await seedCompany("Nemrég Elvesztett Kft.");
+    await raw("update customers set crm_status = 'lost' where id = $1", [lostNew.cust.id]);
+    await ageTo(lostNew.cust.id, "2026-06-01");
+    const client3y = await seedCompany("Szerződéses Ügyfél Kft.");
+    await raw("update customers set crm_status = 'capital_placed' where id = $1", [client3y.cust.id]);
+    await ageTo(client3y.cust.id, "2023-01-01");
     const r = (await body(await dpo.get("/api/privacy/retention"))) as { settings: { inactiveMonths: number }; candidates: { customerId: string; reason: string; name: string }[] };
     expect(r.settings.inactiveMonths).toBe(24);
     expect(r.candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({ customerId: old.cust.id, reason: "inactive" }),
       expect.objectContaining({ customerId: removed.cust.id, reason: "removed", name: "Régen Eltávolított Kft." }),
     ]));
+    expect(r.candidates).toEqual(expect.arrayContaining([expect.objectContaining({ customerId: lostOld.cust.id, reason: "lost" })]));
+    expect(r.candidates.map((c) => c.customerId)).not.toContain(lostNew.cust.id);
+    expect(r.candidates.map((c) => c.customerId)).not.toContain(client3y.cust.id);
     expect(r.candidates.some((c) => c.name === "Törölt ügyfél")).toBe(false);
     expect((await raw("select count(*)::int as n from customers where id = any($1) and erased_at is null", [[old.cust.id, removed.cust.id]]))[0].n).toBe(2);
     const ov = await body(await dpo.get("/api/privacy/overview"));
@@ -281,7 +312,7 @@ describe.each(DRIVERS)("adatvédelem (%s)", (kind) => {
   it("PV08: technikai megőrzés (CLI) - csak lejárt technikai rekordok; előnézet nem ír; üzemeltető nélkül nem fut", async () => {
     await raw("insert into sessions (token_hash, user_id, expires_at, last_seen_at) values ('lejart', $1, now() - interval '1 day', now() - interval '2 days')", [workerId]);
     await raw("insert into request_log (request_id, user_id, op, response, created_at) values ('00000000-0000-4000-8000-000000000001', $1, 'note.create', '{}'::jsonb, now() - interval '90 days')", [workerId]);
-    const settings = { inactiveMonths: 24, removedMonths: 6, requestLogDays: 30 };
+    const settings = { inactiveMonths: 24, lostMonths: 12, removedMonths: 6, requestLogDays: 30 };
     const pre = await technicalRetention(t.db, { env: "local", settings, apply: false });
     expect(pre).toMatchObject({ applied: false, counts: { sessions: 1, requestLog: 1 } });
     await expect(technicalRetention(t.db, { env: "local", settings, apply: true })).rejects.toThrow(/JG_OPERATOR/);
@@ -312,7 +343,7 @@ describe.each(DRIVERS)("adatvédelem (%s)", (kind) => {
     // Régebbi (anonimizálás előtti) mentés: a ledger szerinti újra-anonimizálás megakadályozza, hogy a törölt adat feléledjen.
     const victim = await seedCompany("Később Törölt Kft.");
     const before = await exportBackup(t.db, "local");
-    const req = (await newRequest(dpo, { kind: "erasure", customerId: victim.cust.id, identityVerified: true })).body.request!;
+    const req = (await newRequest(helper, { kind: "erasure", customerId: victim.cust.id, identityVerified: true })).body.request!;
     expect((await dpo.post("/api/privacy/erase", { requestId: req.id, confirmation: ERASE_CONFIRMATION_WORD })).status).toBe(200);
     const ledger = await erasureLedger(t.db, "local");
     expect(ledger.customerIds).toContain(victim.cust.id);

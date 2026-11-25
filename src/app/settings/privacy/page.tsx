@@ -25,11 +25,11 @@ import { cn } from "@/lib/cn";
 interface RequestView {
   id: string; kind: PrivacyRequestKind; status: PrivacyRequestStatus; channel: PrivacyChannel; customerId: string | null; customerName: string | null;
   customerState: "active" | "removed" | "erased" | null; subjectLabel: string | null; receivedAt: string; dueAt: string; extended: boolean; dueState: DueState;
-  identityVerified: boolean; outcomeNote: string | null; createdBy: string; createdAt: string; updatedBy: string; updatedAt: string; closedAt: string | null;
+  identityVerified: boolean; outcomeNote: string | null; createdBy: string; createdById: string; createdAt: string; updatedBy: string; updatedAt: string; closedAt: string | null;
   closedBy: string | null; version: number;
 }
 interface Overview { open: number; overdue: number; dueSoon: number; erased: number; suppressions: number; canErase: boolean }
-interface Candidate { customerId: string; name: string; type: string; crmStatus: string | null; reason: "inactive" | "removed"; lastActivityAt: string; removedAt: string | null; restricted: boolean; openRequest: boolean }
+interface Candidate { customerId: string; name: string; type: string; crmStatus: string | null; reason: "inactive" | "lost" | "removed"; lastActivityAt: string; removedAt: string | null; restricted: boolean; openRequest: boolean }
 
 const DUE: Record<DueState, { label: string; tone: Tone } | null> = {
   overdue: { label: "Határidő lejárt", tone: "danger" }, due_soon: { label: "7 napon belül esedékes", tone: "warn" }, ok: null, closed: null,
@@ -134,6 +134,9 @@ function Requests({ canErase, onChanged }: { canErase: boolean; onChanged: () =>
 }
 
 function RequestItem({ r, canErase, onChanged }: { r: RequestView; canErase: boolean; onChanged: (msg: string) => void }) {
+  const { currentUserId } = useCrmData();
+  // Négy-szem elv: a törlési kérelem rögzítője nem hajthatja végre a törlést (az adatbázis is kikényszeríti).
+  const ownErasure = r.kind === "erasure" && r.createdById === currentUserId;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [mode, setMode] = useState<"" | "close" | "restriction" | "erase">("");
@@ -176,13 +179,16 @@ function RequestItem({ r, canErase, onChanged }: { r: RequestView; canErase: boo
         {r.outcomeNote ? <Item label="Intézkedés / megjegyzés" value={r.outcomeNote} /> : null}
       </dl>
       {err ? <p role="alert" className="mt-3 rounded-md bg-danger-soft p-3 text-danger">{err}</p> : null}
+      {open && ownErasure && r.customerState !== "erased" ? (
+        <p className="mt-3 rounded-md bg-info-soft p-3 text-[13px] text-ink" data-testid="four-eyes-note">Négy-szem elv: ezt a törlési kérelmet te rögzítetted, ezért a végleges törlést egy másik, törlési joggal rendelkező kolléga hajthatja végre.</p>
+      ) : null}
       {open ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {!r.identityVerified ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void patch({ identityVerified: true }, "Az azonosítás rögzítve.")}>Személyazonosság ellenőrizve</Button> : null}
           {r.status === "open" ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => void patch({ status: "in_progress" }, "A kérelem folyamatban.")}>Folyamatban</Button> : null}
           {(r.kind === "access" || r.kind === "portability") && r.customerId && r.customerState !== "erased" ? <Button size="sm" disabled={busy} onClick={() => void report()}>Adatkivonat letöltése (JSON)</Button> : null}
           {(r.kind === "objection" || r.kind === "restriction") && r.customerId && r.customerState === "active" ? <Button size="sm" disabled={busy} onClick={() => setMode("restriction")}>{r.kind === "objection" ? "Tiltakozás rögzítése" : "Korlátozás rögzítése"}</Button> : null}
-          {r.kind === "erasure" && r.customerId && r.customerState !== "erased" && canErase ? <Button size="sm" variant="danger" disabled={busy} onClick={() => setMode("erase")}>Végleges törlés…</Button> : null}
+          {r.kind === "erasure" && r.customerId && r.customerState !== "erased" && canErase && !ownErasure ? <Button size="sm" variant="danger" disabled={busy} onClick={() => setMode("erase")}>Végleges törlés…</Button> : null}
           {!r.extended ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => void patch({ extend: true }, "A határidő meghosszabbítva (12. cikk (3)); az érintettet az első hónapon belül tájékoztatni kell az okáról.")}>Határidő meghosszabbítása</Button> : null}
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setMode("close")}>{r.kind === "erasure" ? "Elutasítás…" : "Lezárás…"}</Button>
         </div>
@@ -373,11 +379,11 @@ function EraseModal({ open, r, onClose, onDone }: { open: boolean; r: RequestVie
 // ------------------------------------------------------------------ Megőrzés
 
 function Retention() {
-  const [data, setData] = useState<{ settings: { inactiveMonths: number; removedMonths: number }; candidates: Candidate[] } | null>(null);
+  const [data, setData] = useState<{ settings: { inactiveMonths: number; lostMonths: number; removedMonths: number }; candidates: Candidate[] } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     const t = setTimeout(() => void (async () => {
-      const r = await getJson<{ settings: { inactiveMonths: number; removedMonths: number }; candidates: Candidate[] }>("/api/privacy/retention");
+      const r = await getJson<{ settings: { inactiveMonths: number; lostMonths: number; removedMonths: number }; candidates: Candidate[] }>("/api/privacy/retention");
       if (r.ok) setData(r.value); else setError(r.message);
     })(), 0);
     return () => clearTimeout(t);
@@ -389,7 +395,7 @@ function Retention() {
       <Card>
         <CardHeader title="Felülvizsgálandó ügyfelek" count={data.candidates.length} />
         <div className="space-y-2 p-4 text-sm text-ink-muted">
-          <p>Az aktív CRM-ben {data.settings.inactiveMonths} hónapja tevékenység nélküli, illetve a {data.settings.removedMonths} hónapnál régebben eltávolított, de még nem anonimizált ügyfelek (az adattakarékosság és a korlátozott tárolhatóság elve, GDPR 5. cikk).</p>
+          <p>A jóváhagyott megőrzési rend szerint felülvizsgálandó: {data.settings.inactiveMonths} hónapja tevékenység nélküli érdeklődő / leendő ügyfél; {data.settings.lostMonths} hónapja „Elvesztett” státuszú ügyfél; {data.settings.removedMonths} hónapnál régebben eltávolított, de még nem anonimizált ügyfél (GDPR 5. cikk (1) e)). A szerződéses ügyfelek (Számlanyitás, Tőke elhelyezve) nem szerepelnek: rájuk a szerződéses viszony és az irányadó megőrzési idő vonatkozik.</p>
           <p>A rendszer nem töröl automatikusan. Döntsd el ügyfelenként: megtartás (indokolt üzleti kapcsolat), vagy törlés - ehhez rögzíts „Törlés” kérelmet (érintetti kérés nélkül is, belső felülvizsgálat alapján), majd hajtsd végre a végleges törlést.</p>
         </div>
       </Card>
@@ -398,7 +404,7 @@ function Retention() {
           {data.candidates.map((c) => (
             <li key={c.customerId} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface p-3 text-sm ring-1 ring-line" data-testid="retention-candidate">
               <span className="font-medium text-ink">{c.name}</span>
-              <Badge tone={c.reason === "removed" ? "warn" : "neutral"}>{c.reason === "removed" ? `Eltávolítva: ${formatDate(c.removedAt ?? undefined)}` : "Inaktív"}</Badge>
+              <Badge tone={c.reason === "removed" ? "warn" : "neutral"}>{c.reason === "removed" ? `Eltávolítva: ${formatDate(c.removedAt ?? undefined)}` : c.reason === "lost" ? "Elvesztett" : "Inaktív"}</Badge>
               {c.restricted ? <Badge tone="danger">Tiltakozás / korlátozás</Badge> : null}
               {c.openRequest ? <Badge tone="info">Nyitott kérelem</Badge> : null}
               <span className="ml-auto text-xs text-ink-subtle">Utolsó tevékenység: {formatDate(c.lastActivityAt)} · {c.customerId}</span>
@@ -428,7 +434,7 @@ function ProcessingInfo() {
     <Card>
       <CardHeader title="Adatkezelési tájékoztató (a CRM-re vonatkozó rész)" />
       <div className="space-y-3 p-4 text-sm">
-        <p className="text-ink-muted">Ez a blokk minden adatkivonatba bekerül. A jogalapot és a megőrzési időt az adatvédelmi felelős véglegesíti (lásd docs/V1.3-DATA-PROTECTION.md).</p>
+        <p className="text-ink-muted">Ez a blokk minden adatkivonatba bekerül. A jogalap és a megőrzési rend jóváhagyva (2026-11-25); az érdekmérlegelés: docs/V1.3-LIA-JOGOS-ERDEK.md.</p>
         <dl className="grid gap-3 sm:grid-cols-[14rem_minmax(0,1fr)]">
           {rows.map(([k, v]) => (
             <div key={k} className="contents">

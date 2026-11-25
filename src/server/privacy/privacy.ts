@@ -71,6 +71,7 @@ const FN_ERRORS: Record<string, { status: 400 | 403 | 404 | 409; message: string
   "jg:not_found": { status: 404, message: "Az ügyfél nem található." },
   "jg:already_erased": { status: 409, message: "Az ügyfél adatai már anonimizálva vannak." },
   "jg:request_mismatch": { status: 409, message: "A kérelem nem ehhez az ügyfélhez vagy művelethez tartozik, vagy már le van zárva." },
+  "jg:four_eyes": { status: 409, message: "Négy-szem elv: a törlési kérelmet rögzítő felhasználó nem hajthatja végre a végleges törlést. Egy másik, törlési joggal rendelkező kolléga végezheti el." },
   "jg:identity_unverified": { status: 409, message: "A végleges törlés előtt rögzítsd, hogy az érintett személyazonossága ellenőrzött." },
   "jg:restriction_exists": { status: 409, message: "Az ügyfélnél már van rögzített tiltakozás vagy korlátozás; az nem írható felül." },
   "jg:request_closed": { status: 409, message: "A lezárt kérelem nem módosítható." },
@@ -101,7 +102,7 @@ export interface PrivacyRequestView {
   id: string; kind: PrivacyRequestKind; status: PrivacyRequestStatus; channel: PrivacyChannel;
   customerId: string | null; customerName: string | null; customerState: "active" | "removed" | "erased" | null;
   subjectLabel: string | null; receivedAt: string; dueAt: string; extended: boolean; dueState: DueState;
-  identityVerified: boolean; outcomeNote: string | null; createdBy: string; createdAt: string; updatedBy: string; updatedAt: string;
+  identityVerified: boolean; outcomeNote: string | null; createdBy: string; createdById: string; createdAt: string; updatedBy: string; updatedAt: string;
   closedAt: string | null; closedBy: string | null; version: number;
 }
 
@@ -115,7 +116,7 @@ function requestView(r: Row, names: Map<string, string>, now: Date): PrivacyRequ
     customerState: !r.customer_id ? null : r.c_erased_at ? "erased" : r.c_deleted_at ? "removed" : "active",
     subjectLabel: r.subject_label ? String(r.subject_label) : null, receivedAt: iso(r.received_at) as string, dueAt, extended: r.extended === true,
     dueState: dueState(status, dueAt, now), identityVerified: r.identity_verified === true, outcomeNote: r.outcome_note ? String(r.outcome_note) : null,
-    createdBy: names.get(String(r.created_by)) ?? "Ismeretlen felhasználó", createdAt: iso(r.created_at) as string,
+    createdBy: names.get(String(r.created_by)) ?? "Ismeretlen felhasználó", createdById: String(r.created_by), createdAt: iso(r.created_at) as string,
     updatedBy: names.get(String(r.updated_by)) ?? "Ismeretlen felhasználó", updatedAt: iso(r.updated_at) as string,
     closedAt: iso(r.closed_at), closedBy: r.closed_by ? (names.get(String(r.closed_by)) ?? "Ismeretlen felhasználó") : null, version: Number(r.version),
   };
@@ -358,7 +359,13 @@ export async function eraseCustomer(tx: Tx, raw: unknown): Promise<{ customerId:
 
 // ------------------------------------------------------------------ Megőrzési felülvizsgálat (5. cikk (1) e))
 
-export interface RetentionSettings { inactiveMonths: number; removedMonths: number; requestLogDays: number }
+/**
+ * Jóváhagyott megőrzési rend (tulajdonos, 2026-11-25; docs/V1.3-DATA-PROTECTION.md 6. fejezet): érdeklődő / leendő ügyfél utolsó
+ * tevékenységtől 24 hónap; „Elvesztett” jelentésű státusz 12 hónap; az eltávolított, nem anonimizált ügyfél 6 hónap. A szerződéses
+ * ügyfél (mérföldkő-státusz: Számlanyitás, Tőke elhelyezve) nem kerül az inaktivitási felülvizsgálatba: rá a szerződéses viszony és az
+ * irányadó megőrzési idő vonatkozik, a felülvizsgálat egyedi döntés.
+ */
+export interface RetentionSettings { inactiveMonths: number; lostMonths: number; removedMonths: number; requestLogDays: number }
 const int = (v: string | undefined, def: number, min: number, max: number) => {
   const n = Number.parseInt(v ?? "", 10);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
@@ -366,13 +373,14 @@ const int = (v: string | undefined, def: number, min: number, max: number) => {
 export function retentionSettings(env: Record<string, string | undefined> = process.env): RetentionSettings {
   return {
     inactiveMonths: int(env.JG_RETENTION_INACTIVE_MONTHS, 24, 6, 120),
+    lostMonths: int(env.JG_RETENTION_LOST_MONTHS, 12, 3, 120),
     removedMonths: int(env.JG_RETENTION_REMOVED_MONTHS, 6, 1, 60),
     requestLogDays: int(env.JG_RETENTION_REQUEST_LOG_DAYS, 30, 7, 365),
   };
 }
 
 export interface RetentionCandidate {
-  customerId: string; name: string; type: "individual" | "company"; crmStatus: string | null; reason: "inactive" | "removed";
+  customerId: string; name: string; type: "individual" | "company"; crmStatus: string | null; reason: "inactive" | "lost" | "removed";
   lastActivityAt: string; removedAt: string | null; restricted: boolean; openRequest: boolean;
 }
 
@@ -389,19 +397,21 @@ export async function retentionReview(tx: Tx, settings: RetentionSettings, now: 
          coalesce((select max(coalesce(t.completed_at, t.created_at)) from tasks t where t.customer_id = c.id), c.created_at)) as last_at
        from customers c where c.erased_at is null
      )
-     select c.*, l.last_at, exists (select 1 from customer_restrictions r where r.customer_id = c.id) as restricted,
+     select c.*, l.last_at, s.semantic_type, exists (select 1 from customer_restrictions r where r.customer_id = c.id) as restricted,
        exists (select 1 from privacy_requests pr where pr.customer_id = c.id and pr.status in ('open','in_progress')) as open_request
-     from customers c join last l on l.id = c.id
-     where (c.deleted_at is null and l.last_at < $1) or (c.deleted_at is not null and c.deleted_at < $2)
+     from customers c join last l on l.id = c.id left join crm_pipeline_statuses s on s.key = c.crm_status
+     where (c.deleted_at is not null and c.deleted_at < $2)
+        or (c.deleted_at is null and s.semantic_type is not distinct from 'lost' and l.last_at < $3)
+        or (c.deleted_at is null and coalesce(s.semantic_type, '') not in ('lost', 'milestone') and l.last_at < $1)
      order by (c.deleted_at is not null) desc, l.last_at limit 500`,
-    [addMonthsIso(now, -settings.inactiveMonths), addMonthsIso(now, -settings.removedMonths)],
+    [addMonthsIso(now, -settings.inactiveMonths), addMonthsIso(now, -settings.removedMonths), addMonthsIso(now, -settings.lostMonths)],
   );
   return {
     settings,
     candidates: rows.map((r) => {
       const c = customerFromRow(r);
       return {
-        customerId: c.id, name: customerName(c), type: c.type, crmStatus: c.crmStatus ?? null, reason: r.deleted_at ? "removed" as const : "inactive" as const,
+        customerId: c.id, name: customerName(c), type: c.type, crmStatus: c.crmStatus ?? null, reason: r.deleted_at ? "removed" as const : r.semantic_type === "lost" ? "lost" as const : "inactive" as const,
         lastActivityAt: iso(r.last_at) as string, removedAt: iso(r.deleted_at), restricted: r.restricted === true, openRequest: r.open_request === true,
       };
     }),
