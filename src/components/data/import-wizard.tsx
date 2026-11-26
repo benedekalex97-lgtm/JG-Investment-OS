@@ -386,7 +386,7 @@ function RowCard({ row, decision, willImport, onDecision, fieldLabel }: { row: P
       </div>
       {d ? (
         <p className="mt-1 break-words text-[13px] text-ink-muted">
-          {[d.phone, d.email, d.contactName ? `Kapcsolattartó: ${d.contactName}` : "", d.contactPhone, d.contactEmail].filter(Boolean).join(" · ") || "Nincs elérhetőség"}
+          {[d.phone, d.extraPhones?.length ? `+${d.extraPhones.length} további szám` : "", d.email, d.contactName ? `Kapcsolattartó: ${d.contactName}` : "", d.contactPhone, d.contactEmail].filter(Boolean).join(" · ") || "Nincs elérhetőség"}
         </p>
       ) : null}
       {row.issues.length ? (

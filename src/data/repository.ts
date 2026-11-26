@@ -9,6 +9,7 @@ import {
 } from "@/domain/constants";
 import { channelLabel, findTaskInput, findTaskType, isSelectableChannel, isSelectableStatus, statusLabel, UNKNOWN_CHANNEL_KEY } from "@/domain/config";
 import { buildDisplayName, primaryContactOf, splitName, validateRelations } from "@/domain/logic";
+import { uniquePhones } from "@/domain/phones";
 import type {
   Activity, CompanyContact, Contactability, ContactabilityStatus, ContactChannel, ContactPurpose, Customer, CustomerProcess,
   DataSnapshot, EvidenceStatus, Task, TaskOutput, TaskStatus, Verification,
@@ -72,6 +73,12 @@ export interface RepositoryOptions {
   idGen?: (prefix: string) => string;
 }
 
+/** v1.4: a további telefonszámok normalizált alakja (ismétlődés és a fő szám nélkül); üres listánál a mező hiányzik. */
+function extraPhonesPatch(phone: string | undefined, extra: readonly string[] | undefined): { extraPhones?: string[] } {
+  const list = uniquePhones(extra ?? [], [phone]);
+  return list.length ? { extraPhones: list } : {};
+}
+
 export class DemoRepository implements DataRepository {
   private snap: DataSnapshot;
   private readonly clock: () => Date;
@@ -122,7 +129,7 @@ export class DemoRepository implements DataRepository {
     const t = this.now();
     const base = {
       id: this.nextId("cust"), contactStatus: "prospect" as const, ownerId: d.ownerId, source: d.source, acquisitionChannel: UNKNOWN_CHANNEL_KEY, verificationStatus: "demo" as const,
-      email: d.email, phone: d.phone, createdAt: t, updatedAt: t,
+      email: d.email, phone: d.phone, ...extraPhonesPatch(d.phone, d.extraPhones), createdAt: t, updatedAt: t,
     };
     const customer: Customer =
       d.type === "individual"
@@ -145,7 +152,7 @@ export class DemoRepository implements DataRepository {
     const base = {
       id: this.nextId("cust"), contactStatus: "prospect" as const, crmStatus: DEFAULT_CRM_STATUS, ownerId: d.recordedBy, source: d.source,
       acquisitionChannel: d.acquisitionChannel, ...(d.acquisitionDetail ? { acquisitionDetail: d.acquisitionDetail } : {}),
-      verificationStatus: "demo" as const, email: d.email, phone: d.phone, createdAt: t, updatedAt: t,
+      verificationStatus: "demo" as const, email: d.email, phone: d.phone, ...extraPhonesPatch(d.phone, d.extraPhones), createdAt: t, updatedAt: t,
     };
     // v1.2: az érkezési csatorna kötelező, és csak aktív katalóguselem lehet (az `ismeretlen` is választható, de nem alapértelmezett).
     if (!isSelectableChannel(this.snap.config, d.acquisitionChannel)) return fail({ acquisitionChannel: "Az érkezési csatorna nem választható (nem létezik vagy archivált)." });
@@ -211,15 +218,17 @@ export class DemoRepository implements DataRepository {
         meta: { fromAcquisitionChannel: cur.acquisitionChannel, toAcquisitionChannel: channel, fromAcquisitionDetail: cur.acquisitionDetail ?? null, toAcquisitionDetail: detail ?? null },
       });
     };
+    // v1.4: a hiányzó további-szám lista = változatlan (régi kliens), az üres = törlés; a fő számmal azonos elem kimarad.
+    const phones = { phone: d.phone, extraPhones: extraPhonesPatch(d.phone, d.extraPhones ?? cur.extraPhones).extraPhones };
     if (d.type === "individual") {
-      const r = this.patchCustomer(id, { ...splitName(d.name), displayName: d.name, phone: d.phone, email: d.email, notes: d.notes, source, ...acquisition });
+      const r = this.patchCustomer(id, { ...splitName(d.name), displayName: d.name, ...phones, email: d.email, notes: d.notes, source, ...acquisition });
       logAcquisition();
       return r;
     }
     const primary = primaryContactOf(this.snap, id);
     // A meglévő kapcsolattartói rekord nem veszhet el: üres névvel nem üríthető ki.
     if (!d.contactName && primary) return fail({ contactName: "A kapcsolati személy neve nem üríthető ki (a meglévő kapcsolattartói rekord megmarad)." });
-    const res = this.patchCustomer(id, { companyName: d.companyName, phone: d.phone, email: d.email, source, ...acquisition });
+    const res = this.patchCustomer(id, { companyName: d.companyName, ...phones, email: d.email, source, ...acquisition });
     if (d.contactName) this.putContactPerson(id, d.contactName, d.contactPosition);
     logAcquisition();
     return res;

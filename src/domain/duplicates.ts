@@ -1,11 +1,12 @@
 import { CUSTOMER_TYPE_LABELS } from "./constants";
 import { contactName, customerName, fold, normalizeEmail, phoneKey } from "./logic";
+import { customerPhones } from "./phones";
 import type { DataSnapshot } from "./types";
 
 /**
  * Duplikált ügyfelek felismerése (v0.9, CRM-013): determinisztikus, tesztelhető egyezésvizsgálat - nincs fuzzy- vagy AI-alapú pontozás.
  * A normalizálás a kereséssel közös (`phoneKey`, `normalizeEmail`, `fold`). Két szint:
- *  - erős: azonos e-mail-cím vagy azonos telefonszám (az ügyfélé vagy egy céges kapcsolattartóé);
+ *  - erős: azonos e-mail-cím vagy azonos telefonszám (az ügyfélé - v1.4: a fő vagy bármely további száma - vagy egy céges kapcsolattartóé);
  *  - lehetséges: azonos név / cégnév (kisbetű, ékezet, írásjel, szórend és cégforma-rövidítés nélkül), vagy azonos kapcsolati személy.
  * Csak figyelmeztet: nem von össze, nem töröl és nem ír felül adatot; a döntés a felhasználóé.
  */
@@ -35,6 +36,8 @@ export interface CustomerDraft {
   companyName?: string;
   contactName?: string;
   phone?: string;
+  /** v1.4: további telefonszámok - bármelyik egyezése erős egyezés. */
+  extraPhones?: readonly string[];
   email?: string;
 }
 
@@ -57,7 +60,8 @@ export const strongEmail = (s?: string) => {
 
 export function findDuplicates(snap: Pick<DataSnapshot, "customers" | "contacts">, draft: CustomerDraft): DuplicateCandidate[] {
   const email = strongEmail(draft.email);
-  const phone = strongPhone(draft.phone);
+  const phones = new Set(customerPhones(draft).map(strongPhone).filter(Boolean));
+  const phoneHit = (v?: string) => { const k = strongPhone(v); return Boolean(k && phones.has(k)); };
   const ownName = draft.type === "company" ? nameKey(draft.companyName ?? "", true) : nameKey(draft.name ?? "");
   const personName = draft.type === "company" ? nameKey(draft.contactName ?? "") : ownName;
   const out: DuplicateCandidate[] = [];
@@ -66,13 +70,13 @@ export function findDuplicates(snap: Pick<DataSnapshot, "customers" | "contacts"
     const strong: Hit[] = [];
     const possible: Hit[] = [];
     if (email && strongEmail(c.email) === email) strong.push({ code: "email", text: "Azonos e-mail-cím" });
-    if (phone && strongPhone(c.phone) === phone) strong.push({ code: "phone", text: "Azonos telefonszám" });
+    if (customerPhones(c).some(phoneHit)) strong.push({ code: "phone", text: "Azonos telefonszám" });
     if (c.type === "company") {
       if (draft.type === "company" && ownName && nameKey(c.companyName, true) === ownName) possible.push({ code: "company_name", text: "Azonos cégnév" });
       for (const k of snap.contacts.filter((x) => x.companyId === c.id)) {
         const who = contactName(k);
         if (email && strongEmail(k.email) === email) strong.push({ code: "contact_email", text: `Azonos e-mail-cím (kapcsolattartó: ${who})` });
-        if (phone && strongPhone(k.phone) === phone) strong.push({ code: "contact_phone", text: `Azonos telefonszám (kapcsolattartó: ${who})` });
+        if (phoneHit(k.phone)) strong.push({ code: "contact_phone", text: `Azonos telefonszám (kapcsolattartó: ${who})` });
         if (personName && nameKey(`${k.lastName} ${k.firstName}`) === personName) possible.push({ code: "contact_name", text: `Azonos kapcsolati személy neve (${who})` });
       }
     } else if (personName && nameKey(c.displayName) === personName) {

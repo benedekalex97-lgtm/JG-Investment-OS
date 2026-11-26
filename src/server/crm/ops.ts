@@ -8,6 +8,7 @@ import type { Db, Tx } from "../db/types";
 import { DELETE_CONFIRMATION_WORD } from "../features";
 import { hasPermission } from "../data/permissions";
 import { findDuplicates, maskRemoved, type DuplicateCandidate } from "@/domain/duplicates";
+import { extraPhonesFromInput } from "@/domain/phones";
 import { suppressedKinds } from "../privacy/privacy";
 import { contactFromRow, customerFromRow, type Row } from "./rows";
 import { loadConfig, loadSnapshot, saveDiff } from "./store";
@@ -67,7 +68,7 @@ export const OPS = {
     replayCustomer: byCreatedCustomer,
     precheck: async (tx, a): Promise<Result<never> | null> => {
       const str = (k: string) => (typeof a.input[k] === "string" ? (a.input[k] as string) : undefined);
-      const hit = await suppressedKinds(tx, { emails: [str("email"), str("contactEmail")], phones: [str("phone"), str("contactPhone")] });
+      const hit = await suppressedKinds(tx, { emails: [str("email"), str("contactEmail")], phones: [str("phone"), str("contactPhone"), ...extraPhonesFromInput(a.input.extraPhones)] });
       if (hit.length) {
         const privileged = await hasPermission(tx, "crm.privacy.manage");
         if (!(a.confirmSuppression === true && privileged)) {
@@ -184,8 +185,8 @@ export const isOpName = (s: string): s is OpName => Object.hasOwn(OPS, s);
 async function strongDuplicates(tx: Tx, input: Record<string, unknown>): Promise<DuplicateCandidate[]> {
   await tx.query("select pg_advisory_xact_lock(hashtextextended('jg.customer.create', 0))");
   const str = (k: string) => (typeof input[k] === "string" ? (input[k] as string) : undefined);
-  const draft = { type: input.type === "company" ? "company" : "individual", name: str("name"), companyName: str("companyName"), contactName: str("contactName"), phone: str("phone"), email: str("email") } as const;
-  if (!draft.phone && !draft.email) return [];
+  const draft = { type: input.type === "company" ? "company" : "individual", name: str("name"), companyName: str("companyName"), contactName: str("contactName"), phone: str("phone"), extraPhones: extraPhonesFromInput(input.extraPhones), email: str("email") } as const;
+  if (!draft.phone && !draft.email && !draft.extraPhones.length) return [];
   const customers = await tx.query<Row>("select * from customers");
   const contacts = await tx.query<Row>("select * from company_contacts");
   const removed = new Set(customers.filter((r) => r.deleted_at !== null).map((r) => String(r.id)));

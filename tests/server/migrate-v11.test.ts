@@ -164,6 +164,7 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
     const sql = readFileSync(join(__dirname, "../../scripts/sql/v1.1-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
     const sql12 = readFileSync(join(__dirname, "../../scripts/sql/v1.2-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
     const sql13 = readFileSync(join(__dirname, "../../scripts/sql/v1.3-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
+    const sql14 = readFileSync(join(__dirname, "../../scripts/sql/v1.4-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
     try {
       await migrate(t.db, { env: "local", migrations: V10 });
       await seedV10(t);
@@ -172,7 +173,8 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
       await t.db.system((tx) => tx.query("insert into user_permissions (user_id, permission, granted_by) values ('u-2','crm.users.manage','Teszt')"));
       await t.db.system((tx) => tx.query("insert into crm_pipeline_statuses (key, label, sort_order) values ('egyedi','Egyedi',90)"));
       await t.db.system((tx) => tx.query("update customers set crm_status = 'egyedi' where id = 'c-0'"));
-      // A v1.1 visszagörgetés csak a v1.3 (0012) és a v1.2 (0011) visszagörgetése UTÁN futtatható (fordított sorrendben).
+      // A v1.1 visszagörgetés csak a v1.4 (0013), v1.3 (0012) és a v1.2 (0011) visszagörgetése UTÁN futtatható (fordított sorrendben).
+      await t.db.system((tx) => tx.exec(sql14));
       await t.db.system((tx) => tx.exec(sql13));
       await t.db.system((tx) => tx.exec(sql12));
       expect(await checkSchema(t.db, "local")).toEqual({ ok: false, reason: "schema_outdated" });
@@ -189,7 +191,7 @@ describe.each(DRIVERS)("v1.1 migráció hibája és visszagörgetése (%s)", (ki
       expect(after.customers.find((c) => c.id === "c-0")!.crm_status).toBe("waiting_for_contact");
       // Ezután a v1.1 migráció újra alkalmazható (előre-visszalépés).
       expect((await migrate(t.db, { env: "local" })).applied).toEqual(MIGRATIONS.slice(6).map((m) => m.id));
-      expect(LATEST_MIGRATION).toBe("0012_crm_privacy");
+      expect(LATEST_MIGRATION).toBe("0013_customer_extra_phones");
     } finally {
       await t.cleanup();
     }

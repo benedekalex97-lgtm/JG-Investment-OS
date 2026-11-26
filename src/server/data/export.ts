@@ -54,7 +54,7 @@ const DANGEROUS = /^[=+\-@＝＋－＠\t\r\n]/;
 export const neutralizeCsv = (v: string) => (DANGEROUS.test(v) ? `'${v}` : v);
 
 export const CUSTOMER_COLUMNS = [
-  "Ügyfélazonosító", "Ügyféltípus", "Ügyfélnév", "Vezetéknév", "Keresztnév", "Cégnév", "Telefonszám", "E-mail",
+  "Ügyfélazonosító", "Ügyféltípus", "Ügyfélnév", "Vezetéknév", "Keresztnév", "Cégnév", "Telefonszám", "További telefonszámok", "E-mail",
   "Elsődleges kapcsolattartó", "Kapcsolattartó beosztása", "Kapcsolattartó telefonszáma", "Kapcsolattartó e-mail-címe", "További kapcsolattartók száma",
   "Pipeline-státusz", "Adatforrás", "Érkezési csatorna", "Érkezési csatorna részlete", "Megkeresési korlátozás", "Létrehozva",
 ] as const;
@@ -67,7 +67,7 @@ export function customerRows(snap: DataSnapshot, list: Customer[]): string[][] {
     return [
       c.id, CUSTOMER_TYPE_LABELS[c.type], customerName(c),
       c.type === "individual" ? c.lastName : "", c.type === "individual" ? c.firstName : "", c.type === "company" ? c.companyName : "",
-      c.phone ?? "", c.email ?? "",
+      c.phone ?? "", (c.extraPhones ?? []).join("; "), c.email ?? "",
       primary ? contactName(primary) : "", primary?.position ?? "", primary?.phone ?? "", primary?.email ?? "", c.type === "company" ? String(others) : "",
       statusLabel(snap.config, statusOf(c)), c.source, channelLabel(snap.config, c.acquisitionChannel), c.acquisitionDetail ?? "", c.restriction ? RESTRICTION_LABELS[c.restriction.kind] : "", c.createdAt.slice(0, 10),
     ];

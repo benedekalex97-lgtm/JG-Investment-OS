@@ -116,8 +116,10 @@ export class RestoreError extends Error {}
  * v1.1.1 (0010): csak a jogosultság-lista bővült és egy trigger került be - a 0009-es mentés változtatás nélkül visszaállítható.
  * v1.2 (0011): új katalógustábla (érkezési csatornák) és két új ügyfél-oszlop (`acquisition_channel` NOT NULL alapértékkel, `acquisition_detail`
  * NULL-ozható) - a régebbi mentés ügyfelei az alapértéket (`ismeretlen`) kapják, a katalógus a migráció kiinduló állapotában marad.
+ * v1.4 (0013): egy új ügyfél-oszlop (`extra_phones` NOT NULL, alapérték üres lista) és az anonimizáló függvény új változata - a 0012-es
+ * mentés ügyfelei üres további-telefonszám listát kapnak, más adat nem keletkezik.
  */
-export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", "0006_crm_import_jobs", "0009_dynamic_crm_statuses", "0010_crm_customer_delete_permission", LATEST_MIGRATION];
+export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", "0006_crm_import_jobs", "0009_dynamic_crm_statuses", "0010_crm_customer_delete_permission", "0012_crm_privacy", LATEST_MIGRATION];
 
 const migrationIndex = (id: string) => MIGRATIONS.findIndex((m) => m.id === id);
 

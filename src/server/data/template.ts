@@ -9,14 +9,14 @@ const BUILTIN_DEFAULT_LABEL = CRM_STATUS_LABELS[DEFAULT_CRM_STATUS];
  * mezőmagyarázatok, kötelezőség és KIZÁRÓLAG fiktív példasorok (example.test domain, 000-s telefonszámok). Valós ügyféladat nincs benne.
  */
 export const TEMPLATE_HEADERS = [
-  "Ügyféltípus", "Vezetéknév", "Keresztnév", "Cégnév", "Telefonszám", "E-mail",
+  "Ügyféltípus", "Vezetéknév", "Keresztnév", "Cégnév", "Telefonszám", "További telefonszámok", "E-mail",
   "Kapcsolattartó neve", "Kapcsolattartó beosztása", "Kapcsolattartó telefonszáma", "Kapcsolattartó e-mail-címe", "Megjegyzés", "Adatforrás", "Érkezési csatorna",
 ];
 
 export const TEMPLATE_EXAMPLES = [
-  ["Magánszemély", "Minta", "Anna", "", "+36 30 000 0001", "minta.anna@example.test", "", "", "", "", "Fiktív példasor - töröld importálás előtt.", "", "Weboldal (közvetlen kapcsolatfelvétel)"],
-  ["Cég", "", "", "Példa Kft.", "+36 1 000 0002", "info@pelda-kft.example.test", "Teszt Elek", "ügyvezető", "+36 20 000 0003", "teszt.elek@pelda-kft.example.test", "", "Fiktív rendezvény (példa)", "Ajánlás (ügyfél vagy ismerős)"],
-  ["Magánszemély", "Próba", "Béla", "", "06 70 000 0004", "", "", "", "", "", "", "", ""],
+  ["Magánszemély", "Minta", "Anna", "", "+36 30 000 0001", "", "minta.anna@example.test", "", "", "", "", "Fiktív példasor - töröld importálás előtt.", "", "Weboldal (közvetlen kapcsolatfelvétel)"],
+  ["Cég", "", "", "Példa Kft.", "+36 1 000 0002", "+36 1 000 0005; +36 30 000 0006", "info@pelda-kft.example.test", "Teszt Elek", "ügyvezető", "+36 20 000 0003", "teszt.elek@pelda-kft.example.test", "", "Fiktív rendezvény (példa)", "Ajánlás (ügyfél vagy ismerős)"],
+  ["Magánszemély", "Próba", "Béla", "", "06 70 000 0004", "", "", "", "", "", "", "", "", ""],
 ];
 
 const guide = (defaultLabel: string, channels: readonly string[]) => [
@@ -25,7 +25,8 @@ const guide = (defaultLabel: string, channels: readonly string[]) => [
   ["Vezetéknév", "Magánszemélynél igen", "A magánszemély vezetékneve.", "Szöveg, legfeljebb 200 karakter"],
   ["Keresztnév", "Nem", "A magánszemély keresztneve.", "Szöveg, legfeljebb 200 karakter"],
   ["Cégnév", "Cégnél igen", "A cég neve. Magánszemélynél üresen hagyandó.", "Szöveg, legfeljebb 200 karakter"],
-  ["Telefonszám", "Nem", "Az ügyfél telefonszáma. A +36 / 06 / 0036 előhívós magyar számok egységes alakra kerülnek.", "pl. +36 30 123 4567"],
+  ["Telefonszám", "Nem", "Az ügyfél (fő) telefonszáma. A +36 / 06 / 0036 előhívós magyar számok egységes alakra kerülnek. Több szám vesszővel vagy pontosvesszővel elválasztva: az első a fő szám, a többi további szám lesz.", "pl. +36 30 123 4567"],
+  ["További telefonszámok", "Nem", "A fő szám melletti további számok, vesszővel vagy pontosvesszővel elválasztva. Ügyfelenként összesen legfeljebb 10 szám.", "pl. +36 1 123 4567; +36 20 123 4567"],
   ["E-mail", "Nem", "Az ügyfél e-mail-címe.", "pl. nev@example.test"],
   ["Kapcsolattartó neve", "Nem (csak cégnél)", "A cég kapcsolattartójának neve, vezetéknév elöl.", "pl. Teszt Elek"],
   ["Kapcsolattartó beosztása", "Nem (csak cégnél)", "A kapcsolattartó beosztása.", "Szöveg, legfeljebb 120 karakter"],
@@ -42,7 +43,7 @@ const guide = (defaultLabel: string, channels: readonly string[]) => [
 
 export function importTemplate(now = new Date(), defaultLabel = BUILTIN_DEFAULT_LABEL, channels: readonly string[] = []): Buffer {
   return writeXlsx([
-    { name: "Ügyfelek", rows: [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLES], boldHeader: true, widths: [14, 16, 16, 24, 18, 30, 22, 22, 24, 32, 36, 26, 30] },
+    { name: "Ügyfelek", rows: [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLES], boldHeader: true, widths: [14, 16, 16, 24, 18, 30, 30, 22, 22, 24, 32, 36, 26, 30] },
     { name: "Útmutató", rows: guide(defaultLabel, channels), boldHeader: true, widths: [28, 34, 80, 34] },
   ], now);
 }

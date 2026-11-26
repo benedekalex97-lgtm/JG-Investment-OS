@@ -4,15 +4,27 @@ import {
   PROCESS_TYPES, RESTRICTION_KINDS, VERIFICATION_SOURCES,
 } from "./constants";
 import { ACQUISITION_DETAIL_MAX, CONFIG_KEY_RE } from "./config";
+import { EXTRA_PHONES_MAX, splitPhoneList, uniquePhones } from "./phones";
 
 const req = (label: string) => z.string({ message: `${label} megadása kötelező` }).trim().min(1, `${label} megadása kötelező`);
 const optText = z.string().trim().optional().transform((v) => (v ? v : undefined));
 const optEmail = z
   .string().trim().optional().transform((v) => (v ? v : undefined))
   .refine((v) => v === undefined || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "Érvénytelen e-mail-cím");
+const PHONE_RE = /^\+?[0-9 ()/-]{6,20}$/;
 const optPhone = z
   .string().trim().optional().transform((v) => (v ? v : undefined))
-  .refine((v) => v === undefined || /^\+?[0-9 ()/-]{6,20}$/.test(v), "Érvénytelen telefonszám");
+  .refine((v) => v === undefined || PHONE_RE.test(v), "Érvénytelen telefonszám");
+/**
+ * v1.4: további telefonszámok - tömb, vagy (az űrlapról) vesszővel, pontosvesszővel, sortöréssel elválasztott szöveg. Minden elemre a
+ * telefonszám-szabály vonatkozik; az ismétlődés kiesik; legfeljebb 9 szám. A fő számmal azonos elemet a tartományi réteg hagyja ki.
+ */
+const extraPhones = z
+  .union([z.string(), z.array(z.string())], { message: "Érvénytelen további telefonszám" })
+  .transform((v) => (Array.isArray(v) ? v.map((s) => s.trim()).filter(Boolean) : splitPhoneList(v)))
+  .refine((l) => l.every((p) => PHONE_RE.test(p)), "Érvénytelen telefonszám a további számok között")
+  .transform((l) => uniquePhones(l))
+  .refine((l) => l.length <= EXTRA_PHONES_MAX, `Legfeljebb ${EXTRA_PHONES_MAX} további telefonszám adható meg`);
 const isoDate = z.string().trim().min(1, "Dátum megadása kötelező").refine((v) => !Number.isNaN(Date.parse(v)), "Érvénytelen dátum");
 /**
  * Katalógus-kulcs (v1.1): formailag ellenőrzött stabil azonosító. Hogy LÉTEZIK-E és AKTÍV-e, azt a tartományi réteg a tényleges
@@ -35,6 +47,7 @@ const customerCommon = {
   source: z.string().trim().default(""),
   email: optEmail,
   phone: optPhone,
+  extraPhones: extraPhones.optional(),
 };
 
 /** Magánszemély: nincs companyName; a `.strict()` visszautasítja a cégnevet. Az új ügyfél mindig „Potenciális ügyfél”. */
@@ -77,17 +90,17 @@ const formCommon = {
   recordedBy: req("Rögzítő"),
 };
 export const newCustomerForm = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, email: optEmail, notes: optText, ...formCommon }).strict(),
-  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, email: optEmail, contactName: optText, contactPosition: optText, ...formCommon }).strict(),
+  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, extraPhones: extraPhones.optional(), email: optEmail, notes: optText, ...formCommon }).strict(),
+  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, extraPhones: extraPhones.optional(), email: optEmail, contactName: optText, contactPosition: optText, ...formCommon }).strict(),
 ]);
 
-/** v1.2: szerkesztésnél a hiányzó mező = változatlan; üres részlet = törlés. */
+/** v1.2: szerkesztésnél a hiányzó mező = változatlan; üres részlet = törlés. v1.4: a hiányzó `extraPhones` = változatlan, az üres = törlés. */
 const acquisitionUpdate = { acquisitionChannel: acquisitionChannelKey.optional(), acquisitionDetail: detailText.optional() };
 
 /** Ügyfél szerkesztése: a kapcsolati státusz és a korlátozás NEM itt módosul (külön, naplózott műveletek). */
 export const customerUpdateInput = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, email: optEmail, notes: optText, source: optText, ...acquisitionUpdate }).strict(),
-  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, email: optEmail, contactName: optText, contactPosition: optText, source: optText, ...acquisitionUpdate }).strict(),
+  z.object({ type: z.literal("individual"), name: req("Név"), phone: optPhone, extraPhones: extraPhones.optional(), email: optEmail, notes: optText, source: optText, ...acquisitionUpdate }).strict(),
+  z.object({ type: z.literal("company"), companyName: req("Cégnév"), phone: optPhone, extraPhones: extraPhones.optional(), email: optEmail, contactName: optText, contactPosition: optText, source: optText, ...acquisitionUpdate }).strict(),
 ]);
 
 /** Kapcsolati státusz váltása (v0.5): nincs kötelező sorrend, indoklás; a „Tőke elhelyezve” igazolást kér. */

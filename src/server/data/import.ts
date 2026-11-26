@@ -8,6 +8,7 @@ import {
   type ColumnMapping, type ImportDecision, type ImportDraft, type RowIssue, type RowState,
 } from "@/domain/data-import";
 import { findDuplicates, maskRemoved, nameKey, strongEmail, strongPhone, type DuplicateCandidate } from "@/domain/duplicates";
+import { customerPhones } from "@/domain/phones";
 import { splitName } from "@/domain/logic";
 import { companyContactInput } from "@/domain/schemas";
 import { emptySnapshot, type CompanyContact, type Customer, type DataSnapshot } from "@/domain/types";
@@ -71,7 +72,7 @@ export interface PreviewRow {
   rowNo: number;
   state: RowState;
   issues: RowIssue[];
-  display?: { typeLabel: string; name: string; phone?: string; email?: string; contactName?: string; contactPhone?: string; contactEmail?: string };
+  display?: { typeLabel: string; name: string; phone?: string; extraPhones?: string[]; email?: string; contactName?: string; contactPhone?: string; contactEmail?: string };
   matches: MatchView[];
   fileMatches: { rowNo: number; level: "strong" | "possible" }[];
 }
@@ -111,7 +112,7 @@ async function loadIndex(tx: Tx): Promise<DupIndex> {
     idx.customers.set(c.id, c);
     if (r.deleted_at !== null && r.deleted_at !== undefined) idx.removed.add(c.id);
     add(idx.byEmail, strongEmail(c.email), c.id);
-    add(idx.byPhone, strongPhone(c.phone), c.id);
+    for (const p of customerPhones(c)) add(idx.byPhone, strongPhone(p), c.id);
     add(idx.byName, c.type === "company" ? `c:${nameKey(c.companyName, true)}` : `i:${nameKey(c.displayName)}`, c.id);
   }
   for (const r of contactRows) {
@@ -130,7 +131,7 @@ function dbMatches(idx: DupIndex, d: ImportDraft): MatchView[] {
   const ids = new Set<string>();
   const look = (m: Map<string, Set<string>>, k: string) => { if (k) for (const id of m.get(k) ?? []) ids.add(id); };
   for (const e of [d.email, d.contactEmail]) look(idx.byEmail, strongEmail(e));
-  for (const p of [d.phone, d.contactPhone]) look(idx.byPhone, strongPhone(p));
+  for (const p of [d.phone, ...(d.extraPhones ?? []), d.contactPhone]) look(idx.byPhone, strongPhone(p));
   if (d.type === "individual") {
     const k = nameKey(d.name ?? "");
     if (k) { look(idx.byName, `i:${k}`); look(idx.byName, `k:${k}`); }
@@ -146,7 +147,7 @@ function dbMatches(idx: DupIndex, d: ImportDraft): MatchView[] {
   const sub = { customers, contacts };
   const base = { type: d.type, name: d.name, companyName: d.companyName, contactName: d.contactName } as const;
   // A CRM-013 egyezésvizsgálata: az ügyfél és (cégnél) a kapcsolattartó elérhetőségével is.
-  const found: DuplicateCandidate[] = [...findDuplicates(sub, { ...base, phone: d.phone, email: d.email })];
+  const found: DuplicateCandidate[] = [...findDuplicates(sub, { ...base, phone: d.phone, extraPhones: d.extraPhones, email: d.email })];
   if (d.contactPhone || d.contactEmail) found.push(...findDuplicates(sub, { ...base, phone: d.contactPhone, email: d.contactEmail }));
   const merged = new Map<string, DuplicateCandidate>();
   for (const f of found) {
@@ -182,7 +183,7 @@ class FileIndex {
     for (const k of this.nameKeys(d)) if (!this.names.has(k)) this.names.set(k, rowNo);
   }
   private strongKeys(d: ImportDraft) {
-    return [`e:${strongEmail(d.email)}`, `e:${strongEmail(d.contactEmail)}`, `p:${strongPhone(d.phone)}`, `p:${strongPhone(d.contactPhone)}`].filter((k) => k.length > 2);
+    return [`e:${strongEmail(d.email)}`, `e:${strongEmail(d.contactEmail)}`, `p:${strongPhone(d.phone)}`, ...(d.extraPhones ?? []).map((p) => `p:${strongPhone(p)}`), `p:${strongPhone(d.contactPhone)}`].filter((k) => k.length > 2);
   }
   private nameKeys(d: ImportDraft) {
     const k = d.type === "company" ? `c:${nameKey(d.companyName ?? "", true)}` : `i:${nameKey(d.name ?? "")}`;
@@ -196,6 +197,7 @@ class FileIndex {
 function formInput(d: ImportDraft, source: string, userId: string): Record<string, unknown> {
   const base: Record<string, unknown> = { type: d.type, source: d.source ?? source, acquisitionChannel: d.acquisitionChannel, recordedBy: userId };
   if (d.phone) base.phone = d.phone;
+  if (d.extraPhones?.length) base.extraPhones = d.extraPhones;
   if (d.email) base.email = d.email;
   if (d.type === "individual") {
     base.name = d.name;
@@ -275,7 +277,7 @@ function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, user
     }
     const display = d ? {
       typeLabel: CUSTOMER_TYPE_LABELS[d.type], name: (d.type === "company" ? d.companyName : d.name) ?? "",
-      ...(d.phone ? { phone: d.phone } : {}), ...(d.email ? { email: d.email } : {}), ...(d.contactName ? { contactName: d.contactName } : {}),
+      ...(d.phone ? { phone: d.phone } : {}), ...(d.extraPhones?.length ? { extraPhones: d.extraPhones } : {}), ...(d.email ? { email: d.email } : {}), ...(d.contactName ? { contactName: d.contactName } : {}),
       ...(d.contactPhone ? { contactPhone: d.contactPhone } : {}), ...(d.contactEmail ? { contactEmail: d.contactEmail } : {}),
     } : undefined;
     if (!d) {
@@ -289,7 +291,7 @@ function evaluate(upload: ParsedUpload, opts: ImportOptions, idx: DupIndex, user
     fileIdx.add(d, rowNo);
     const strong = matches.some((m) => m.level === "strong") || fileMatches.some((m) => m.level === "strong");
     // v1.3: tiltólistás elérhetőség (korábban törölt vagy tiltakozó érintett) - a sor nem importálható, egyezés nélkül is.
-    const suppressed = suppressionHashes({ emails: [d.email, d.contactEmail], phones: [d.phone, d.contactPhone] }).some((h) => idx.suppressed.has(h.hash));
+    const suppressed = suppressionHashes({ emails: [d.email, d.contactEmail], phones: [d.phone, ...(d.extraPhones ?? []), d.contactPhone] }).some((h) => idx.suppressed.has(h.hash));
     if (suppressed) issues.push({ level: "error", code: "suppressed", message: "Az elérhetőség az adatvédelmi tiltólistán szerepel (korábbi törlési kérelem vagy tiltakozás): a sor nem importálható." });
     const restricted = suppressed || matches.some((m) => m.level === "strong" && m.restricted);
     const possible = !strong && (matches.length > 0 || fileMatches.length > 0);
