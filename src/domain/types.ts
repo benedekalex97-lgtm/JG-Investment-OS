@@ -63,6 +63,8 @@ interface CustomerBase {
   verificationStatus: DataVerificationStatus;
   email?: string;
   phone?: string;
+  /** v1.4: a fő telefonszám melletti további számok (legfeljebb 9); hiányzik vagy üres = nincs. */
+  extraPhones?: string[];
   restriction?: ContactRestriction;
   createdAt: string;
   updatedAt: string;

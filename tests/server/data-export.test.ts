@@ -64,8 +64,8 @@ describe.each(DRIVERS)("ügyfélexport (%s)", (kind) => {
     expect(bela[2]).toBe("'=HYPERLINK(\"http://tamado.example.test\")");
     expect(bela[CUSTOMER_COLUMNS.indexOf("Megkeresési korlátozás")]).toBe("Tiltakozás");
     const anna = rows.find((r) => r[0] === ids.anna)!;
-    expect(anna.slice(1, 8)).toEqual(["Magánszemély", "Export Anna", "Export", "Anna", "", "'+36 30 000 0201", "anna@example.test"]);
-    expect(anna[13]).toBe("Online/Személyes tárgyalás");
+    expect(anna.slice(1, 9)).toEqual(["Magánszemély", "Export Anna", "Export", "Anna", "", "'+36 30 000 0201", "", "anna@example.test"]);
+    expect(anna[CUSTOMER_COLUMNS.indexOf("Pipeline-státusz")]).toBe("Online/Személyes tárgyalás");
   });
 
   it("E02/E13: XLSX - Ügyfelek, Kapcsolattartók (minden kapcsolattartó, veszteségmentesen) és Exportinformáció; értékek változatlanok, képlet nincs", async () => {
@@ -79,7 +79,7 @@ describe.each(DRIVERS)("ügyfélexport (%s)", (kind) => {
     expect(wb.read(0).flags.formula.size).toBe(0);
     for (let i = 1; i <= 3; i++) expect(new ZipReader(buf).text(`xl/worksheets/sheet${i}.xml`)).not.toContain("<f>");
     const ceg = cust.find((r) => r[0] === ids.ceg)!;
-    expect(ceg.slice(8, 13)).toEqual(["Elsődleges Elek", "ügyvezető", "", "", "1"]);
+    expect(ceg.slice(9, 14)).toEqual(["Elsődleges Elek", "ügyvezető", "", "", "1"]);
     const contacts = wb.read(1).rows;
     expect(contacts.slice(1).map((r) => [r[0], r[3], r[4], r[8]])).toEqual([[ids.ceg, "Elsődleges", "Elek", "Igen"], [ids.ceg, "Második", "Kata", "Nem"]]);
     expect(wb.read(2).rows.map((r) => r[0])).toEqual(["Megnevezés", "Exportálva", "Szűrés", "Ügyfelek száma", "Figyelmeztetés"]);

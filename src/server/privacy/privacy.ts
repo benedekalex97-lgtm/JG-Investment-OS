@@ -53,10 +53,12 @@ export async function loadSuppressionSet(tx: Tx): Promise<Set<string>> {
 
 /** Egy ügyfél (és kapcsolattartói) összes elérhetőségének lenyomata - tiltakozásnál és törlésnél a tiltólistára kerül. */
 async function customerHashes(tx: Tx, customerId: string): Promise<SuppressionHash[]> {
-  const c = await tx.query<{ email: string | null; phone: string | null }>("select email, phone from customers where id = $1", [customerId]);
+  const c = await tx.query<{ email: string | null; phone: string | null; extra_phones: string[] | null }>("select email, phone, extra_phones from customers where id = $1", [customerId]);
   const k = await tx.query<{ email: string | null; phone: string | null }>("select email, phone from company_contacts where company_id = $1", [customerId]);
   const all = [...c, ...k];
-  return suppressionHashes({ emails: all.map((r) => r.email ?? undefined), phones: all.map((r) => r.phone ?? undefined) });
+  // v1.4: az ügyfél további telefonszámai is a tiltólistára kerülnek.
+  const extra = c.flatMap((r) => (Array.isArray(r.extra_phones) ? r.extra_phones : []));
+  return suppressionHashes({ emails: all.map((r) => r.email ?? undefined), phones: [...all.map((r) => r.phone ?? undefined), ...extra] });
 }
 
 // ------------------------------------------------------------------ Hibák
@@ -281,7 +283,7 @@ export async function accessReport(tx: Tx, user: { id: string; name: string }, r
     controller, processing,
     subject: {
       id: c.id, type: c.type, name: customerName(c), ...(c.type === "individual" ? { lastName: c.lastName, firstName: c.firstName, notes: c.notes ?? null } : { companyName: c.companyName }),
-      phone: c.phone ?? null, email: c.email ?? null, pipelineStatus: status?.label ?? c.crmStatus ?? null, acquisitionChannel: channel?.label ?? c.acquisitionChannel,
+      phone: c.phone ?? null, extraPhones: c.extraPhones ?? [], email: c.email ?? null, pipelineStatus: status?.label ?? c.crmStatus ?? null, acquisitionChannel: channel?.label ?? c.acquisitionChannel,
       acquisitionDetail: c.acquisitionDetail ?? null, dataSource: c.source || null, owner: name(cRow.owner_id), createdAt: c.createdAt, updatedAt: c.updatedAt,
       removedFromActiveCrmAt: iso(cRow.deleted_at),
     },

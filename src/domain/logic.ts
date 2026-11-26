@@ -142,6 +142,8 @@ export function customerMatches(snap: DataSnapshot, c: Customer, query: string):
   const name = customerName(c);
   if (fold(name).includes(q) || (c.type === "individual" && fold(`${c.firstName} ${c.lastName}`).includes(q))) out.push({ field: "name", label: c.type === "company" ? "Cégnév" : "Név", value: name });
   if (phoneHit(c.phone, phones)) out.push({ field: "phone", label: "Telefonszám", value: c.phone as string });
+  // v1.4: a további telefonszámok is kereshetők.
+  for (const p of c.extraPhones ?? []) if (phoneHit(p, phones)) out.push({ field: "phone", label: "További telefonszám", value: p });
   if (emailHit(c.email)) out.push({ field: "email", label: "E-mail", value: c.email as string });
   if (c.type === "company") {
     for (const k of snap.contacts.filter((x) => x.companyId === c.id)) {

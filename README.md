@@ -14,6 +14,11 @@ npm run typecheck && npm run lint && npm test -- --run && npm run build
 npm run e2e          # Playwright E2E, saját szerverrel és ideiglenes adatbázissal (lásd e2e/README.md)
 ```
 
+## Több telefonszám ügyfelenként (v1.4)
+Egy ügyfélnek egy fő és legfeljebb 9 további telefonszáma lehet (új ügyfél, szerkesztés, adatlap, keresés, egyezésvizsgálat, export).
+Az importban a *Telefonszám* cellája több, vesszővel vagy pontosvesszővel elválasztott számot is tartalmazhat (pl. Opten-export): az első
+a fő szám, a többi további szám. A tiltólista és a végleges törlés a további számokra is kiterjed. Részletek: `docs/V1.4-MULTIPLE-PHONES.md`.
+
 ## Adatvédelem és adatbiztonság (v1.3)
 Beállítások › **Adatvédelem** (`crm.privacy.manage`; végleges törléshez külön `crm.privacy.erase`), részletek: `docs/V1.3-DATA-PROTECTION.md`.
 - **Érintetti kérelmek** (GDPR 15-21. cikk) nyilvántartása 1 hónapos határidővel, egyszeri meghosszabbítással, azonosítás-jelöléssel; lezárt kérelem végleges.
@@ -50,6 +55,7 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V1.4-MULTIPLE-PHONES.md` — **v1.4: több telefonszám ügyfelenként (fő + legfeljebb 9 további); import több számmal egy cellában; egyezés, tiltólista, törlés, export; migráció 0013 és rollback**
 - `docs/V1.3-PRIVACY-OPERATIONS-CHECKLIST.md` — **v1.3 bevezetési ellenőrzőlista: jogosultsági terv (négy-szem elv), adatfeldolgozói szerződések, mentések, működési rutin**
 - `docs/V1.3-LIA-JOGOS-ERDEK.md` — érdekmérlegelési teszt (jogos érdek, 6. cikk (1) f))
 - `docs/V1.3-DATA-PROTECTION.md` — **v1.3: adatvédelem (GDPR) - érintetti kérelmek, adatkivonat, tiltakozás, végleges törlés, tiltólista, megőrzés, biztonsági fejlécek; adatleltár, 30. cikk szerinti nyilvántartás-tervezet, incidenskezelés, nyitott DPO-döntések**

@@ -11,6 +11,8 @@ const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : new D
 const isoOpt = (v: unknown): string | undefined => (v === null || v === undefined ? undefined : iso(v));
 const str = (v: unknown): string | undefined => (v === null || v === undefined ? undefined : String(v));
 const strict = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
+/** v1.4: text[] oszlop (a driver tömböt ad; régi vagy hiányzó oszlopnál üres lista). */
+const textArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x) => x !== null && x !== undefined).map(String) : []);
 const dbTime = (v: string | undefined): string | null => (v === undefined ? null : v);
 
 export function customerFromRow(r: Row, restriction?: Row): Customer {
@@ -25,6 +27,7 @@ export function customerFromRow(r: Row, restriction?: Row): Customer {
     verificationStatus: r.verification_status as Customer["verificationStatus"],
     ...(str(r.email) !== undefined ? { email: str(r.email) } : {}),
     ...(str(r.phone) !== undefined ? { phone: str(r.phone) } : {}),
+    ...(textArray(r.extra_phones).length ? { extraPhones: textArray(r.extra_phones) } : {}),
     ...(restriction
       ? { restriction: { kind: restriction.kind as "objection" | "restriction", note: strict(restriction.note), recordedAt: iso(restriction.recorded_at), recordedBy: strict(restriction.recorded_by) } }
       : {}),
@@ -44,7 +47,8 @@ export function customerToRow(c: Customer): Row {
     notes: c.type === "individual" ? (c.notes ?? null) : null,
     contact_status: c.contactStatus, crm_status: c.crmStatus ?? null, owner_id: c.ownerId, source: c.source,
     acquisition_channel: c.acquisitionChannel, acquisition_detail: c.acquisitionDetail ?? null,
-    verification_status: c.verificationStatus, email: c.email ?? null, phone: c.phone ?? null, created_at: c.createdAt, updated_at: c.updatedAt,
+    verification_status: c.verificationStatus, email: c.email ?? null, phone: c.phone ?? null,
+    extra_phones: c.extraPhones ?? [], created_at: c.createdAt, updated_at: c.updatedAt,
   };
 }
 

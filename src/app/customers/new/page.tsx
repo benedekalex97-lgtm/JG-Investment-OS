@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { VerificationFields } from "@/components/forms";
-import { SelectInput, TextInput } from "@/components/ui/form";
+import { SelectInput, TextArea, TextInput } from "@/components/ui/form";
 import { Badge, Button, Card, CardHeader, PageHeader } from "@/components/ui/primitives";
 import { useCrmData } from "@/data/store";
 import { CUSTOMER_TYPE_LABELS, DEFAULT_CRM_STATUS } from "@/domain/constants";
 import { activeOf, ACQUISITION_DETAIL_MAX } from "@/domain/config";
 import { useCrmConfig } from "@/components/common";
 import { findDuplicates, type DuplicateCandidate } from "@/domain/duplicates";
+import { splitPhoneList } from "@/domain/phones";
 import { isCrmMilestone } from "@/domain/workflow";
 import { cn } from "@/lib/cn";
 
@@ -28,7 +29,7 @@ export default function NewCustomerPage() {
   const config = useCrmConfig();
   const [busy, setBusy] = useState(false);
   const [type, setType] = useState<"individual" | "company">("individual");
-  const [f, setF] = useState({ name: "", companyName: "", contactName: "", contactPosition: "", phone: "", email: "", source: "", crmStatus: DEFAULT_CRM_STATUS as string, acquisitionChannel: "", acquisitionDetail: "" });
+  const [f, setF] = useState({ name: "", companyName: "", contactName: "", contactPosition: "", phone: "", extraPhones: "", email: "", source: "", crmStatus: DEFAULT_CRM_STATUS as string, acquisitionChannel: "", acquisitionDetail: "" });
   const [vSource, setVSource] = useState("");
   const [vAck, setVAck] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
@@ -36,8 +37,8 @@ export default function NewCustomerPage() {
   const milestone = isCrmMilestone(config, f.crmStatus);
   // CRM-013: lehetséges duplikációk már gépelés közben (a betöltött, aktív ügyfelekből); a szerver mentés előtt újra ellenőriz.
   const local = useMemo(
-    () => (data ? findDuplicates(data, { type, name: f.name, companyName: f.companyName, contactName: f.contactName, phone: f.phone, email: f.email }) : []),
-    [data, type, f.name, f.companyName, f.contactName, f.phone, f.email],
+    () => (data ? findDuplicates(data, { type, name: f.name, companyName: f.companyName, contactName: f.contactName, phone: f.phone, extraPhones: splitPhoneList(f.extraPhones), email: f.email }) : []),
+    [data, type, f.name, f.companyName, f.contactName, f.phone, f.extraPhones, f.email],
   );
   const [serverDup, setServerDup] = useState<DuplicateCandidate[]>([]);
   const [needDecision, setNeedDecision] = useState(false);
@@ -54,7 +55,7 @@ export default function NewCustomerPage() {
       return;
     }
     const common = {
-      phone: f.phone, email: f.email, source: f.source, crmStatus: f.crmStatus,
+      phone: f.phone, extraPhones: f.extraPhones, email: f.email, source: f.source, crmStatus: f.crmStatus,
       acquisitionChannel: f.acquisitionChannel || undefined, acquisitionDetail: f.acquisitionDetail,
       verification: milestone && (vSource || vAck) ? { sourceCategory: vSource || undefined, complianceAcknowledged: vAck } : undefined,
     };
@@ -120,6 +121,7 @@ export default function NewCustomerPage() {
               <TextInput label="Név" required value={f.name} error={errors.name} onChange={set("name")} autoComplete="off" />
             )}
             <TextInput label="Telefonszám (ha ismert)" type="tel" value={f.phone} error={errors.phone} onChange={set("phone")} autoComplete="off" />
+            <TextArea label="További telefonszámok (opcionális)" rows={2} value={f.extraPhones} error={errors.extraPhones} onChange={set("extraPhones")} autoComplete="off" hint="Vesszővel, pontosvesszővel vagy új sorral elválasztva; legfeljebb 9 szám. A „Hívás” gomb a fő számot tárcsázza." />
             <TextInput label="E-mail (ha ismert)" type="email" value={f.email} error={errors.email} onChange={set("email")} autoComplete="off" />
             <TextInput label="Adatforrás (ha ismert)" value={f.source} onChange={set("source")} hint="Az adat eredete (pl. import forrása, kontaktadatbázis) - nem azonos az érkezési csatornával." />
             <SelectInput label="Érkezési csatorna" required value={f.acquisitionChannel} error={errors.acquisitionChannel} onChange={set("acquisitionChannel")} hint="Honnan érkezett az ügyfél? Az „Ismeretlen” is választható, de tudatosan.">

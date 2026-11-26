@@ -3,7 +3,7 @@
 import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { optionLabel, RestrictedBadge, TypeBadge, useCrmConfig } from "@/components/common";
 import { StatusSelect } from "@/components/status-select";
-import { SelectInput, TextInput } from "@/components/ui/form";
+import { SelectInput, TextArea, TextInput } from "@/components/ui/form";
 import { Button, Card } from "@/components/ui/primitives";
 import { useCrmData } from "@/data/store";
 import { ACQUISITION_DETAIL_MAX, channelLabel, ordered } from "@/domain/config";
@@ -108,6 +108,7 @@ export function ContactSidebar({ data, customer, className }: { data: DataSnapsh
               items={[
                 ...(customer.type === "company" ? [{ label: "Kapcsolati személy", value: primary ? `${contactName(primary)}${primary.position ? ` (${primary.position})` : ""}` : "" }] : []),
                 { label: "Telefonszám", value: phone },
+                ...(customer.extraPhones?.length ? [{ label: "További telefonszámok", value: customer.extraPhones.join(", ") }] : []),
                 { label: "E-mail", value: email },
                 { label: "Adatforrás", value: customer.source },
                 { label: "Érkezési csatorna", value: channelLabel(data.config, customer.acquisitionChannel) },
@@ -129,7 +130,7 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
   const [f, setF] = useState({
     name: customer.type === "individual" ? customer.displayName : "", companyName: customer.type === "company" ? customer.companyName : "",
     contactName: primary ? contactName(primary) : "", contactPosition: primary?.position ?? "",
-    phone: customer.phone ?? primary?.phone ?? "", email: customer.email ?? primary?.email ?? "", source: customer.source,
+    phone: customer.phone ?? primary?.phone ?? "", extraPhones: (customer.extraPhones ?? []).join("\n"), email: customer.email ?? primary?.email ?? "", source: customer.source,
     acquisitionChannel: customer.acquisitionChannel, acquisitionDetail: customer.acquisitionDetail ?? "",
   });
   const config = useCrmConfig();
@@ -143,8 +144,8 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
     const r = await repo.updateCustomer(
       customer.id,
       customer.type === "individual"
-        ? { type: "individual", name: f.name, phone: f.phone, email: f.email, source: f.source, acquisitionChannel: f.acquisitionChannel, acquisitionDetail: f.acquisitionDetail }
-        : { type: "company", companyName: f.companyName, contactName: f.contactName, contactPosition: f.contactPosition, phone: f.phone, email: f.email, source: f.source, acquisitionChannel: f.acquisitionChannel, acquisitionDetail: f.acquisitionDetail },
+        ? { type: "individual", name: f.name, phone: f.phone, extraPhones: f.extraPhones, email: f.email, source: f.source, acquisitionChannel: f.acquisitionChannel, acquisitionDetail: f.acquisitionDetail }
+        : { type: "company", companyName: f.companyName, contactName: f.contactName, contactPosition: f.contactPosition, phone: f.phone, extraPhones: f.extraPhones, email: f.email, source: f.source, acquisitionChannel: f.acquisitionChannel, acquisitionDetail: f.acquisitionDetail },
     );
     setBusy(false);
     if (!r.ok) return setErrors(r.errors);
@@ -165,6 +166,7 @@ function EditForm({ customer, primary, onDone }: { customer: Customer; primary?:
           <TextInput label="Név" required value={f.name} error={errors.name} onChange={set("name")} />
         )}
         <TextInput label="Telefonszám" type="tel" value={f.phone} error={errors.phone} onChange={set("phone")} />
+        <TextArea label="További telefonszámok" rows={3} value={f.extraPhones} error={errors.extraPhones} onChange={set("extraPhones")} hint="Vesszővel, pontosvesszővel vagy új sorral elválasztva; legfeljebb 9 szám. A „Hívás” gomb a fő számot tárcsázza." />
         <TextInput label="E-mail" type="email" value={f.email} error={errors.email} onChange={set("email")} />
         <TextInput label="Adatforrás" value={f.source} error={errors.source} onChange={set("source")} hint="Az adat eredete; nem azonos az érkezési csatornával." />
         <SelectInput label="Érkezési csatorna" required value={f.acquisitionChannel} error={errors.acquisitionChannel} onChange={set("acquisitionChannel")} hint="A módosítás bekerül az ügyféltörténetbe (ki, mikor, régi → új).">

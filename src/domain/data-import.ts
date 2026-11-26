@@ -1,19 +1,21 @@
 import { CRM_STATUSES, CRM_STATUS_LABELS, DEFAULT_CRM_STATUS } from "./constants";
 import { BUILTIN_CRM_CONFIG, UNKNOWN_CHANNEL_KEY, type AcquisitionChannelDef } from "./config";
 import { fold, phoneKey } from "./logic";
+import { EXTRA_PHONES_MAX, splitPhoneList, uniquePhones } from "./phones";
 
 /**
  * Ügyféladat-import tartományi szabályai (v1.0, CRM-014 / CRM-015) - a kliens (mezőlista, felirat) és a szerver (validáció) közös
  * logikája, böngésző- és Node-független.
  *
- * Az importálható mezők KIZÁRÓLAG a CRM meglévő adatmodelljének mezői (ügyfél: típus, név / cégnév, telefonszám, e-mail, adatforrás,
+ * Az importálható mezők KIZÁRÓLAG a CRM meglévő adatmodelljének mezői (ügyfél: típus, név / cégnév, telefonszám és - v1.4 - további
+ * telefonszámok, e-mail, adatforrás,
  * magánszemélynél megjegyzés; céges kapcsolattartó: név, beosztás, telefonszám, e-mail). Új mező nincs.
  * A státusz oszlop csak ellenőrzésre szolgál: az importált ügyfél MINDIG „Feldolgozásra vár” (waiting_for_contact) státusszal jön
  * létre, a fájlban szereplő más státusz nem kerül átvételre (nincs automatikus státuszemelés). Megkeresési korlátozást, tiltakozást,
  * kapcsolati státuszt vagy igazolási adatot az import nem állít be és nem ír felül.
  */
 export const IMPORT_FIELD_KEYS = [
-  "type", "fullName", "lastName", "firstName", "companyName", "phone", "email",
+  "type", "fullName", "lastName", "firstName", "companyName", "phone", "extraPhones", "email",
   "contactName", "contactPosition", "contactPhone", "contactEmail", "notes", "source", "status", "acquisitionChannel",
 ] as const;
 export type ImportFieldKey = (typeof IMPORT_FIELD_KEYS)[number];
@@ -27,7 +29,8 @@ export const IMPORT_FIELDS: readonly ImportFieldDef[] = [
   { key: "lastName", label: "Vezetéknév", help: "Magánszemély vezetékneve.", aliases: ["vezeteknev", "csaladnev", "lastname", "surname", "familyname"] },
   { key: "firstName", label: "Keresztnév", help: "Magánszemély keresztneve.", aliases: ["keresztnev", "utonev", "firstname", "givenname"] },
   { key: "companyName", label: "Cégnév", help: "Cég ügyfél neve (cégnél kötelező).", aliases: ["cegnev", "ceg", "cegneve", "company", "companyname", "vallalat", "vallalkozas", "szervezet", "organization"] },
-  { key: "phone", label: "Telefonszám", help: "Az ügyfél telefonszáma. A magyar formák (+36, 06, 0036) egységes +36 alakra kerülnek.", aliases: ["telefonszam", "telefon", "tel", "mobil", "mobilszam", "phone", "mobile", "phonenumber"] },
+  { key: "phone", label: "Telefonszám", help: "Az ügyfél telefonszáma. A magyar formák (+36, 06, 0036) egységes +36 alakra kerülnek. Egy cellában több szám is lehet vesszővel vagy pontosvesszővel elválasztva: az első lesz a fő szám, a többi a további számok közé kerül (összesen legfeljebb 10).", aliases: ["telefonszam", "telefon", "tel", "mobil", "mobilszam", "phone", "mobile", "phonenumber", "telefonszamok"] },
+  { key: "extraPhones", label: "További telefonszámok", help: "Opcionális. Egy vagy több további szám vesszővel vagy pontosvesszővel elválasztva; a fő telefonszám mellé kerülnek (összesen legfeljebb 10).", aliases: ["tovabbitelefonszamok", "tovabbitelefonszam", "egyebtelefonszamok", "egyebtelefonszam", "otherphones", "additionalphones"] },
   { key: "email", label: "E-mail", help: "Az ügyfél e-mail-címe.", aliases: ["email", "emailcim", "mail", "emailaddress", "levelcim"] },
   { key: "contactName", label: "Kapcsolattartó neve", help: "Cégnél a kapcsolattartó neve (vezetéknév elöl).", aliases: ["kapcsolattarto", "kapcsolattartoneve", "kapcsolattartonev", "kapcsolatiszemely", "contact", "contactname", "contactperson"] },
   { key: "contactPosition", label: "Kapcsolattartó beosztása", help: "Cégnél a kapcsolattartó beosztása.", aliases: ["beosztas", "kapcsolattartobeosztasa", "pozicio", "position", "jobtitle"] },
@@ -145,6 +148,8 @@ export interface ImportDraft {
   name?: string;
   companyName?: string;
   phone?: string;
+  /** v1.4: további telefonszámok (normalizálva, ismétlődés és a fő szám nélkül). */
+  extraPhones?: string[];
   email?: string;
   notes?: string;
   contactName?: string;
@@ -247,7 +252,28 @@ export function evaluateRow(cells: string[], mapping: ColumnMapping, defaultType
     return p.value;
   };
   draft.email = email("email");
-  draft.phone = phone("phone");
+  // v1.4: a Telefonszám cellája és a További telefonszámok cella is tartalmazhat több, vesszővel / pontosvesszővel elválasztott számot.
+  // Az első érvényes szám a fő szám, a többi (ismétlődés nélkül) a további számok közé kerül. Bármely érvénytelen szám hibás sort jelent.
+  const phoneList = (k: "phone" | "extraPhones") => {
+    const v = val[k];
+    if (v === undefined) return [];
+    const out: string[] = [];
+    let warned = false;
+    for (const part of splitPhoneList(v)) {
+      const p = normalizePhone(part);
+      if (!p.ok) { issues.push(issue("error", "invalid_phone", splitPhoneList(v).length > 1 ? "Érvénytelen telefonszám (a cellában szereplő számok egyike)." : "Érvénytelen telefonszám.", k)); return []; }
+      if (p.warning && !warned) { warned = true; issues.push(issue("warning", "phone_format", "Nem szokásos (külföldi vagy előhívó nélküli) telefonszám-formátum: ellenőrizd.", k)); }
+      out.push(p.value);
+    }
+    return out;
+  };
+  const allPhones = uniquePhones([...phoneList("phone"), ...phoneList("extraPhones")]);
+  if (allPhones.length > EXTRA_PHONES_MAX + 1) {
+    issues.push(issue("error", "too_many_phones", `Túl sok telefonszám: ügyfelenként legfeljebb ${EXTRA_PHONES_MAX + 1} (1 fő + ${EXTRA_PHONES_MAX} további) importálható.`, val.extraPhones !== undefined ? "extraPhones" : "phone"));
+  } else {
+    draft.phone = allPhones[0];
+    if (allPhones.length > 1) draft.extraPhones = allPhones.slice(1);
+  }
   if (type === "company") {
     draft.contactEmail = email("contactEmail");
     draft.contactPhone = phone("contactPhone");
