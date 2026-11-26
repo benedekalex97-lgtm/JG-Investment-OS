@@ -82,6 +82,12 @@ describe("v1.4 tartományi szabályok", () => {
     }
     // Budapest és mobil változatlan; a hiányos mobilszám és a külföldi szám továbbra is figyelmeztet.
     expect(evaluateRow(["Fiktív Kft.", "+3612610778"], map, "company").draft?.phone).toBe("+36 1 261 0778");
+    // v1.4.2: szám típusú Excel-cella „+” nélkül - budapesti szám is (36 1 …).
+    for (const raw of ["3612610778", "36 1 261 0778"]) {
+      const r = evaluateRow(["Fiktív Kft.", raw], map, "company");
+      expect(r.status, raw).toBe("valid");
+      expect(r.draft?.phone, raw).toBe("+36 1 261 0778");
+    }
     expect(evaluateRow(["Fiktív Kft.", "+36205550001"], map, "company").draft?.phone).toBe("+36 20 555 0001");
     for (const raw of ["+3620555000", "+44 20 7946 0958", "24520191"]) expect(evaluateRow(["Fiktív Kft.", raw], map, "company").issues.map((i) => i.code), raw).toEqual(["phone_format"]);
     // Opten-minta: több szám, az utolsó levágva.
