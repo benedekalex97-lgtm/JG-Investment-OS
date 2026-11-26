@@ -114,19 +114,26 @@ export const CRM_PHONE_RE = /^\+?[0-9 ()/-]{6,20}$/;
 export type PhoneResult = { ok: true; value: string; warning?: "unusual_format" } | { ok: false };
 /**
  * Telefonszám-normalizálás (V04): a magyar formák (+36, 0036, 06 előhívó, szóköz/kötőjel/pont/zárójel) egységes „+36 30 123 4567”
- * alakra; budapesti (1) számnál „+36 1 234 5678”. Más (külföldi vagy előhívó nélküli) számnál csak a formázás tisztul, és figyelmeztetés
- * jár (nem találunk ki előhívót). A végeredménynek a CRM telefonszám-szabályán is át kell mennie.
+ * alakra; budapesti (1) számnál „+36 1 234 5678”; v1.4.1: vidéki vezetékes (kétjegyű körzetszám + 6 jegy) számnál „+36 24 520 191”.
+ * Más (külföldi vagy előhívó nélküli) számnál csak a formázás tisztul, és figyelmeztetés jár (nem találunk ki előhívót). A végeredménynek a
+ * CRM telefonszám-szabályán is át kell mennie.
  */
+/** Mobil (és nem földrajzi, 7 jegyű előfizetői számú) előtagok: ezeknél a 8 jegyű belföldi szám hiányos, nem vezetékes. */
+const HU_MOBILE_PREFIXES = new Set(["20", "21", "30", "31", "50", "70"]);
+/** v1.4.1: magyar előhívós (+36 / 06 / 0036) szám-e - a csonka (túl rövid) számok felismeréséhez. */
+export const hasHungarianPrefix = (raw: string) => { const d = raw.replace(/\D/g, ""); return raw.trim().startsWith("+36") || d.startsWith("0036") || d.startsWith("06"); };
 export function normalizePhone(raw: string): PhoneResult {
   const v = raw.trim();
   if (!v) return { ok: false };
   if (!/^[+0-9 ()/.\-]+$/.test(v)) return { ok: false };
   const key = phoneKey(v);
   const plus = v.startsWith("+");
-  if (key.startsWith("36") && (plus || v.replace(/\D/g, "").startsWith("06") || v.replace(/\D/g, "").startsWith("0036") || /^36\d{9}$/.test(key))) {
+  if (key.startsWith("36") && (plus || v.replace(/\D/g, "").startsWith("06") || v.replace(/\D/g, "").startsWith("0036") || /^36\d{9}$/.test(key) || /^36[2-9]\d{7}$/.test(key))) {
     const rest = key.slice(2);
     if (rest.length === 9 && /^[2-9]/.test(rest)) return { ok: true, value: `+36 ${rest.slice(0, 2)} ${rest.slice(2, 5)} ${rest.slice(5)}` };
     if (rest.length === 8 && rest.startsWith("1")) return { ok: true, value: `+36 1 ${rest.slice(1, 4)} ${rest.slice(4)}` };
+    // Vidéki vezetékes: kétjegyű körzetszám + 6 jegyű előfizetői szám (a mobil előtagoknál a 8 jegy hiányos szám, nem ez az ág).
+    if (rest.length === 8 && /^[2-9]/.test(rest) && !HU_MOBILE_PREFIXES.has(rest.slice(0, 2))) return { ok: true, value: `+36 ${rest.slice(0, 2)} ${rest.slice(2, 5)} ${rest.slice(5)}` };
   }
   const cleaned = v.replace(/\./g, " ").replace(/\s+/g, " ").trim();
   if (!CRM_PHONE_RE.test(cleaned) || cleaned.replace(/\D/g, "").length < 6) return { ok: false };
@@ -259,7 +266,14 @@ export function evaluateRow(cells: string[], mapping: ColumnMapping, defaultType
     if (v === undefined) return [];
     const out: string[] = [];
     let warned = false;
-    for (const part of splitPhoneList(v)) {
+    const parts = splitPhoneList(v);
+    for (const [i, part] of parts.entries()) {
+      // v1.4.1: több számos cella UTOLSÓ eleme, ha magyar előhívós, de 8 belföldi jegynél rövidebb: a forrás (pl. Opten-export) levágta
+      // a cella végét. A csonka szám nem kerül importálásra (nem tárolunk hiányos számot), erről figyelmeztetés szól.
+      if (parts.length > 1 && i === parts.length - 1 && hasHungarianPrefix(part) && phoneKey(part).replace(/^36/, "").length < 8) {
+        issues.push(issue("warning", "phone_truncated", "A cella utolsó telefonszáma csonka (túl rövid), ezért nem kerül importálásra; a többi szám igen.", k));
+        continue;
+      }
       const p = normalizePhone(part);
       if (!p.ok) { issues.push(issue("error", "invalid_phone", splitPhoneList(v).length > 1 ? "Érvénytelen telefonszám (a cellában szereplő számok egyike)." : "Érvénytelen telefonszám.", k)); return []; }
       if (p.warning && !warned) { warned = true; issues.push(issue("warning", "phone_format", "Nem szokásos (külföldi vagy előhívó nélküli) telefonszám-formátum: ellenőrizd.", k)); }

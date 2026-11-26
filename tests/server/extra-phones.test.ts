@@ -73,6 +73,28 @@ describe("v1.4 tartományi szabályok", () => {
     expect(suggestMapping(TEMPLATE_HEADERS).every((m) => m !== null)).toBe(true);
   });
 
+  it("v1.4.1: vidéki vezetékes szám (kétjegyű körzetszám + 6 jegy) figyelmeztetés nélkül normalizálódik; a cella végén levágott szám kimarad", () => {
+    const map: ColumnMapping = ["companyName", "phone"];
+    for (const raw of ["+3624520191", "06 24 520 191", "0036-24-520-191", "3624520191"]) {
+      const r = evaluateRow(["Fiktív Kft.", raw], map, "company");
+      expect(r.status, raw).toBe("valid");
+      expect(r.draft?.phone, raw).toBe("+36 24 520 191");
+    }
+    // Budapest és mobil változatlan; a hiányos mobilszám és a külföldi szám továbbra is figyelmeztet.
+    expect(evaluateRow(["Fiktív Kft.", "+3612610778"], map, "company").draft?.phone).toBe("+36 1 261 0778");
+    expect(evaluateRow(["Fiktív Kft.", "+36205550001"], map, "company").draft?.phone).toBe("+36 20 555 0001");
+    for (const raw of ["+3620555000", "+44 20 7946 0958", "24520191"]) expect(evaluateRow(["Fiktív Kft.", raw], map, "company").issues.map((i) => i.code), raw).toEqual(["phone_format"]);
+    // Opten-minta: több szám, az utolsó levágva.
+    const cut = evaluateRow(["Fiktív Kft.", "+3624520191, +3624520192, +3624520"], map, "company");
+    expect(cut.status).toBe("warning");
+    expect(cut.issues.map((i) => i.code)).toEqual(["phone_truncated"]);
+    expect(cut.draft).toMatchObject({ phone: "+36 24 520 191", extraPhones: ["+36 24 520 192"] });
+    // Egyetlen rövid szám nem „levágott vég”: a régi szabály (figyelmeztetés, változatlan érték) érvényes.
+    expect(evaluateRow(["Fiktív Kft.", "+3624520"], map, "company").issues.map((i) => i.code)).toEqual(["phone_format"]);
+    // Középen álló rövid szám sem kerül csendben eldobásra.
+    expect(evaluateRow(["Fiktív Kft.", "+3624520, +3624520191"], map, "company").issues.map((i) => i.code)).toEqual(["phone_format"]);
+  });
+
   it("egyezés és keresés: a további számok is erős egyezést adnak és kereshetők", () => {
     const snap: DataSnapshot = emptySnapshot();
     const c: Customer = {
