@@ -128,7 +128,7 @@ export function normalizePhone(raw: string): PhoneResult {
   if (!/^[+0-9 ()/.\-]+$/.test(v)) return { ok: false };
   const key = phoneKey(v);
   const plus = v.startsWith("+");
-  if (key.startsWith("36") && (plus || v.replace(/\D/g, "").startsWith("06") || v.replace(/\D/g, "").startsWith("0036") || /^36\d{9}$/.test(key) || /^36[2-9]\d{7}$/.test(key))) {
+  if (key.startsWith("36") && (plus || v.replace(/\D/g, "").startsWith("06") || v.replace(/\D/g, "").startsWith("0036") || /^36\d{9}$/.test(key) || /^36\d{8}$/.test(key))) {
     const rest = key.slice(2);
     if (rest.length === 9 && /^[2-9]/.test(rest)) return { ok: true, value: `+36 ${rest.slice(0, 2)} ${rest.slice(2, 5)} ${rest.slice(5)}` };
     if (rest.length === 8 && rest.startsWith("1")) return { ok: true, value: `+36 1 ${rest.slice(1, 4)} ${rest.slice(4)}` };
