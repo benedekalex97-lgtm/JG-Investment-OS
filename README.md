@@ -55,6 +55,7 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V1.4-OPTEN-JOGI-ANYAGOK.md` — **TERVEZET: az Opten cégadatbázis felhasználásának jogi előfeltételei, LIA-kiegészítés, telefonos szkript, 14. cikk szerinti tájékoztató, e-mail-lábléc**
 - `docs/V1.4-MULTIPLE-PHONES.md` — **v1.4: több telefonszám ügyfelenként (fő + legfeljebb 9 további); import több számmal egy cellában; egyezés, tiltólista, törlés, export; migráció 0013 és rollback**
 - `docs/V1.3-PRIVACY-OPERATIONS-CHECKLIST.md` — **v1.3 bevezetési ellenőrzőlista: jogosultsági terv (négy-szem elv), adatfeldolgozói szerződések, mentések, működési rutin**
 - `docs/V1.3-LIA-JOGOS-ERDEK.md` — érdekmérlegelési teszt (jogos érdek, 6. cikk (1) f))
