@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Db } from "../db/types";
 import { authMode } from "./mode";
+import { deviceOf, recordAuthEvent } from "./events";
 import { dummyHash, hashPassword, passwordPolicyError, verifyPassword } from "./password";
 
 export interface AuthUser {
@@ -39,7 +40,8 @@ export type LoginResult =
   | { ok: true; token: string; user: AuthUser }
   | { ok: false; status: 401 | 429 };
 
-export async function login(db: Db, emailRaw: string, password: string, ip: string): Promise<LoginResult> {
+export async function login(db: Db, emailRaw: string, password: string, ip: string, userAgent?: string | null): Promise<LoginResult> {
+  const device = deviceOf(userAgent);
   const email = normalizeEmail(emailRaw);
   const keys = [`email:${sha(email)}`, `ip:${ip}`];
   const blocked = await db.system(async (tx) => {
@@ -48,7 +50,10 @@ export async function login(db: Db, emailRaw: string, password: string, ip: stri
     const [i] = await tx.query<{ n: string }>("select count(*) as n from login_attempts where key = $1 and success = false and at > now() - ($2 || ' milliseconds')::interval", [keys[1], String(WINDOW_MS)]);
     return Number(e.n) >= EMAIL_LIMIT || Number(i.n) >= IP_LIMIT;
   });
-  if (blocked) return { ok: false, status: 429 };
+  if (blocked) {
+    await recordAuthEvent(db, { event: "login_failure", method: "password", email, reason: "rate_limited", device });
+    return { ok: false, status: 429 };
+  }
 
   const found = await db.system((tx) => tx.query<{ id: string; name: string; email: string; password_hash: string }>("select id, name, email, password_hash from users where email = $1 and active", [email]));
   const user = found[0];
@@ -62,6 +67,10 @@ export async function login(db: Db, emailRaw: string, password: string, ip: stri
       await tx.query("update users set last_login_at = now() where id = $1", [user.id]);
     }
   });
+  // v1.5 belépési napló: sikertelen próbánál a megadott e-mail (ismert felhasználónál az azonosító is), jelszó soha.
+  await recordAuthEvent(db, success
+    ? { event: "login_success", method: "password", userId: user.id, email: user.email, device }
+    : { event: "login_failure", method: "password", userId: user?.id ?? null, email, reason: "invalid_credentials", device });
   return success ? { ok: true, token, user: { id: user.id, name: user.name, email: user.email } } : { ok: false, status: 401 };
 }
 
@@ -84,7 +93,13 @@ export async function userFromRequest(db: Db, req: Request): Promise<AuthUser | 
 
 export async function logout(db: Db, req: Request): Promise<void> {
   const token = readCookie(req, cookieName(isSecure(req)));
-  if (token) await db.system((tx) => tx.query("delete from sessions where token_hash = $1", [sha(token)]));
+  if (!token) return;
+  const ended = await db.system((tx) => tx.query<{ user_id: string; auth_method: string | null; email: string }>(
+    "with d as (delete from sessions where token_hash = $1 returning user_id, auth_method) select d.user_id, d.auth_method, u.email from d join users u on u.id = d.user_id",
+    [sha(token)],
+  ));
+  const s = ended[0];
+  if (s) await recordAuthEvent(db, { event: "logout", method: s.auth_method === "google" ? "google" : "password", userId: s.user_id, email: s.email, device: deviceOf(req.headers.get("user-agent")) });
 }
 
 /** Pilot-felhasználó létrehozása (parancssori szkript); a jelszó csak a hash formájában kerül az adatbázisba. */

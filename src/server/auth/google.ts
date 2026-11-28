@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as oidc from "openid-client";
 import type { Db } from "../db/types";
 import { clientIp, createGoogleSession, sessionCookie, type AuthUser } from "./service";
+import { deviceOf, recordAuthEvent, type AuthFailureReason } from "./events";
 import { googleSettings, type GoogleSettings } from "./mode";
 
 const ISSUER = "https://accounts.google.com";
@@ -89,6 +90,14 @@ export async function handleGoogle(req: Request, db: Db, provider: GoogleProvide
   const callback = url.pathname === CALLBACK;
   if (req.method !== "GET") return Response.json({ error: "method_not_allowed" }, { status: 405, headers });
   const fail = (code: string) => new Response(null, { status: 303, headers: { ...headers, Location: `${settings.origin}/?login_error=${code}`, "Set-Cookie": flowCookie("", secure, true) } });
+  const device = deviceOf(req.headers.get("user-agent"));
+  // v1.5 belépési napló: csak érvényes (ehhez a böngészőhöz tartozó) belépési folyamat után - a cookie nélküli, lejárt vagy hamis
+  // visszahívások nem kerülnek a naplóba (ezek nem azonosítható belépési kísérletek, és elárasztanák a naplót).
+  let flowValid = false;
+  const failed = async (code: string, reason: AuthFailureReason, email?: string) => {
+    await recordAuthEvent(db, { event: "login_failure", method: "google", email: email ?? null, reason, device });
+    return fail(code);
+  };
   try {
     if (!callback) {
       const clientKey = sha(clientIp(req));
@@ -107,19 +116,23 @@ export async function handleGoogle(req: Request, db: Db, provider: GoogleProvide
     if (!token) return fail("expired");
     const flows = await db.system((tx) => tx.query<Flow>("delete from oauth_flows where token_hash = $1 and expires_at > now() returning state, nonce, code_verifier", [sha(token)]));
     if (!flows[0] || url.searchParams.get("state") !== flows[0].state) return fail("expired");
-    if (url.searchParams.has("error")) return fail("cancelled");
+    flowValid = true;
+    if (url.searchParams.has("error")) return failed("cancelled", "cancelled");
     const callbackUrl = new URL(settings.origin + CALLBACK + url.search);
     const claims = await provider.exchange(settings, callbackUrl, flows[0]);
+    // Az e-mail csak a Google által igazolt címként kerül a naplóba (a nem regisztrált próbálkozó azonosításához).
+    const claimedEmail = claims.email_verified && claims.email ? claims.email : undefined;
     const user = await allowedGoogleUser(db, claims);
-    if (!user) return fail("not_allowed");
+    if (!user) return failed("not_allowed", "not_allowed", claimedEmail);
     const session = await createGoogleSession(db, user.id);
-    if (!session) return fail("not_allowed");
+    if (!session) return failed("not_allowed", "not_allowed", claimedEmail);
+    await recordAuthEvent(db, { event: "login_success", method: "google", userId: session.user.id, email: session.user.email, device });
     const responseHeaders = new Headers({ ...headers, Location: settings.origin + "/" });
     responseHeaders.append("Set-Cookie", flowCookie("", secure, true));
     responseHeaders.append("Set-Cookie", sessionCookie(session.token, secure));
     return new Response(null, { status: 303, headers: responseHeaders });
   } catch {
     // OAuth codes, tokens, profile claims and provider error payloads are never logged.
-    return fail("failed");
+    return flowValid ? failed("failed", "failed") : fail("failed");
   }
 }

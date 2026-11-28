@@ -5,6 +5,7 @@ import { features } from "../features";
 import { hasPermission, permissionsOf, PERMISSION_LABELS, CRM_PERMISSIONS, ADMIN_PERMISSIONS, CUSTOMER_ADMIN_PERMISSIONS, PRIVACY_PERMISSIONS, type CrmPermission } from "../data/permissions";
 import { CATALOG_KINDS, createCatalogItem, listCatalog, reorderCatalog, SettingsError, SPECS, updateCatalogItem, type CatalogKind } from "../settings/catalog";
 import { auditQuery, changePermissions, listAdminUsers, listAudit, logRejection, PermissionChangeError } from "../settings/admin";
+import { listLogins, loginsQuery } from "../settings/logins";
 import { csrfProblem, readBodyLimited } from "./guards";
 
 /**
@@ -51,6 +52,8 @@ const ROUTES: Record<string, Route> = {
   "settings/users": { methods: ["GET"], permission: "crm.users.manage" },
   "settings/users/permissions": { methods: ["PATCH"], permission: "crm.users.manage" },
   "settings/audit": { methods: ["GET"], permission: "crm.settings.audit.read" },
+  // v1.5: belépési napló (csak olvasás).
+  "settings/logins": { methods: ["GET"], permission: "crm.settings.audit.read" },
 };
 
 const entityOf = (path: string) =>
@@ -189,6 +192,12 @@ export async function handleSettings(req: Request, path: string, db: Db, user: A
       if (!q.success) return json({ error: "bad_request", message: MSG.bad }, 400);
       const users = await listUsers(db);
       return json(await withPermission(db, user, route, path, method, (tx) => listAudit(tx, q.data, users)));
+    }
+    if (path === "settings/logins") {
+      const q = loginsQuery.safeParse(Object.fromEntries(new URL(req.url).searchParams));
+      if (!q.success) return json({ error: "bad_request", message: MSG.bad }, 400);
+      const users = await listUsers(db);
+      return json(await withPermission(db, user, route, path, method, (tx) => listLogins(tx, q.data, users)));
     }
     return json({ error: "not_found" }, 404);
   } catch (e) {

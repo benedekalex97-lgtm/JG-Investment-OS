@@ -107,6 +107,10 @@ export async function provisionRuntimeRole(db: Db, o: RuntimeRoleOptions): Promi
     await tx.exec(`grant select, insert, delete on oauth_flows to ${role}`);
     await tx.exec(`grant usage, select on sequence login_attempts_id_seq to ${role}`);
     await tx.exec(`grant select on meta, schema_migrations to ${role}`);
+    // v1.5: a belépési napló írása (kizárólag az ellenőrző függvényen át; a táblához közvetlen joga nincs). Régebbi sémán nincs ilyen függvény.
+    if ((await tx.query("select to_regprocedure('auth_record_event(text,text,text,text,text,text)') is not null as ok"))[0]?.ok) {
+      await tx.exec(`grant execute on function auth_record_event(text, text, text, text, text, text) to ${role}`);
+    }
     // A hitelesítési táblák RLS-e alapból "mindent tilt"; a futási szerepkörnek kifejezett szabály kell (csak ezekre a táblákra).
     for (const t of ["users", "sessions", "login_attempts", "meta", "oauth_identities", "oauth_flows"]) {
       const policy = ident(`rt_${o.name}`);

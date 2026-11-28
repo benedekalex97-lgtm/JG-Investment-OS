@@ -64,7 +64,7 @@ export function createApi(getRuntime: () => Promise<Runtime>, clock: () => Date 
         if (bad) return json({ error: bad }, 403);
         const body = loginBody.safeParse(await readJson(req));
         if (!body.success) return json({ error: "bad_request" }, 400);
-        const res = await login(db, body.data.email, body.data.password, clientIp(req));
+        const res = await login(db, body.data.email, body.data.password, clientIp(req), req.headers.get("user-agent"));
         if (!res.ok) return json({ error: res.status === 429 ? "too_many_attempts" : "invalid_credentials" }, res.status, res.status === 429 ? { "Retry-After": "900" } : {});
         return json({ state: "ok", user: res.user, environment: rt.env, environmentLabel: ENV_LABELS[rt.env], auth: publicAuthSettings() }, 200, { "Set-Cookie": sessionCookie(res.token, isSecure(req)) });
       }

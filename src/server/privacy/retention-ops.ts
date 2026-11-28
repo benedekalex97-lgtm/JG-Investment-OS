@@ -13,7 +13,7 @@ import type { RetentionSettings } from "./privacy";
  * törlődnek. Üzleti adatot (ügyfél, feladat, Output, előzmény, auditnapló, importnapló, változásnapló, érintetti nyilvántartás) NEM
  * töröl - azok sorsáról a felülvizsgálat (Beállítások › Adatvédelem › Megőrzés) és az érintetti kérelmek alapján ember dönt.
  */
-export interface TechnicalRetentionCounts { sessions: number; oauthFlows: number; loginAttempts: number; requestLog: number }
+export interface TechnicalRetentionCounts { sessions: number; oauthFlows: number; loginAttempts: number; requestLog: number; authEvents: number }
 
 const CATEGORIES: { key: keyof TechnicalRetentionCounts; table: string; where: (s: RetentionSettings) => string }[] = [
   // Lejárt vagy 1 napnál régebben inaktív munkamenet (a tétlenségi lejárat 8 óra - ezek már nem használhatók).
@@ -21,6 +21,8 @@ const CATEGORIES: { key: keyof TechnicalRetentionCounts; table: string; where: (
   { key: "oauthFlows", table: "oauth_flows", where: () => "expires_at < now() - interval '1 hour'" },
   { key: "loginAttempts", table: "login_attempts", where: () => "at < now() - interval '1 day'" },
   { key: "requestLog", table: "request_log", where: (s) => `created_at < now() - interval '${Math.trunc(s.requestLogDays)} days'` },
+  // v1.5: a belépési napló 12 hónapig őrződik (biztonsági célú elszámoltathatóság), utána törlődik.
+  { key: "authEvents", table: "auth_events", where: () => "at < now() - interval '12 months'" },
 ];
 
 async function count(tx: Tx, settings: RetentionSettings): Promise<TechnicalRetentionCounts> {

@@ -13,6 +13,7 @@ import { migration0010 } from "./migrations/0010_crm_customer_delete_permission"
 import { migration0011 } from "./migrations/0011_crm_acquisition_channels";
 import { migration0012 } from "./migrations/0012_crm_privacy";
 import { migration0013 } from "./migrations/0013_customer_extra_phones";
+import { migration0014 } from "./migrations/0014_auth_events";
 import type { Db } from "./types";
 
 export interface Migration {
@@ -22,7 +23,7 @@ export interface Migration {
 }
 
 /** Verziózott migrációk időrendben. Új migráció csak a lista végére kerülhet; alkalmazott migráció nem módosítható (ellenőrzőösszeg). */
-export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013];
+export const MIGRATIONS: readonly Migration[] = [migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013, migration0014];
 export const LATEST_MIGRATION = MIGRATIONS[MIGRATIONS.length - 1].id;
 
 export const checksum = (m: Migration) => createHash("sha256").update(m.sql).digest("hex");
