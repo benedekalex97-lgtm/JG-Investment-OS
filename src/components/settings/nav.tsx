@@ -46,6 +46,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { href: "/settings/data/history", label: "Importelőzmények", description: "Az importok naplója személyes adat nélkül.", permissions: ["crm.import.history.read"], group: "Adatkezelés", icon: DatabaseIcon },
   { href: "/settings/privacy", label: "Adatvédelem", description: "Érintetti kérelmek határidővel, adatkivonat, tiltakozás, végleges törlés, megőrzés.", permissions: ["crm.privacy.manage"], icon: ShieldIcon },
   { href: "/settings/audit", label: "Változásnapló", description: "Ki, mikor, milyen beállítást vagy jogosultságot módosított.", permissions: ["crm.settings.audit.read"], icon: HistoryIcon },
+  { href: "/settings/logins", label: "Belépési napló", description: "Ki, mikor, melyik eszközről lépett be vagy ki; sikertelen kísérletek.", permissions: ["crm.settings.audit.read"], icon: HistoryIcon },
 ];
 
 export const canSee = (s: SettingsSection, permissions: string[]) =>

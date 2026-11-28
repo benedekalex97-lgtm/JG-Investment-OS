@@ -11,7 +11,7 @@ import { exportBackup, restoreBackup, tableChecksum, type Backup } from "@/serve
 import { decodeCsv, parseCsv } from "@/server/data/files/csv";
 import { CUSTOMER_COLUMNS } from "@/server/data/export";
 import { TEMPLATE_HEADERS } from "@/server/data/template";
-import { checkSchema, LATEST_MIGRATION, migrate, MIGRATIONS } from "@/server/db/migrate";
+import { checkSchema, migrate, MIGRATIONS } from "@/server/db/migrate";
 import { baseOptions, csv, grant, uploader, type Uploader } from "./data-helpers";
 import { addPilotUsers, client, DRIVERS, makeApi, makeTestDb, PASSWORD_A, type Client, type TestDb } from "./helpers";
 
@@ -22,6 +22,8 @@ import { addPilotUsers, client, DRIVERS, makeApi, makeTestDb, PASSWORD_A, type C
 const T0 = "2026-05-01T08:00:00.000Z";
 const L = { maxRows: 1000, maxColumns: 50, maxCellChars: 5000, deadline: Date.now() + 60_000 };
 const V13 = MIGRATIONS.slice(0, 12);
+/** A v1.4 séma (0001-0013): a 0013 viselkedését a későbbi (v1.5+) migrációktól függetlenül vizsgáljuk. */
+const V14 = MIGRATIONS.slice(0, 13);
 
 describe("v1.4 tartományi szabályok", () => {
   it("bontás és ismétlődés-szűrés: vessző, pontosvessző, sortörés; a formázás és az előhívó nem számít", () => {
@@ -126,8 +128,8 @@ describe.each(DRIVERS)("v1.4 migráció és visszagörgetés (%s)", (kind) => {
         await tx.query("insert into customers (id, type, company_name, owner_id, phone, created_at, updated_at) values ('c-1','company','Régi Kft.','u-1','+36 1 555 0001',$1,$1)", [T0]);
       });
       const before = await t.db.system((tx) => tx.query<Record<string, unknown>>("select * from customers order by id"));
-      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0013_customer_extra_phones"]);
-      expect(LATEST_MIGRATION).toBe("0013_customer_extra_phones");
+      expect((await migrate(t.db, { env: "local", migrations: V14 })).applied).toEqual(["0013_customer_extra_phones"]);
+      expect(MIGRATIONS[12].id).toBe("0013_customer_extra_phones");
       const after = await t.db.system((tx) => tx.query<Record<string, unknown>>("select * from customers order by id"));
       expect(after.map(({ extra_phones, ...rest }) => { expect(extra_phones).toEqual([]); return rest; })).toEqual(before);
 
@@ -142,7 +144,7 @@ describe.each(DRIVERS)("v1.4 migráció és visszagörgetés (%s)", (kind) => {
 
       // Rollback: további számok mellett megáll, és semmi nem változik.
       await expect(t.db.system((tx) => tx.exec(sql14))).rejects.toThrow(/további telefonszám/);
-      expect(await checkSchema(t.db, "local")).toEqual({ ok: true });
+      expect(await checkSchema(t.db, "local", V14)).toEqual({ ok: true });
       await t.db.system(async (tx) => { await tx.query("select set_config('jg.rollback_discard_extra_phones', 'yes', true)"); await tx.exec(sql14); });
       expect(await checkSchema(t.db, "local", V13)).toEqual({ ok: true });
       expect(await t.db.system((tx) => tx.query("select count(*)::int as n from information_schema.columns where table_name = 'customers' and column_name = 'extra_phones'"))).toEqual([{ n: 0 }]);
@@ -150,7 +152,7 @@ describe.each(DRIVERS)("v1.4 migráció és visszagörgetés (%s)", (kind) => {
       // A visszaállított anonimizáló függvény a 0012-es változat (a további számokat nem ismeri), és működik.
       const fn = await t.db.system((tx) => tx.query<{ src: string }>("select prosrc as src from pg_proc where proname = 'privacy_anonymize_customer'"));
       expect(fn[0].src).not.toContain("extra_phones");
-      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0013_customer_extra_phones"]);
+      expect((await migrate(t.db, { env: "local", migrations: V14 })).applied).toEqual(["0013_customer_extra_phones"]);
     } finally {
       await t.cleanup();
     }

@@ -18,7 +18,7 @@ export const BACKUP_TABLES = [
   "users", "oauth_identities", "user_permissions", "crm_pipeline_statuses", "crm_task_types", "crm_task_input_options", "crm_acquisition_channels",
   "customers", "customer_restrictions", "company_contacts", "processes", "activities", "tasks", "task_results",
   "contactability", "audit_events", "request_log", "import_jobs", "import_results", "ops_log", "settings_audit",
-  "privacy_requests", "privacy_suppressions",
+  "privacy_requests", "privacy_suppressions", "auth_events",
 ] as const;
 /**
  * v1.1 konfigurációs katalógusok: a migráció (0008) a v1.0 értékekkel tölti fel őket, ezért egy frissen migrált céladatbázisban NEM
@@ -48,6 +48,7 @@ export const TABLE_SINCE: Partial<Record<BackupTable, string>> = {
   crm_acquisition_channels: "0011_crm_acquisition_channels",
   privacy_requests: "0012_crm_privacy",
   privacy_suppressions: "0012_crm_privacy",
+  auth_events: "0014_auth_events",
 };
 
 export interface Backup {
@@ -65,7 +66,7 @@ const orderBy: Record<BackupTable, string> = {
   company_contacts: "created_at, id", processes: "created_at, id", activities: "occurred_at, id", tasks: "created_at, id", task_results: "task_id, seq", contactability: "id",
   audit_events: "id", request_log: "created_at, request_id", import_jobs: "created_at, id", import_results: "job_id, row_no", ops_log: "id",
   crm_pipeline_statuses: "key", crm_task_types: "key", crm_task_input_options: "key", crm_acquisition_channels: "key", settings_audit: "id",
-  privacy_requests: "created_at, id", privacy_suppressions: "created_at, hash",
+  privacy_requests: "created_at, id", privacy_suppressions: "created_at, hash", auth_events: "id",
 };
 
 /** Kanonikus JSON (rendezett kulcsok) - a tábla-lenyomatokhoz. */
@@ -118,8 +119,9 @@ export class RestoreError extends Error {}
  * NULL-ozható) - a régebbi mentés ügyfelei az alapértéket (`ismeretlen`) kapják, a katalógus a migráció kiinduló állapotában marad.
  * v1.4 (0013): egy új ügyfél-oszlop (`extra_phones` NOT NULL, alapérték üres lista) és az anonimizáló függvény új változata - a 0012-es
  * mentés ügyfelei üres további-telefonszám listát kapnak, más adat nem keletkezik.
+ * v1.5 (0014): új tábla (belépési napló) és függvény - a 0013-as mentésből üres belépési naplóval áll vissza.
  */
-export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", "0006_crm_import_jobs", "0009_dynamic_crm_statuses", "0010_crm_customer_delete_permission", "0012_crm_privacy", LATEST_MIGRATION];
+export const RESTORE_COMPATIBLE_MIGRATIONS: readonly string[] = ["0002_google_auth", "0003_task_outcome", "0004_test_customer_soft_delete", "0005_crm_data_permissions", "0006_crm_import_jobs", "0009_dynamic_crm_statuses", "0010_crm_customer_delete_permission", "0012_crm_privacy", "0013_customer_extra_phones", LATEST_MIGRATION];
 
 const migrationIndex = (id: string) => MIGRATIONS.findIndex((m) => m.id === id);
 
@@ -205,7 +207,7 @@ export async function restoreBackup(db: Db, backup: Backup, env: JgEnv): Promise
       if (present.includes(t)) await insertRows(tx, t, backup.tables[t]);
     }
     for (const t of guarded) await tx.exec(`alter table ${t} enable trigger user`);
-    for (const seq of [["audit_events", "id"], ["ops_log", "id"], ["settings_audit", "id"]]) {
+    for (const seq of [["audit_events", "id"], ["ops_log", "id"], ["settings_audit", "id"], ["auth_events", "id"]]) {
       await tx.query(`select setval(pg_get_serial_sequence('${seq[0]}', '${seq[1]}'), greatest((select coalesce(max(${seq[1]}), 0) from ${seq[0]}), 1), (select count(*) > 0 from ${seq[0]}))`);
     }
     const counts: Record<string, number> = {};

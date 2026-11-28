@@ -14,6 +14,10 @@ npm run typecheck && npm run lint && npm test -- --run && npm run build
 npm run e2e          # Playwright E2E, saját szerverrel és ideiglenes adatbázissal (lásd e2e/README.md)
 ```
 
+## Belépési napló (v1.5)
+Beállítások › **Belépési napló** (`crm.settings.audit.read`): ki, mikor, milyen módon (Google / jelszó) és melyik eszközről lépett be vagy ki,
+valamint a sikertelen belépési kísérletek okkal. IP-címet és jelszót nem tárol; 12 hónapig őrződik. Részletek: `docs/V1.5-LOGIN-AUDIT.md`.
+
 ## Több telefonszám ügyfelenként (v1.4)
 Egy ügyfélnek egy fő és legfeljebb 9 további telefonszáma lehet (új ügyfél, szerkesztés, adatlap, keresés, egyezésvizsgálat, export).
 Az importban a *Telefonszám* cellája több, vesszővel vagy pontosvesszővel elválasztott számot is tartalmazhat (pl. Opten-export): az első
@@ -55,6 +59,7 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4 + Zod 4 + Vitest — az AxFl
 | Oldalak | `src/app/**` |
 
 ## Dokumentáció
+- `docs/V1.5-LOGIN-AUDIT.md` — **v1.5: belépési napló (sikeres / sikertelen belépés, kilépés, eszköz); jogosultság, adatvédelem, 12 hónapos megőrzés; migráció 0014 és rollback**
 - `docs/V1.4-OPTEN-JOGI-ANYAGOK.md` — **TERVEZET: az Opten cégadatbázis felhasználásának jogi előfeltételei, LIA-kiegészítés, telefonos szkript, 14. cikk szerinti tájékoztató, e-mail-lábléc**
 - `docs/V1.4-MULTIPLE-PHONES.md` — **v1.4: több telefonszám ügyfelenként (fő + legfeljebb 9 további); import több számmal egy cellában; egyezés, tiltólista, törlés, export; migráció 0013 és rollback**
 - `docs/V1.3-PRIVACY-OPERATIONS-CHECKLIST.md` — **v1.3 bevezetési ellenőrzőlista: jogosultsági terv (négy-szem elv), adatfeldolgozói szerződések, mentések, működési rutin**

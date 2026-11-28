@@ -199,7 +199,7 @@ async function main() {
         const settings = retentionSettings();
         const r = await technicalRetention(db, { env, settings, apply, operator: process.env.JG_OPERATOR });
         const c = r.counts;
-        console.log(`${r.applied ? "Törölve" : "Törölhető (előnézet, nem írtunk)"}: munkamenet ${c.sessions}, belépési folyamat ${c.oauthFlows}, belépési kísérlet ${c.loginAttempts}, idempotencia-napló (${settings.requestLogDays} napnál régebbi) ${c.requestLog}.`);
+        console.log(`${r.applied ? "Törölve" : "Törölhető (előnézet, nem írtunk)"}: munkamenet ${c.sessions}, belépési folyamat ${c.oauthFlows}, belépési kísérlet ${c.loginAttempts}, idempotencia-napló (${settings.requestLogDays} napnál régebbi) ${c.requestLog}, 12 hónapnál régebbi belépési napló ${c.authEvents}.`);
         if (!r.applied) console.log("Végrehajtás: JG_OPERATOR=<üzemeltető> npm run db -- retention:run");
         break;
       }

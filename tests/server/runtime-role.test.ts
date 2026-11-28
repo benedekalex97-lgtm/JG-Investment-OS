@@ -201,6 +201,9 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: legkiseb
     expect(await checkSchema(rt, "local")).toEqual({ ok: true });
     const [{ n }] = await owner.db.system((tx) => tx.query<{ n: string }>("select count(*) as n from audit_events"));
     expect(Number(n)).toBeGreaterThanOrEqual(4);
+    // v1.5: a belépési napló a futási szerepkörrel is íródik (a 0014 függvényén át).
+    const events = await owner.db.system((tx) => tx.query<{ event: string; method: string; email: string }>("select event, method, email from auth_events order by id"));
+    expect(events.map((e) => [e.event, e.method, e.email])).toEqual([["login_success", "password", "pilot.egy@example.test"], ["logout", "password", "pilot.egy@example.test"]]);
   });
 
   it("séma-kezelés tilos: nem hozhat létre, módosíthat, törölhet táblát, szerepkört vagy adatbázist", async () => {
@@ -210,11 +213,14 @@ describe.skipIf(!process.env.JG_TEST_DATABASE_URL)("futási szerepkör: legkiseb
   });
 
   it("a CRM-táblák közvetlenül nem érhetők el; csak a jg_app szerepkörön át, felhasználói azonosítóval, RLS-sel", async () => {
-    for (const t of ["customers", "tasks", "task_results", "activities", "audit_events", "customer_restrictions", "request_log"]) {
+    for (const t of ["customers", "tasks", "task_results", "activities", "audit_events", "customer_restrictions", "request_log", "auth_events"]) {
       expect(await denied(() => rt.system((tx) => tx.query(`select 1 from ${t}`))), t).toMatch(/permission denied/i);
     }
     expect(await rt.asUser("u-nincs", async (tx) => (await tx.query("select 1 from customers")).length)).toBe(0);
     expect(await denied(() => rt.asUser("u-nincs", (tx) => tx.query("delete from customers")))).toMatch(/permission denied/i);
+    // A belépési napló közvetlenül nem írható és nem törölhető (csak az ellenőrző függvényen át írható).
+    expect(await denied(() => rt.system((tx) => tx.query("insert into auth_events (event, method, user_id) values ('logout', 'google', 'u-x')")))).toMatch(/permission denied/i);
+    expect(await denied(() => rt.asUser("u-nincs", (tx) => tx.query("delete from auth_events")))).toMatch(/permission denied/i);
   });
 
   it("a hitelesítési táblákon csak a szükséges műveletek: nincs jelszó-módosítás, felhasználó-létrehozás vagy -törlés, nincs meta-módosítás", async () => {

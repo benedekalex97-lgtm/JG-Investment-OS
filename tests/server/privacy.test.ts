@@ -370,8 +370,10 @@ describe.each(DRIVERS)("v1.3 séma-visszagörgetés (%s)", (kind) => {
     const t = await makeTestDb(kind);
     const sql13 = readFileSync(join(__dirname, "../../scripts/sql/v1.3-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
     const sql14 = readFileSync(join(__dirname, "../../scripts/sql/v1.4-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
+    const sql15 = readFileSync(join(__dirname, "../../scripts/sql/v1.5-schema-rollback.sql"), "utf8").replace(/^begin;$/m, "").replace(/^commit;$/m, "");
     try {
       // A v1.3 visszagörgetés a v1.4 (0013) visszagörgetése UTÁN futtatható.
+      await t.db.system((tx) => tx.exec(sql15));
       await t.db.system((tx) => tx.exec(sql14));
       const { a } = await addPilotUsers(t.db);
       await t.db.system((tx) => tx.query("insert into customers (id, type, display_name, owner_id, created_at, updated_at) values ('c-1','individual','Rita',$1,now(),now())", [a.id]));
@@ -384,7 +386,7 @@ describe.each(DRIVERS)("v1.3 séma-visszagörgetés (%s)", (kind) => {
       expect(await t.db.system((tx) => tx.query("select to_regclass('privacy_requests') as a, to_regclass('privacy_suppressions') as b"))).toEqual([{ a: null, b: null }]);
       expect(await t.db.system((tx) => tx.query("select count(*)::int as n from information_schema.columns where table_name = 'customers' and column_name like 'erased%'"))).toEqual([{ n: 0 }]);
       expect(await t.db.system((tx) => tx.query("select id, display_name, deleted_at from customers"))).toEqual(before);
-      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0012_crm_privacy", "0013_customer_extra_phones"]);
+      expect((await migrate(t.db, { env: "local" })).applied).toEqual(["0012_crm_privacy", "0013_customer_extra_phones", "0014_auth_events"]);
     } finally {
       await t.cleanup();
     }
